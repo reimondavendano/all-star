@@ -1,10 +1,9 @@
 export interface Invoice {
     id: string;
-    subscriptionId: string;
-    from: string;
-    to: string;
-    dueDate: string;
-    amountDue: number;
+    subscriptionId: string; // Lookup -> Subscription
+    from: string; // Date
+    to: string; // Date
+    dueDate: string; // Date
+    amountDue: number; // Currency
     paid: boolean;
-    invoiceNumber: string;
 }

@@ -12,9 +12,11 @@ import {
     DollarSign,
     Briefcase,
     Package,
-    Receipt
+    Receipt,
+    LogOut
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useAuth } from '@/contexts/AuthContext';
 
 const navigation = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
@@ -30,6 +32,7 @@ const navigation = [
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const { logout, user } = useAuth();
 
     return (
         <div className="flex flex-col w-64 bg-[#0a0a0a]/90 backdrop-blur-xl border-r border-red-900/30 h-screen fixed left-0 top-0 overflow-y-auto z-50 tech-border">
@@ -70,14 +73,29 @@ export default function Sidebar() {
             </nav>
 
             <div className="p-4 border-t border-red-900/30 bg-black/20">
-                <div className="flex items-center p-2 rounded-lg border border-transparent hover:border-red-900/30 transition-colors">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-r from-red-600 to-red-900 flex items-center justify-center shadow-[0_0_10px_rgba(255,0,0,0.4)]">
-                        <span className="text-xs font-bold text-white">AD</span>
+                <div className="flex items-center justify-between p-2 rounded-lg border border-transparent hover:border-red-900/30 transition-colors group">
+                    <div className="flex items-center">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-r from-red-600 to-red-900 flex items-center justify-center shadow-[0_0_10px_rgba(255,0,0,0.4)]">
+                            <span className="text-xs font-bold text-white">
+                                {user?.full_name?.charAt(0).toUpperCase() || 'A'}
+                            </span>
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm font-medium text-white neon-text truncate max-w-[100px]">
+                                {user?.full_name || 'Admin User'}
+                            </p>
+                            <p className="text-xs text-red-400 uppercase">
+                                {user?.role?.replace('_', ' ') || 'System Operator'}
+                            </p>
+                        </div>
                     </div>
-                    <div className="ml-3">
-                        <p className="text-sm font-medium text-white neon-text">Admin User</p>
-                        <p className="text-xs text-red-400">System Operator</p>
-                    </div>
+                    <button
+                        onClick={logout}
+                        className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-red-900/20"
+                        title="Logout"
+                    >
+                        <LogOut className="w-4 h-4" />
+                    </button>
                 </div>
             </div>
         </div>

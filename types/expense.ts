@@ -2,10 +2,9 @@ export type ExpenseReason = 'Maintenance' | 'Materials' | 'Transportation' | 'Ot
 
 export interface Expense {
     id: string;
-    subscriptionId: string;
+    subscriptionId: string; // Lookup -> Subscription
     quantity: number;
-    amount: number;
+    amount: number; // Currency
     reason: ExpenseReason;
-    notes?: string;
-    date: string; // Added date for tracking
+    notes?: string; // Long Text
 }

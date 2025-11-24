@@ -1,8 +1,7 @@
 import { Plan } from '@/types/plan';
 
 export const mockPlans: Plan[] = [
-    { id: 'plan-1', name: 'Basic Fiber 50Mbps', monthlyFee: 1500 },
-    { id: 'plan-2', name: 'Pro Fiber 100Mbps', monthlyFee: 2500 },
-    { id: 'plan-3', name: 'Ultra Fiber 300Mbps', monthlyFee: 3500 },
-    { id: 'plan-4', name: 'Business Fiber 1Gbps', monthlyFee: 5000 },
+    { id: 'plan-1', name: 'Fiber 100', monthlyFee: 1500, description: 'Fiber 100' },
+    { id: 'plan-2', name: 'Fiber 200', monthlyFee: 2000, description: 'Fiber 200' },
+    { id: 'plan-3', name: 'Fiber 300', monthlyFee: 2500, description: 'Fiber 300' },
 ];

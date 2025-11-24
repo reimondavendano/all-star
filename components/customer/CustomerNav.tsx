@@ -1,18 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useParams, useRouter } from 'next/navigation';
 import { Home, User, CreditCard, LogOut } from 'lucide-react';
 import clsx from 'clsx';
 
-const navigation = [
-    { name: 'Dashboard', href: '/portal', icon: Home },
-    { name: 'Profile', href: '/portal/profile', icon: User },
-    { name: 'Payments', href: '/portal/payments', icon: CreditCard },
-];
-
 export default function CustomerNav() {
     const pathname = usePathname();
+    const params = useParams();
+    const router = useRouter();
+    const id = params?.id as string;
+
+    // Base path depends on whether we have an ID
+    const basePath = id ? `/portal/${id}` : '/portal';
+
+    const navigation = [
+        { name: 'Dashboard', href: basePath, icon: Home },
+        { name: 'Profile', href: `${basePath}/profile`, icon: User },
+        { name: 'Payments', href: `${basePath}/payments`, icon: CreditCard },
+    ];
 
     return (
         <nav className="bg-[#0a0a0a]/80 backdrop-blur-md border-b border-red-900/30 fixed w-full z-50 top-0 tech-border">
@@ -59,7 +65,11 @@ export default function CustomerNav() {
                                     JD
                                 </div>
                             </button>
-                            <button className="ml-3 text-gray-400 hover:text-red-500 transition-colors">
+                            <button
+                                onClick={() => router.push('/login')}
+                                className="ml-3 text-gray-400 hover:text-red-500 transition-colors"
+                                title="Logout"
+                            >
                                 <LogOut className="w-5 h-5" />
                             </button>
                         </div>

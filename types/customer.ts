@@ -1,9 +1,7 @@
 export interface Customer {
     id: string;
     name: string;
-    status: 'Active' | 'Inactive';
-    createdDate: string; // ISO date
-    email: string;
-    mobileNumber?: string;
-    address?: string;
+    mobileNumber: string;
+    status: 'Active' | 'Inactive'; // Formula: Active if any related Subscription is Active
+    createdDate: string; // Date
 }

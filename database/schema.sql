@@ -3,7 +3,7 @@ create extension if not exists "uuid-ossp";
 
 -- Enums
 create type user_role as enum ('super_admin', 'user_admin', 'customer');
-create type prospect_status as enum ('Prospect', 'Converted');
+create type prospect_status as enum ('Open', 'Closed Lost', 'Closed Won');
 create type invoice_date_enum as enum ('15th', '30th');
 create type payment_mode as enum ('Cash', 'E-Wallet', 'Referral Credit');
 create type expense_reason as enum ('Maintenance', 'Materials', 'Transportation', 'Others');
@@ -12,6 +12,7 @@ create type expense_reason as enum ('Maintenance', 'Materials', 'Transportation'
 create table public.business_units (
   id uuid not null default uuid_generate_v4() primary key,
   name text not null,
+  subscribers integer default 0,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -20,6 +21,7 @@ create table public.plans (
   id uuid not null default uuid_generate_v4() primary key,
   name text not null,
   monthly_fee numeric not null,
+  details text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -27,11 +29,8 @@ create table public.plans (
 create table public.customers (
   id uuid not null default uuid_generate_v4() primary key,
   name text not null,
-  email text,
   mobile_number text,
-  address text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
-  -- Status is computed based on active subscriptions
 );
 
 -- Profiles (for Auth/Roles)
@@ -49,15 +48,16 @@ create table public.profiles (
 create table public.prospects (
   id uuid not null default uuid_generate_v4() primary key,
   name text not null,
-  email text,
   plan_id uuid references public.plans(id),
   business_unit_id uuid references public.business_units(id),
   landmark text,
+  barangay text,
   address text,
   mobile_number text,
   installation_date date,
   referrer_id uuid references public.customers(id),
-  status prospect_status default 'Prospect',
+  details text,
+  status prospect_status default 'Open',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -70,10 +70,11 @@ create table public.subscriptions (
   active boolean default true,
   date_installed date,
   contact_person text,
-  mobile_number text,
   address text,
+  barangay text,  
   landmark text,
   invoice_date invoice_date_enum,
+  customer_portal text,
   referral_credit_applied boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -82,7 +83,6 @@ create table public.subscriptions (
 create table public.invoices (
   id uuid not null default uuid_generate_v4() primary key,
   subscription_id uuid not null references public.subscriptions(id),
-  invoice_number text,
   from_date date,
   to_date date,
   due_date date,
@@ -95,11 +95,10 @@ create table public.invoices (
 create table public.payments (
   id uuid not null default uuid_generate_v4() primary key,
   subscription_id uuid not null references public.subscriptions(id),
-  settlement_date date default CURRENT_DATE,
+  settlement_date date,
   amount numeric not null,
   mode payment_mode not null,
   notes text,
-  reference_number text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -111,7 +110,6 @@ create table public.expenses (
   amount numeric not null,
   reason expense_reason not null,
   notes text,
-  date date default CURRENT_DATE,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

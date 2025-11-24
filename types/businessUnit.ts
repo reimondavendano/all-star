@@ -1,5 +1,5 @@
 export interface BusinessUnit {
     id: string;
     name: string;
-    activeSubscriptions: number; // Computed
+    activeSubscriptions: number; // Rollup: count of Active Subscriptions
 }
