@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #050505;
+  --color-foreground: #ffffff;
+  --color-primary: #ff0000;
+  --color-secondary: #1a1a1a;
+  --color-accent-red: #ff0000;
+  --color-accent-dark-red: #8a0000;
+  --color-tech-gray: #2a2a2a;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-scanline: scanline 8s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+}
+
+:root {
+  --background: #050505;
+  --foreground: #ffffff;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Neuron/Tech Styles */
+.tech-border {
+  border: 1px solid rgba(255, 0, 0, 0.2);
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.tech-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(to bottom, transparent, #ff0000, transparent);
+  opacity: 0.5;
+}
+
+.tech-card {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+}
+
+.tech-card::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 0, 0, 0.05) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.tech-card:hover::after {
+  opacity: 1;
+}
+
+.neon-text {
+  text-shadow: 0 0 5px rgba(255, 0, 0, 0.5), 0 0 10px rgba(255, 0, 0, 0.3);
+}
+
+/* Animations */
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.scanline-effect {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 50%, rgba(255, 0, 0, 0.02) 51%, transparent 52%);
+  background-size: 100% 4px;
+  animation: scanline 8s linear infinite;
+  z-index: 10;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(255, 0, 0, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.05) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.glass-card {
+  background: rgba(10, 10, 10, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.75rem;
+}
+
+.glass-card::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 0, 0, 0.05) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.glass-card:hover::after {
+  opacity: 1;
+}
+
+.glass-panel {
+  background: rgba(5, 5, 5, 0.9);
+  border-bottom: 1px solid rgba(255, 0, 0, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.gradient-text {
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(to right, #ff0000, #ffffff);
+}
