@@ -4,31 +4,39 @@ import { Search, Bell, Menu, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 
-export default function TopNav() {
+interface TopNavProps {
+    onMenuClick?: () => void;
+}
+
+export default function TopNav({ onMenuClick }: TopNavProps) {
     const { user, logout } = useAuth();
     const [showUserMenu, setShowUserMenu] = useState(false);
 
     return (
-        <div className="h-16 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-red-900/30 flex items-center justify-between px-6 fixed top-0 right-0 left-64 z-40 tech-border">
-            <div className="flex items-center">
-                <button className="md:hidden mr-4 text-gray-400 hover:text-white">
+        <div className="h-16 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-red-900/30 flex items-center justify-between px-4 lg:px-6 fixed top-0 right-0 left-0 lg:left-64 z-40 tech-border">
+            <div className="flex items-center gap-2 lg:gap-0">
+                <button
+                    onClick={onMenuClick}
+                    className="lg:hidden text-gray-400 hover:text-white p-2 hover:bg-white/5 rounded transition-colors"
+                >
                     <Menu className="w-6 h-6" />
                 </button>
-                <div className="relative group">
+                <div className="relative group hidden sm:block">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 group-hover:text-red-500 transition-colors" />
                     <input
                         type="text"
                         placeholder="Search system..."
-                        className="bg-black/50 border border-gray-800 rounded-none pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-red-500 w-64 transition-all duration-300 focus:w-80 focus:shadow-[0_0_10px_rgba(255,0,0,0.2)]"
+                        className="bg-black/50 border border-gray-800 rounded-none pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-red-500 w-48 lg:w-64 transition-all duration-300 focus:w-64 lg:focus:w-80 focus:shadow-[0_0_10px_rgba(255,0,0,0.2)]"
                     />
                     <div className="absolute bottom-0 left-0 w-0 h-[1px] bg-red-500 transition-all duration-300 group-focus-within:w-full" />
                 </div>
             </div>
 
-            <div className="flex items-center space-x-4">
-                <div className="flex items-center px-3 py-1 bg-red-900/10 border border-red-900/30 rounded text-xs text-red-400">
+            <div className="flex items-center space-x-2 lg:space-x-4">
+                <div className="hidden sm:flex items-center px-3 py-1 bg-red-900/10 border border-red-900/30 rounded text-xs text-red-400">
                     <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse mr-2"></span>
-                    SYSTEM ONLINE
+                    <span className="hidden md:inline">SYSTEM ONLINE</span>
+                    <span className="md:hidden">ONLINE</span>
                 </div>
                 <button className="relative text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded">
                     <Bell className="w-5 h-5" />
