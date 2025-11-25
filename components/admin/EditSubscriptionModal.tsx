@@ -27,6 +27,7 @@ interface Subscription {
     address: string;
     barangay: string;
     landmark: string;
+    label?: string;
     customer_portal: string;
     invoice_date: string;
     referral_credit_applied: boolean;
@@ -70,6 +71,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         address: subscription.address,
         barangay: subscription.barangay,
         landmark: subscription.landmark,
+        label: subscription.label || '',
         contact_person: subscription.contact_person, // referrer ID
         referral_credit_applied: subscription.referral_credit_applied
     });
@@ -91,6 +93,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 address: subscription.address,
                 barangay: subscription.barangay,
                 landmark: subscription.landmark,
+                label: subscription.label || '',
                 contact_person: subscription.contact_person,
                 referral_credit_applied: subscription.referral_credit_applied
             });
@@ -186,6 +189,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     address: formData.address,
                     barangay: formData.barangay,
                     landmark: formData.landmark,
+                    label: formData.label,
                     contact_person: formData.contact_person || null,
                     referral_credit_applied: formData.referral_credit_applied,
                     'x-coordinates': coordinates?.lng || null,
@@ -464,6 +468,17 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                                             rows={2}
                                             className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 resize-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Location Type</label>
+                                        <input
+                                            type="text"
+                                            value={formData.label}
+                                            onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                                            placeholder="e.g. Home, Office, Work"
+                                            title="Type of location (e.g. Home, Office, Work)"
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
                                         />
                                     </div>
                                     <div>

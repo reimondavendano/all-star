@@ -22,6 +22,7 @@ interface Subscription {
     address: string;
     barangay: string;
     landmark: string;
+    label?: string;
     customer_portal: string;
     invoice_date: string;
     referral_credit_applied: boolean;
@@ -273,6 +274,7 @@ export default function SubscriptionsPage() {
                                                         <thead>
                                                             <tr className="border-b border-gray-800 bg-[#151515]">
                                                                 <th className="w-10 pl-8"></th>
+                                                                <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Label</th>
                                                                 <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Plan</th>
                                                                 <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Business Unit</th>
                                                                 <th className="text-left p-3 text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -293,7 +295,17 @@ export default function SubscriptionsPage() {
                                                                                 )}
                                                                             </button>
                                                                         </td>
-                                                                        <td className="p-3 text-gray-300">{subscription.plan_name}</td>
+                                                                        <td className="p-3 text-gray-300">
+                                                                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                                                                {subscription.label || 'N/A'}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="p-3 text-gray-300">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <Wifi className="w-4 h-4 text-cyan-500" />
+                                                                                {subscription.plan_name}
+                                                                            </div>
+                                                                        </td>
                                                                         <td className="p-3 text-gray-300">{subscription.business_unit_name}</td>
                                                                         <td className="p-3">
                                                                             <button

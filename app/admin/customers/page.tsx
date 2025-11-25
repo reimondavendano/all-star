@@ -140,20 +140,19 @@ export default function CustomersPage() {
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Mobile Number</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Subscriptions</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Portal</th>
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Created Date</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {isLoading ? (
                         <tr>
-                            <td colSpan={6} className="text-center p-8 text-gray-500">
+                            <td colSpan={5} className="text-center p-8 text-gray-500">
                                 Loading...
                             </td>
                         </tr>
                     ) : currentCustomers.length === 0 ? (
                         <tr>
-                            <td colSpan={6} className="text-center p-8 text-gray-500">
+                            <td colSpan={5} className="text-center p-8 text-gray-500">
                                 No customers found
                             </td>
                         </tr>
@@ -201,7 +200,6 @@ export default function CustomersPage() {
                                         </button>
                                     </div>
                                 </td>
-                                <td className="p-4 text-gray-400">{formatDate(customer.created_at)}</td>
                                 <td className="p-4">
                                     <div className="flex items-center gap-2">
                                         <button

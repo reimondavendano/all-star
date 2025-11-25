@@ -18,6 +18,7 @@ interface Prospect {
     landmark: string;
     barangay: string;
     address: string;
+    label?: string;
     mobile_number: string;
     installation_date: string;
     referrer_id: string;
@@ -172,6 +173,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     address: prospect.address,
                     barangay: prospect.barangay,
                     landmark: prospect.landmark,
+                    label: prospect.label, // Copy label from prospect
                     customer_portal: `/portal/${customerData.id}`, // Set customer_portal in subscriptions
                     invoice_date: invoiceDate, // Automatically set based on business unit
                     referral_credit_applied: false,
@@ -330,6 +332,13 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Landmark</label>
                                             <p className="text-sm text-gray-300">{prospect.landmark || '-'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <Building2 className="w-5 h-5 text-indigo-500 mt-0.5" />
+                                        <div className="flex-1">
+                                            <label className="text-xs text-gray-500">Location Type</label>
+                                            <p className="text-sm text-gray-300">{prospect.label || '-'}</p>
                                         </div>
                                     </div>
                                 </div>

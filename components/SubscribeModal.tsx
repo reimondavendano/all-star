@@ -55,7 +55,9 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
         installationDate: new Date().toISOString().split('T')[0],
         planId: '',
         referrerId: '',
+
         details: '',
+        label: '',
     });
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -214,7 +216,9 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                 mobile_number: formData.mobileNumber,
                 installation_date: formData.installationDate,
                 referrer_id: formData.referrerId || null,
+
                 details: formData.details,
+                label: formData.label,
                 'x-coordinates': coordinates?.lng || null,
                 'y-coordinates': coordinates?.lat || null
             };
@@ -258,7 +262,9 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
             installationDate: new Date().toISOString().split('T')[0],
             planId: '',
             referrerId: '',
+
             details: '',
+            label: '',
         });
         setReferrerName('');
     };
@@ -407,7 +413,19 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                 <div className="grid gap-6">
                                     {/* Business Unit field removed as requested */}
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Location Type</label>
+                                            <input
+                                                type="text"
+                                                name="label"
+                                                value={formData.label}
+                                                onChange={handleChange}
+                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                                placeholder="e.g. Home, Office"
+                                                title="Type of location (e.g. Home, Office, Work)"
+                                            />
+                                        </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Barangay <span className="text-red-500">*</span></label>
                                             <input
@@ -427,7 +445,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                                 value={formData.landmark}
                                                 onChange={handleChange}
                                                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
-                                                placeholder="e.g. Near the Chapel, Blue Gate"
+                                                placeholder="e.g. Near the Chapel"
                                             />
                                         </div>
                                     </div>

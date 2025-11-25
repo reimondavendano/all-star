@@ -54,6 +54,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
         address: '',
         barangay: '',
         landmark: '',
+        label: '',
         contact_person: '',
         customer_portal: '',
         invoice_date: '',
@@ -178,6 +179,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
                 address: formData.address,
                 barangay: formData.barangay,
                 landmark: formData.landmark,
+                label: formData.label,
                 contact_person: formData.contact_person,
                 customer_portal: formData.customer_portal,
                 invoice_date: formData.invoice_date,
@@ -208,6 +210,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
             address: '',
             barangay: '',
             landmark: '',
+            label: '',
             contact_person: '',
             customer_portal: '',
             invoice_date: '',
@@ -476,14 +479,27 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Landmark</label>
-                        <input
-                            type="text"
-                            value={formData.landmark}
-                            onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
-                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                        />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-2">Location Type</label>
+                            <input
+                                type="text"
+                                value={formData.label}
+                                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                                placeholder="e.g. Home, Office, Work"
+                                title="Type of location (e.g. Home, Office, Work)"
+                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-2">Landmark</label>
+                            <input
+                                type="text"
+                                value={formData.landmark}
+                                onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
+                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                            />
+                        </div>
                     </div>
 
                     {/* Referrer */}
