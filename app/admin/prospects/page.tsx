@@ -24,6 +24,8 @@ interface Prospect {
     details: string;
     status: string;
     created_at: string;
+    'x-coordinates'?: number;
+    'y-coordinates'?: number;
 }
 
 interface Plan {
@@ -218,10 +220,10 @@ export default function ProspectsPage() {
                                         <td className="p-4 text-gray-400 max-w-xs truncate" onClick={() => toggleRow(prospect.id)}>{prospect.address || '-'}</td>
                                         <td className="p-4" onClick={() => toggleRow(prospect.id)}>
                                             <span className={`text-xs font-medium ${prospect.status === 'Open'
-                                                    ? 'text-green-500'
-                                                    : prospect.status === 'Converted'
-                                                        ? 'text-blue-500'
-                                                        : 'text-red-500'
+                                                ? 'text-green-500'
+                                                : prospect.status === 'Converted'
+                                                    ? 'text-blue-500'
+                                                    : 'text-red-500'
                                                 }`}>
                                                 {prospect.status}
                                             </span>
@@ -279,10 +281,10 @@ export default function ProspectsPage() {
                                                                 <div className="flex-1">
                                                                     <label className="text-xs text-gray-500">Status</label>
                                                                     <p className={`text-sm font-medium ${prospect.status === 'Open'
-                                                                            ? 'text-green-500'
-                                                                            : prospect.status === 'Converted'
-                                                                                ? 'text-blue-500'
-                                                                                : 'text-red-500'
+                                                                        ? 'text-green-500'
+                                                                        : prospect.status === 'Converted'
+                                                                            ? 'text-blue-500'
+                                                                            : 'text-red-500'
                                                                         }`}>
                                                                         {prospect.status}
                                                                     </p>

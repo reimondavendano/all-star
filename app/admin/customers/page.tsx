@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2 } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, Copy, Check, User } from 'lucide-react';
 import EditCustomerModal from '@/components/admin/EditCustomerModal';
 
 interface Customer {
@@ -10,6 +10,7 @@ interface Customer {
     name: string;
     mobile_number: string;
     created_at: string;
+    subscriptions?: { id: string }[];
 }
 
 export default function CustomersPage() {
@@ -22,8 +23,16 @@ export default function CustomersPage() {
     // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+    const [copiedId, setCopiedId] = useState<string | null>(null);
 
     const itemsPerPage = 10;
+
+    const handleCopyLink = (customerId: string) => {
+        const url = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/portal/${customerId}`;
+        navigator.clipboard.writeText(url);
+        setCopiedId(customerId);
+        setTimeout(() => setCopiedId(null), 2000);
+    };
 
     useEffect(() => {
         fetchCustomers();
@@ -34,7 +43,7 @@ export default function CustomersPage() {
         try {
             const { data, error } = await supabase
                 .from('customers')
-                .select('*')
+                .select('*, subscriptions(id)')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -48,12 +57,24 @@ export default function CustomersPage() {
 
     const handleDelete = async (id: string) => {
         try {
-            const { error } = await supabase
+            // First, delete all subscriptions associated with this customer
+            const { error: subscriptionsError } = await supabase
+                .from('subscriptions')
+                .delete()
+                .eq('subscriber_id', id);
+
+            if (subscriptionsError) {
+                console.error('Error deleting subscriptions:', subscriptionsError);
+                // Continue anyway to delete the customer
+            }
+
+            // Then delete the customer
+            const { error: customerError } = await supabase
                 .from('customers')
                 .delete()
                 .eq('id', id);
 
-            if (error) throw error;
+            if (customerError) throw customerError;
 
             fetchCustomers();
             setDeleteConfirm(null);
@@ -117,6 +138,8 @@ export default function CustomersPage() {
                     <tr className="border-b border-gray-900">
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Name</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Mobile Number</th>
+                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Subscriptions</th>
+                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Portal</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Created Date</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
@@ -124,13 +147,13 @@ export default function CustomersPage() {
                 <tbody>
                     {isLoading ? (
                         <tr>
-                            <td colSpan={4} className="text-center p-8 text-gray-500">
+                            <td colSpan={6} className="text-center p-8 text-gray-500">
                                 Loading...
                             </td>
                         </tr>
                     ) : currentCustomers.length === 0 ? (
                         <tr>
-                            <td colSpan={4} className="text-center p-8 text-gray-500">
+                            <td colSpan={6} className="text-center p-8 text-gray-500">
                                 No customers found
                             </td>
                         </tr>
@@ -140,8 +163,44 @@ export default function CustomersPage() {
                                 key={customer.id}
                                 className="border-b border-gray-900 hover:bg-[#1a1a1a] transition-colors"
                             >
-                                <td className="p-4 text-white">{customer.name}</td>
+                                <td className="p-4 text-white">
+                                    <div className="flex items-center gap-2">
+                                        <User className="w-4 h-4 text-blue-500" />
+                                        {customer.name}
+                                    </div>
+                                </td>
                                 <td className="p-4 text-gray-400">{customer.mobile_number || '-'}</td>
+                                <td className="p-4 text-gray-400">
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${(customer.subscriptions?.length || 0) > 0
+                                        ? 'bg-green-100 text-green-800'
+                                        : 'bg-gray-100 text-gray-800'
+                                        }`}>
+                                        {customer.subscriptions?.length || 0}
+                                    </span>
+                                </td>
+                                <td className="p-4">
+                                    <div className="flex items-center gap-2">
+                                        <a
+                                            href={`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/portal/${customer.id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-400 hover:text-blue-300 underline text-sm"
+                                        >
+                                            View Portal
+                                        </a>
+                                        <button
+                                            onClick={() => handleCopyLink(customer.id)}
+                                            className="p-1 text-gray-400 hover:text-white transition-colors"
+                                            title="Copy Portal Link"
+                                        >
+                                            {copiedId === customer.id ? (
+                                                <Check className="w-4 h-4 text-green-500" />
+                                            ) : (
+                                                <Copy className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </td>
                                 <td className="p-4 text-gray-400">{formatDate(customer.created_at)}</td>
                                 <td className="p-4">
                                     <div className="flex items-center gap-2">

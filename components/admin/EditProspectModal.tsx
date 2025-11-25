@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import dynamic from 'next/dynamic';
+
+const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
+    ssr: false,
+    loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-900/50 rounded-lg"><Loader2 className="w-8 h-8 animate-spin text-red-600" /></div>
+});
 
 interface Prospect {
     id: string;
@@ -18,6 +24,8 @@ interface Prospect {
     details: string;
     status: string;
     created_at: string;
+    'x-coordinates'?: number;
+    'y-coordinates'?: number;
 }
 
 interface BusinessUnit {
@@ -49,11 +57,20 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         business_unit_id: prospect.business_unit_id || '',
         status: prospect.status || 'Closed Won'
     });
+    const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
         if (isOpen) {
             fetchBusinessUnits();
             fetchPlans();
+            if (prospect['x-coordinates'] && prospect['y-coordinates']) {
+                setCoordinates({
+                    lat: prospect['y-coordinates'],
+                    lng: prospect['x-coordinates']
+                });
+            } else {
+                setCoordinates(null);
+            }
         }
     }, [isOpen]);
 
@@ -114,6 +131,22 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         setShowConfirmation(false);
 
         try {
+            // Determine invoice_date based on business unit
+            const selectedBusinessUnit = businessUnits.find(unit => unit.id === formData.business_unit_id);
+            let invoiceDate = null;
+
+            if (selectedBusinessUnit) {
+                const unitName = selectedBusinessUnit.name.toLowerCase();
+                // Check if business unit is Bulihan & Extension
+                if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                    invoiceDate = '15th';
+                }
+                // Check if business unit is Malanggam
+                else if (unitName.includes('malanggam')) {
+                    invoiceDate = '30th';
+                }
+            }
+
             // 1. Create customer record
             const { data: customerData, error: customerError } = await supabase
                 .from('customers')
@@ -140,19 +173,18 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     barangay: prospect.barangay,
                     landmark: prospect.landmark,
                     customer_portal: `/portal/${customerData.id}`, // Set customer_portal in subscriptions
-                    invoice_date: null,
-                    referral_credit_applied: false
+                    invoice_date: invoiceDate, // Automatically set based on business unit
+                    referral_credit_applied: false,
+                    'x-coordinates': coordinates?.lng || null,
+                    'y-coordinates': coordinates?.lat || null
                 });
 
             if (subscriptionError) throw subscriptionError;
 
-            // 3. Update prospect status
+            // 3. Delete the prospect from prospects table (conversion complete)
             const { error: prospectError } = await supabase
                 .from('prospects')
-                .update({
-                    business_unit_id: formData.business_unit_id,
-                    status: formData.status
-                })
+                .delete()
                 .eq('id', prospect.id);
 
             if (prospectError) throw prospectError;
@@ -302,42 +334,59 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Service Information */}
-                            <div>
-                                <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
-                                    Service Information
-                                </h3>
-                                <div className="space-y-4">
-                                    <div className="flex items-start gap-3">
-                                        <Wifi className="w-5 h-5 text-cyan-500 mt-0.5" />
-                                        <div className="flex-1">
-                                            <label className="text-xs text-gray-500">Plan</label>
-                                            <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
-                                        </div>
+                        {/* Map Location */}
+                        <div className="col-span-2">
+                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
+                                Map Location
+                            </h3>
+                            <div className="h-[300px] w-full rounded-lg overflow-hidden border border-red-900/30 relative bg-[#0f0f0f]">
+                                <MapPicker
+                                    center={coordinates ? [coordinates.lat, coordinates.lng] : [14.3150, 121.0100]}
+                                    value={coordinates}
+                                    onChange={setCoordinates}
+                                />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                                Click or drag the marker to set the exact location.
+                            </p>
+                        </div>
+
+                        {/* Service Information */}
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
+                                Service Information
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex items-start gap-3">
+                                    <Wifi className="w-5 h-5 text-cyan-500 mt-0.5" />
+                                    <div className="flex-1">
+                                        <label className="text-xs text-gray-500">Plan</label>
+                                        <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
                                     </div>
-                                    <div className="flex items-start gap-3">
-                                        <Calendar className="w-5 h-5 text-pink-500 mt-0.5" />
-                                        <div className="flex-1">
-                                            <label className="text-xs text-gray-500">Installation Date</label>
-                                            <p className="text-sm text-gray-300">{formatDate(prospect.installation_date)}</p>
-                                        </div>
+                                </div>
+                                <div className="flex items-start gap-3">
+                                    <Calendar className="w-5 h-5 text-pink-500 mt-0.5" />
+                                    <div className="flex-1">
+                                        <label className="text-xs text-gray-500">Installation Date</label>
+                                        <p className="text-sm text-gray-300">{formatDate(prospect.installation_date)}</p>
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Additional Details */}
-                            <div>
-                                <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
-                                    Additional Details
-                                </h3>
-                                <div className="space-y-4">
-                                    <div className="flex items-start gap-3">
-                                        <FileText className="w-5 h-5 text-amber-500 mt-0.5" />
-                                        <div className="flex-1">
-                                            <label className="text-xs text-gray-500">Details / Notes</label>
-                                            <p className="text-sm text-gray-300">{prospect.details || '-'}</p>
-                                        </div>
+                        {/* Additional Details */}
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
+                                Additional Details
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex items-start gap-3">
+                                    <FileText className="w-5 h-5 text-amber-500 mt-0.5" />
+                                    <div className="flex-1">
+                                        <label className="text-xs text-gray-500">Details / Notes</label>
+                                        <p className="text-sm text-gray-300">{prospect.details || '-'}</p>
                                     </div>
                                 </div>
                             </div>
@@ -374,56 +423,60 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             </div>
 
             {/* Confirmation Modal */}
-            {showConfirmation && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                    <div className="relative bg-[#0a0a0a] border-2 border-yellow-500/50 rounded-xl shadow-[0_0_50px_rgba(255,255,0,0.3)] w-full max-w-md p-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <AlertCircle className="w-8 h-8 text-yellow-500" />
-                            <h3 className="text-xl font-bold text-white">Confirm Approval</h3>
-                        </div>
-                        <p className="text-gray-300 mb-6">
-                            This will create a customer and subscription record. Are you sure you want to proceed?
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowConfirmation(false)}
-                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleConfirmApprove}
-                                className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                            >
-                                Confirm
-                            </button>
+            {
+                showConfirmation && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
+                        <div className="relative bg-[#0a0a0a] border-2 border-yellow-500/50 rounded-xl shadow-[0_0_50px_rgba(255,255,0,0.3)] w-full max-w-md p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <AlertCircle className="w-8 h-8 text-yellow-500" />
+                                <h3 className="text-xl font-bold text-white">Confirm Approval</h3>
+                            </div>
+                            <p className="text-gray-300 mb-6">
+                                This will create a customer and subscription record. Are you sure you want to proceed?
+                            </p>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowConfirmation(false)}
+                                    className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmApprove}
+                                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                                >
+                                    Confirm
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Success Modal */}
-            {showSuccess && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                    <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.3)] w-full max-w-md p-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <CheckCircle className="w-8 h-8 text-green-500" />
-                            <h3 className="text-xl font-bold text-white">Success!</h3>
+            {
+                showSuccess && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
+                        <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.3)] w-full max-w-md p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <CheckCircle className="w-8 h-8 text-green-500" />
+                                <h3 className="text-xl font-bold text-white">Success!</h3>
+                            </div>
+                            <p className="text-gray-300 mb-6">
+                                Customer and subscription have been created successfully!
+                            </p>
+                            <button
+                                onClick={handleSuccessClose}
+                                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                            >
+                                Done
+                            </button>
                         </div>
-                        <p className="text-gray-300 mb-6">
-                            Customer and subscription have been created successfully!
-                        </p>
-                        <button
-                            onClick={handleSuccessClose}
-                            className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                        >
-                            Done
-                        </button>
                     </div>
-                </div>
-            )}
+                )
+            }
         </>
     );
 }

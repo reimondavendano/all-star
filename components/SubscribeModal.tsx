@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Check, MapPin, User, Wifi, FileText, ChevronRight, ChevronLeft, Loader2, MoreHorizontal, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Check, MapPin, User, Wifi, FileText, ChevronRight, ChevronLeft, Loader2, MoreHorizontal, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import { Plan } from '@/types/plan';
 import CustomerLookupModal from './CustomerLookupModal';
 
 // Dynamically import MapPicker to avoid SSR issues with Leaflet
-const MapPicker = dynamic(() => import('./MapPicker'), {
+const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
     loading: () => (
         <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
@@ -214,7 +214,9 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                 mobile_number: formData.mobileNumber,
                 installation_date: formData.installationDate,
                 referrer_id: formData.referrerId || null,
-                details: formData.details
+                details: formData.details,
+                'x-coordinates': coordinates?.lng || null,
+                'y-coordinates': coordinates?.lat || null
             };
 
             console.log('Submitting Prospect:', newProspect);
@@ -313,8 +315,8 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                 <div key={step.id} className="flex flex-col items-center bg-gray-50 px-2">
                                     <div
                                         className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${isCompleted || isCurrent
-                                                ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-200'
-                                                : 'bg-white border-gray-300 text-gray-400'
+                                            ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-200'
+                                            : 'bg-white border-gray-300 text-gray-400'
                                             }`}
                                     >
                                         {isCompleted ? <Check className="w-5 h-5" /> : <step.icon className="w-5 h-5" />}
@@ -396,8 +398,9 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
 
                                 <div className="w-full h-64 rounded-lg overflow-hidden border border-gray-200 mb-6 relative bg-gray-100 z-0">
                                     <MapPicker
-                                        center={mapCenter}
-                                        onLocationSelect={handleLocationSelect}
+                                        center={[mapCenter.lat, mapCenter.lng]}
+                                        value={coordinates}
+                                        onChange={(val) => handleLocationSelect(val.lat, val.lng)}
                                     />
                                 </div>
 
@@ -468,8 +471,8 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                                 <label
                                                     key={plan.id}
                                                     className={`relative flex items-center p-4 border rounded-xl cursor-pointer transition-all hover:shadow-md ${formData.planId === plan.id
-                                                            ? 'border-red-500 bg-red-50 ring-1 ring-red-500'
-                                                            : 'border-gray-200 hover:border-red-300'
+                                                        ? 'border-red-500 bg-red-50 ring-1 ring-red-500'
+                                                        : 'border-gray-200 hover:border-red-300'
                                                         }`}
                                                 >
                                                     <input
@@ -520,9 +523,22 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                             <button
                                                 onClick={() => setIsLookupOpen(true)}
                                                 className="px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors text-gray-600"
+                                                title="Select referrer"
                                             >
                                                 <MoreHorizontal className="w-5 h-5" />
                                             </button>
+                                            {formData.referrerId && (
+                                                <button
+                                                    onClick={() => {
+                                                        setFormData({ ...formData, referrerId: '' });
+                                                        setReferrerName('');
+                                                    }}
+                                                    className="px-4 py-2 bg-red-50 border border-red-300 rounded-lg hover:bg-red-100 transition-colors text-red-600"
+                                                    title="Clear referrer"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            )}
                                         </div>
                                         <p className="mt-1 text-xs text-gray-500">
                                             This is lookup table for customer to make it referrer
@@ -551,8 +567,8 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                         onClick={handleBack}
                         disabled={currentStep === 1}
                         className={`flex items-center px-6 py-2.5 rounded-lg font-medium transition-colors ${currentStep === 1
-                                ? 'text-gray-300 cursor-not-allowed'
-                                : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                            ? 'text-gray-300 cursor-not-allowed'
+                            : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
                             }`}
                     >
                         <ChevronLeft className="w-4 h-4 mr-2" />
@@ -563,8 +579,8 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                         onClick={handleNext}
                         disabled={!validateStep(currentStep) || isSubmitting}
                         className={`flex items-center px-8 py-3 rounded-lg font-semibold shadow-lg transition-all transform ${!validateStep(currentStep) || isSubmitting
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
-                                : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200 hover:-translate-y-0.5'
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
+                            : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200 hover:-translate-y-0.5'
                             }`}
                     >
                         {isSubmitting ? (

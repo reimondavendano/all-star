@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, Plus } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, Plus, ChevronDown, ChevronUp, User, Wifi } from 'lucide-react';
 import EditBusinessUnitModal from '@/components/admin/EditBusinessUnitModal';
 import AddBusinessUnitModal from '@/components/admin/AddBusinessUnitModal';
 
@@ -13,12 +13,30 @@ interface BusinessUnit {
     created_at: string;
 }
 
+interface Subscription {
+    id: string;
+    subscriber_id: string;
+    plan_id: string;
+    active: boolean;
+    customer?: {
+        name: string;
+        mobile_number: string;
+    };
+    plan?: {
+        name: string;
+        monthly_fee: number;
+    };
+}
+
 export default function BusinessUnitsPage() {
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
+    const [subscriptionsByUnit, setSubscriptionsByUnit] = useState<Record<string, Subscription[]>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    const [expandedPageByUnit, setExpandedPageByUnit] = useState<Record<string, number>>({});
 
     // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -28,6 +46,7 @@ export default function BusinessUnitsPage() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     const itemsPerPage = 10;
+    const expandedItemsPerPage = 5; // Items per page in collapsed section
 
     useEffect(() => {
         fetchBusinessUnits();
@@ -67,6 +86,45 @@ export default function BusinessUnitsPage() {
             console.error('Error fetching business units:', error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const fetchSubscriptionsForUnit = async (unitId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('subscriptions')
+                .select(`
+                    *,
+                    customer:customers(name, mobile_number),
+                    plan:plans(name, monthly_fee)
+                `)
+                .eq('business_unit_id', unitId)
+                .eq('active', true);
+
+            if (error) throw error;
+
+            setSubscriptionsByUnit(prev => ({
+                ...prev,
+                [unitId]: data || []
+            }));
+        } catch (error) {
+            console.error('Error fetching subscriptions:', error);
+        }
+    };
+
+    const toggleRow = async (unitId: string) => {
+        if (expandedRow === unitId) {
+            setExpandedRow(null);
+        } else {
+            setExpandedRow(unitId);
+            // Initialize page to 1 for this unit if not set
+            if (!expandedPageByUnit[unitId]) {
+                setExpandedPageByUnit(prev => ({ ...prev, [unitId]: 1 }));
+            }
+            // Fetch subscriptions if not already loaded
+            if (!subscriptionsByUnit[unitId]) {
+                await fetchSubscriptionsForUnit(unitId);
+            }
         }
     };
 
@@ -145,6 +203,7 @@ export default function BusinessUnitsPage() {
             <table className="w-full">
                 <thead>
                     <tr className="border-b border-gray-900">
+                        <th className="w-10"></th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Name</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Active Subscribers</th>
                         <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Created Date</th>
@@ -154,48 +213,153 @@ export default function BusinessUnitsPage() {
                 <tbody>
                     {isLoading ? (
                         <tr>
-                            <td colSpan={4} className="text-center p-8 text-gray-500">
+                            <td colSpan={5} className="text-center p-8 text-gray-500">
                                 Loading...
                             </td>
                         </tr>
                     ) : currentBusinessUnits.length === 0 ? (
                         <tr>
-                            <td colSpan={4} className="text-center p-8 text-gray-500">
+                            <td colSpan={5} className="text-center p-8 text-gray-500">
                                 No business units found
                             </td>
                         </tr>
                     ) : (
                         currentBusinessUnits.map((unit) => (
-                            <tr
-                                key={unit.id}
-                                className="border-b border-gray-900 hover:bg-[#1a1a1a] transition-colors"
-                            >
-                                <td className="p-4 text-white font-medium">{unit.name}</td>
-                                <td className="p-4">
-                                    <span className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-sm font-semibold">
-                                        {unit.subscribers || 0}
-                                    </span>
-                                </td>
-                                <td className="p-4 text-gray-400">{formatDate(unit.created_at)}</td>
-                                <td className="p-4">
-                                    <div className="flex items-center gap-2">
+                            <React.Fragment key={unit.id}>
+                                <tr className="border-b border-gray-900 hover:bg-[#1a1a1a] transition-colors cursor-pointer">
+                                    <td className="p-4">
                                         <button
-                                            onClick={() => handleEdit(unit)}
-                                            className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
-                                            title="Edit business unit"
+                                            onClick={() => toggleRow(unit.id)}
+                                            className="text-gray-400 hover:text-white transition-colors"
                                         >
-                                            <Edit className="w-4 h-4" />
+                                            {expandedRow === unit.id ? (
+                                                <ChevronUp className="w-4 h-4" />
+                                            ) : (
+                                                <ChevronDown className="w-4 h-4" />
+                                            )}
                                         </button>
-                                        <button
-                                            onClick={() => setDeleteConfirm(unit.id)}
-                                            className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
-                                            title="Delete business unit"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
+                                    </td>
+                                    <td className="p-4 text-white font-medium" onClick={() => toggleRow(unit.id)}>{unit.name}</td>
+                                    <td className="p-4" onClick={() => toggleRow(unit.id)}>
+                                        <span className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-sm font-semibold">
+                                            {unit.subscribers || 0}
+                                        </span>
+                                    </td>
+                                    <td className="p-4 text-gray-400" onClick={() => toggleRow(unit.id)}>{formatDate(unit.created_at)}</td>
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEdit(unit);
+                                                }}
+                                                className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
+                                                title="Edit business unit"
+                                            >
+                                                <Edit className="w-4 h-4" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setDeleteConfirm(unit.id);
+                                                }}
+                                                className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+                                                title="Delete business unit"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                {expandedRow === unit.id && (
+                                    <tr className="border-b border-gray-900 bg-[#0f0f0f]">
+                                        <td colSpan={5} className="p-6">
+                                            <div className="space-y-4">
+                                                {(() => {
+                                                    const subs = subscriptionsByUnit[unit.id] || [];
+                                                    const currentExpandedPage = expandedPageByUnit[unit.id] || 1;
+                                                    const totalExpandedPages = Math.ceil(subs.length / expandedItemsPerPage);
+                                                    const startIdx = (currentExpandedPage - 1) * expandedItemsPerPage;
+                                                    const endIdx = startIdx + expandedItemsPerPage;
+                                                    const paginatedSubs = subs.slice(startIdx, endIdx);
+
+                                                    return (
+                                                        <>
+                                                            <div className="flex items-center justify-between">
+                                                                <h3 className="text-sm font-semibold text-gray-400 uppercase">
+                                                                    Customers & Subscriptions ({subs.length})
+                                                                </h3>
+                                                                {totalExpandedPages > 1 && (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={() => setExpandedPageByUnit(prev => ({
+                                                                                ...prev,
+                                                                                [unit.id]: Math.max(1, currentExpandedPage - 1)
+                                                                            }))}
+                                                                            disabled={currentExpandedPage === 1}
+                                                                            className="p-1 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                        >
+                                                                            <ChevronLeft className="w-4 h-4" />
+                                                                        </button>
+                                                                        <span className="text-xs text-gray-500">
+                                                                            Page {currentExpandedPage} of {totalExpandedPages}
+                                                                        </span>
+                                                                        <button
+                                                                            onClick={() => setExpandedPageByUnit(prev => ({
+                                                                                ...prev,
+                                                                                [unit.id]: Math.min(totalExpandedPages, currentExpandedPage + 1)
+                                                                            }))}
+                                                                            disabled={currentExpandedPage === totalExpandedPages}
+                                                                            className="p-1 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                        >
+                                                                            <ChevronRight className="w-4 h-4" />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {paginatedSubs.length > 0 ? (
+                                                                <div className="grid grid-cols-1 gap-3">
+                                                                    {paginatedSubs.map((sub) => (
+                                                                        <div
+                                                                            key={sub.id}
+                                                                            className="bg-[#1a1a1a] border border-gray-800 rounded-lg p-4 flex items-center justify-between"
+                                                                        >
+                                                                            <div className="flex items-center gap-4">
+                                                                                <User className="w-5 h-5 text-blue-500" />
+                                                                                <div>
+                                                                                    <p className="text-white font-medium">{sub.customer?.name || 'Unknown'}</p>
+                                                                                    <p className="text-gray-500 text-sm">{sub.customer?.mobile_number || '-'}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-4">
+                                                                                <Wifi className="w-5 h-5 text-cyan-500" />
+                                                                                <div className="text-right">
+                                                                                    <p className="text-gray-300 text-sm">{sub.plan?.name || 'No Plan'}</p>
+                                                                                    <p className="text-green-400 text-sm font-semibold">
+                                                                                        ₱{sub.plan?.monthly_fee?.toLocaleString() || 0}/mo
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <p className="text-gray-500 text-sm">No active subscriptions for this business unit.</p>
+                                                            )}
+                                                            {totalExpandedPages > 1 && (
+                                                                <div className="text-center text-xs text-gray-500 pt-2">
+                                                                    Showing {startIdx + 1} to {Math.min(endIdx, subs.length)} of {subs.length}
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
+                            </React.Fragment>
                         ))
                     )}
                 </tbody>

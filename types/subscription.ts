@@ -15,6 +15,8 @@ export interface Subscription {
     invoiceDate: '15th' | '30th';
     balance: number; // Formula: Total Invoices – Total Payments
     referralCreditApplied: boolean;
+    xCoordinates?: number;
+    yCoordinates?: number;
 
     // Expanded for UI convenience
     customer?: Customer;

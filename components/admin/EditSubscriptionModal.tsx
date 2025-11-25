@@ -4,10 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
-import CustomerLookupModal from '@/components/CustomerLookupModal';
 
 // Dynamically import MapPicker
-const MapPicker = dynamic(() => import('@/components/MapPicker'), {
+// Dynamically import MapPicker
+const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
     loading: () => (
         <div className="w-full h-64 flex items-center justify-center bg-[#1a1a1a] text-gray-400 rounded-lg border border-gray-800">
@@ -31,6 +31,8 @@ interface Subscription {
     invoice_date: string;
     referral_credit_applied: boolean;
     customer_name?: string;
+    'x-coordinates'?: number;
+    'y-coordinates'?: number;
 }
 
 interface BusinessUnit {
@@ -54,13 +56,10 @@ interface EditSubscriptionModalProps {
 export default function EditSubscriptionModal({ isOpen, onClose, subscription, onUpdate }: EditSubscriptionModalProps) {
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
+    const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
-
-    // Lookup state
-    const [isLookupOpen, setIsLookupOpen] = useState(false);
-    const [referrerName, setReferrerName] = useState('');
 
     const [formData, setFormData] = useState({
         active: subscription.active,
@@ -81,7 +80,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         if (isOpen) {
             fetchBusinessUnits();
             fetchPlans();
-            fetchReferrerName();
+            fetchCustomers();
             // Initialize form data when modal opens or subscription changes
             setFormData({
                 active: subscription.active,
@@ -95,11 +94,32 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 contact_person: subscription.contact_person,
                 referral_credit_applied: subscription.referral_credit_applied
             });
-            // Reset coordinates - ideally we would have saved coordinates in the DB to restore them
-            // For now, we'll default to null or try to geocode the address if needed, 
-            // but the requirement implies just map logic like SubscribeModal
+            // Initialize coordinates
+            if (subscription['x-coordinates'] && subscription['y-coordinates']) {
+                setCoordinates({
+                    lat: subscription['y-coordinates'],
+                    lng: subscription['x-coordinates']
+                });
+            } else {
+                setCoordinates(null);
+            }
         }
     }, [isOpen, subscription]);
+
+    // Auto-set invoice date based on business unit
+    useEffect(() => {
+        if (formData.business_unit_id) {
+            const unit = businessUnits.find(u => u.id === formData.business_unit_id);
+            if (unit) {
+                const unitName = unit.name.toLowerCase();
+                if (unitName.includes('malanggam')) {
+                    setFormData(prev => ({ ...prev, invoice_date: '30th' }));
+                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                    setFormData(prev => ({ ...prev, invoice_date: '15th' }));
+                }
+            }
+        }
+    }, [formData.business_unit_id, businessUnits]);
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase.from('business_units').select('id, name').order('name');
@@ -111,27 +131,9 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         setPlans(data || []);
     };
 
-    const fetchReferrerName = async () => {
-        if (subscription.contact_person) {
-            const { data } = await supabase
-                .from('customers')
-                .select('name')
-                .eq('id', subscription.contact_person)
-                .single();
-            if (data) setReferrerName(data.name);
-        } else {
-            setReferrerName('');
-        }
-    };
-
-    const handleReferrerSelect = (customer: { id: string; name: string }) => {
-        if (customer.id === subscription.subscriber_id) {
-            alert("A subscriber cannot be their own contact person/referrer.");
-            return;
-        }
-        setFormData(prev => ({ ...prev, contact_person: customer.id }));
-        setReferrerName(customer.name);
-        setIsLookupOpen(false);
+    const fetchCustomers = async () => {
+        const { data } = await supabase.from('customers').select('id, name').order('name');
+        setCustomers(data || []);
     };
 
     const fetchAddress = useCallback(async (lat: number, lng: number) => {
@@ -185,7 +187,9 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     barangay: formData.barangay,
                     landmark: formData.landmark,
                     contact_person: formData.contact_person || null,
-                    referral_credit_applied: formData.referral_credit_applied
+                    referral_credit_applied: formData.referral_credit_applied,
+                    'x-coordinates': coordinates?.lng || null,
+                    'y-coordinates': coordinates?.lat || null
                 })
                 .eq('id', subscription.id);
 
@@ -370,23 +374,23 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
                                         <User className="w-4 h-4 inline mr-2" />
-                                        Contact Person / Referrer
+                                        Referrer (Optional)
                                     </label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={referrerName}
-                                            readOnly
-                                            placeholder="Select Referrer"
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none cursor-default"
-                                        />
-                                        <button
-                                            onClick={() => setIsLookupOpen(true)}
-                                            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded border border-gray-700 transition-colors"
-                                        >
-                                            <Search className="w-4 h-4" />
-                                        </button>
-                                    </div>
+                                    <select
+                                        value={formData.contact_person || ''}
+                                        onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                    >
+                                        <option value="">No Referrer</option>
+                                        {customers
+                                            .filter(c => c.id !== subscription.subscriber_id)
+                                            .map(customer => (
+                                                <option key={customer.id} value={customer.id}>
+                                                    {customer.name}
+                                                </option>
+                                            ))
+                                        }
+                                    </select>
                                 </div>
 
                                 <div className="flex items-center gap-3 p-3 bg-[#1a1a1a] border border-gray-800 rounded">
@@ -414,9 +418,32 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                 {/* Map */}
                                 <div className="h-64 rounded-lg overflow-hidden border border-gray-800 relative z-0">
                                     <MapPicker
-                                        onLocationSelect={handleLocationSelect}
-                                        center={coordinates || { lat: 14.5995, lng: 120.9842 }}
+                                        onChange={(val) => handleLocationSelect(val.lat, val.lng)}
+                                        center={coordinates ? [coordinates.lat, coordinates.lng] : [14.5995, 120.9842]}
+                                        value={coordinates}
                                     />
+                                </div>
+
+                                {/* Coordinates Inputs */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Latitude (Y)</label>
+                                        <input
+                                            type="text"
+                                            value={coordinates?.lat || ''}
+                                            disabled
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Longitude (X)</label>
+                                        <input
+                                            type="text"
+                                            value={coordinates?.lng || ''}
+                                            disabled
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Address Fields */}
@@ -482,13 +509,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 </div>
             </div >
 
-            {/* Customer Lookup Modal */}
-            < CustomerLookupModal
-                isOpen={isLookupOpen}
-                onClose={() => setIsLookupOpen(false)
-                }
-                onSelect={handleReferrerSelect}
-            />
 
             {/* Confirmation Modal */}
             {

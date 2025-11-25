@@ -13,7 +13,8 @@ import {
     Briefcase,
     Package,
     Receipt,
-    LogOut
+    LogOut,
+    MapPin
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,6 +29,7 @@ const navigation = [
     { name: 'Expenses', href: '/admin/expenses', icon: DollarSign },
     { name: 'Business Units', href: '/admin/business-units', icon: Briefcase },
     { name: 'Plans', href: '/admin/plans', icon: Package },
+    { name: 'Locations', href: '/admin/locations', icon: MapPin },
 ];
 
 export default function Sidebar() {

@@ -13,4 +13,6 @@ export interface Prospect {
     referrerId?: string; // Lookup -> Customer
     details?: string;
     status: ProspectStatus;
+    xCoordinates?: number;
+    yCoordinates?: number;
 }
