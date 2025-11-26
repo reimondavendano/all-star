@@ -13,23 +13,11 @@ const RouterOSClient = nodeRouterOs.RouterOSClient || nodeRouterOs.default || no
 // }
 
 export async function getMikrotikData() {
-    if (typeof RouterOSClient !== 'function') {
-        return {
-            success: false,
-            error: 'Mikrotik library failed to load correctly. Please check server logs.'
-        };
-    }
 
     const host = process.env.MIKROTIK_HOST;
     const user = process.env.MIKROTIK_USER;
     const password = process.env.MIKROTIK_PASSWORD;
     const port = parseInt(process.env.MIKROTIK_PORT || '8728');
-
-    // console.log('Environment check:');
-    // console.log('MIKROTIK_HOST:', host ? 'SET' : 'MISSING');
-    // console.log('MIKROTIK_USER:', user ? 'SET' : 'MISSING');
-    // console.log('MIKROTIK_PASSWORD:', password ? 'SET' : 'MISSING');
-    // console.log('MIKROTIK_PORT:', port ? 'SET' : 'MISSING');
 
 
     if (!host || !user || !password) {
