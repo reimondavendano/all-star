@@ -1,24 +1,12 @@
 'use server';
 
-const nodeRouterOs = require('node-routeros');
-const RouterOSClient = nodeRouterOs.RouterOSClient || nodeRouterOs.default || nodeRouterOs;
-
-// console.log('NodeRouterOS Import:', {
-//     isConstructor: typeof RouterOSClient === 'function',
-//     keys: Object.keys(nodeRouterOs)
-// });
-
-// if (typeof RouterOSClient !== 'function') {
-//     console.error('RouterOSClient is not a constructor. Export:', nodeRouterOs);
-// }
+import { RouterOSAPI } from 'node-routeros';
 
 export async function getMikrotikData() {
-
-    const host = process.env.MIKROTIK_HOST;
-    const user = process.env.MIKROTIK_USER;
-    const password = process.env.MIKROTIK_PASSWORD;
-    const port = parseInt(process.env.MIKROTIK_PORT || '8728');
-
+    const host = process.env.MIKROTIK_HOST?.trim();
+    const user = process.env.MIKROTIK_USER?.trim();
+    const password = process.env.MIKROTIK_PASSWORD?.trim();
+    const port = parseInt(process.env.MIKROTIK_PORT || '230');
 
     if (!host || !user || !password) {
         return {
@@ -27,31 +15,34 @@ export async function getMikrotikData() {
         };
     }
 
-    const client = new RouterOSClient({
+    const client = new RouterOSAPI({
         host,
         user,
         password,
         port,
-        keepalive: false,
+        timeout: 10,
+        keepalive: true,
+        tls: port === 230 ? {} : undefined,
     });
+
+    console.log(`Connecting to Mikrotik at '${host}':${port}...`);
 
     try {
         await client.connect();
+        console.log('Mikrotik Connected Successfully!');
 
-        // Fetch System Resources
-        const resources = await client.menu('/system/resource').get();
+        // Fetch System Resources (lightweight)
+        const resources = await client.write('/system/resource/print');
 
-        // Fetch Interfaces
-        const interfaces = await client.menu('/interface').get();
+        // Fetch only first 10 Interfaces
+        const allInterfaces = await client.write('/interface/print');
+        const interfaces = allInterfaces.slice(0, 10);
 
-        // Fetch IP Addresses
-        const addresses = await client.menu('/ip/address').get();
-
-        // Fetch Active Hotspot Users (optional, good for ISP context)
-        // const activeUsers = await client.menu('/ip/hotspot/active').get();
-
-        // Fetch DHCP Leases
-        const leases = await client.menu('/ip/dhcp-server/lease').get();
+        // Fetch only ACTIVE DHCP Leases (max 50)
+        const allLeases = await client.write('/ip/dhcp-server/lease/print');
+        const activeLeases = allLeases
+            .filter((lease: any) => lease.status === 'bound')
+            .slice(0, 50);
 
         client.close();
 
@@ -60,13 +51,11 @@ export async function getMikrotikData() {
             data: {
                 resources: resources[0] || {},
                 interfaces: interfaces || [],
-                addresses: addresses || [],
-                leases: leases || []
+                leases: activeLeases || []
             }
         };
 
     } catch (error: any) {
-        // Ensure client is closed on error
         try {
             client.close();
         } catch (e) {

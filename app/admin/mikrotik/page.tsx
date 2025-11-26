@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getMikrotikData } from '@/app/actions/mikrotik';
 import {
     Server,
@@ -18,7 +18,6 @@ import {
 interface MikrotikData {
     resources: any;
     interfaces: any[];
-    addresses: any[];
     leases: any[];
 }
 
@@ -27,17 +26,27 @@ export default function MikrotikPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const isFetchingRef = useRef(false);
 
     const fetchData = async () => {
+        // Prevent duplicate fetches
+        if (isFetchingRef.current) {
+            console.log('Fetch already in progress, skipping...');
+            return;
+        }
+
+        isFetchingRef.current = true;
         setIsLoading(true);
         setError('');
 
         try {
+            console.log('Fetching Mikrotik data...');
             const result = await getMikrotikData();
 
             if (result.success && result.data) {
                 setData(result.data);
                 setLastUpdated(new Date());
+                console.log('Mikrotik data loaded successfully');
             } else {
                 setError(result.error || 'Failed to fetch data');
             }
@@ -46,6 +55,7 @@ export default function MikrotikPage() {
             setError('An unexpected error occurred');
         } finally {
             setIsLoading(false);
+            isFetchingRef.current = false;
         }
     };
 
