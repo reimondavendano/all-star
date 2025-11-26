@@ -7,6 +7,7 @@ create type prospect_status as enum ('Open', 'Closed Lost', 'Closed Won');
 create type invoice_date_enum as enum ('15th', '30th');
 create type payment_mode as enum ('Cash', 'E-Wallet', 'Referral Credit');
 create type expense_reason as enum ('Maintenance', 'Materials', 'Transportation', 'Others');
+create type barangay_enum as enum ('Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon');
 
 -- Business Units
 create table public.business_units (
@@ -60,6 +61,7 @@ create table public.prospects (
   installation_date date,
   referrer_id uuid references public.customers(id),
   details text,
+  router_serial_number text,
   status prospect_status default 'Open',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -70,6 +72,7 @@ create table public.subscriptions (
   subscriber_id uuid not null references public.customers(id),
   business_unit_id uuid not null references public.business_units(id),
   plan_id uuid not null references public.plans(id),
+  router_serial_number text,
   active boolean default true,
   date_installed date,
   contact_person text,

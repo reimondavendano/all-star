@@ -107,6 +107,24 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         }
     };
 
+    // Auto-set invoice date based on business unit selection
+    useEffect(() => {
+        if (formData.business_unit_id && businessUnits.length > 0) {
+            const unit = businessUnits.find(u => u.id === formData.business_unit_id);
+            if (unit) {
+                const unitName = unit.name.toLowerCase();
+                if (unitName.includes('malanggam')) {
+                    // Malanggam gets 30th
+                    setFormData(prev => ({ ...prev, invoice_date: '30th' }));
+                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                    // Bulihan and Extension get 15th
+                    setFormData(prev => ({ ...prev, invoice_date: '15th' }));
+                }
+            }
+        }
+    }, [formData.business_unit_id, businessUnits]);
+
+
     const getPlanDisplay = (planId: string) => {
         if (!planId || !plans[planId]) return '-';
         const plan = plans[planId];

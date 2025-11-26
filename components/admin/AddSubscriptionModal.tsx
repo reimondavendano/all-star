@@ -102,12 +102,11 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
     };
 
     const handleCustomerSelect = (customer: Customer) => {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
         setSelectedCustomer(customer);
         setFormData(prev => ({
             ...prev,
             subscriber_id: customer.id,
-            customer_portal: `${baseUrl}/portal/${customer.id}`
+            customer_portal: `/portal/${customer.id}`
         }));
         setShowCustomerLookup(false);
         setCustomerSearchQuery('');

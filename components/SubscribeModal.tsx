@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Check, MapPin, User, Wifi, FileText, ChevronRight, ChevronLeft, Loader2, MoreHorizontal, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
+import { X, Check, MapPin, User, Wifi, FileText, ChevronRight, ChevronLeft, Loader2, MoreHorizontal, AlertCircle, CheckCircle, Trash2, Search } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import { Plan } from '@/types/plan';
@@ -20,6 +20,7 @@ const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
 interface SubscribeModalProps {
     isOpen: boolean;
     onClose: () => void;
+    isAdmin?: boolean;
 }
 
 const STEPS = [
@@ -29,7 +30,9 @@ const STEPS = [
     { id: 4, name: 'Others', icon: FileText, description: 'Additional info' },
 ];
 
-export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps) {
+const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
+
+export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: SubscribeModalProps) {
     const [currentStep, setCurrentStep] = useState(1);
     const [isLoadingLocation, setIsLoadingLocation] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,7 +55,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
         address: '',
         landmark: '',
         businessUnitId: '', // Kept in state for compatibility but removed from UI as requested
-        installationDate: new Date().toISOString().split('T')[0],
+        installationDate: '',
         planId: '',
         referrerId: '',
 
@@ -60,11 +63,40 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
         label: '',
     });
 
+    // Initialize installation date to tomorrow
+    useEffect(() => {
+        if (isOpen) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            setFormData(prev => ({
+                ...prev,
+                installationDate: tomorrow.toISOString().split('T')[0]
+            }));
+        }
+    }, [isOpen]);
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+
+        if (name === 'mobileNumber') {
+            // Only allow numbers
+            if (!/^\d*$/.test(value)) return;
+            // Limit to 11 digits
+            if (value.length > 11) return;
+        }
+
         setFormData({
             ...formData,
-            [e.target.name]: e.target.value,
+            [name]: value,
         });
+    };
+
+    const handleBarangayChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedBarangay = e.target.value;
+        setFormData(prev => ({ ...prev, barangay: selectedBarangay }));
+
+        // Always focus on Malolos when changing barangay
+        setCoordinates({ lat: 14.8437, lng: 120.8113 });
     };
 
     const handleReferrerSelect = (customer: { id: string; name: string }) => {
@@ -76,10 +108,19 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
         setIsLookupOpen(false);
     };
 
+    const clearReferrer = () => {
+        setFormData(prev => ({
+            ...prev,
+            referrerId: ''
+        }));
+        setReferrerName('');
+    };
+
     const validateStep = (step: number) => {
         switch (step) {
             case 1:
-                return formData.name.trim() !== '' && formData.mobileNumber.trim() !== '';
+                const isMobileValid = formData.mobileNumber.startsWith('09') && formData.mobileNumber.length === 11;
+                return formData.name.trim() !== '' && isMobileValid;
             case 2:
                 return formData.barangay.trim() !== '' && formData.address.trim() !== '' && formData.landmark.trim() !== '';
             case 3:
@@ -117,14 +158,15 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
             const data = await response.json();
 
             if (data && data.address) {
-                const barangay = data.address.quarter || data.address.neighbourhood || data.address.suburb || '';
+                // We don't auto-set barangay from reverse geocoding anymore if it's strictly enum based,
+                // or we could try to match it. For now, let's just set address parts.
                 const street = data.address.road || '';
                 const houseNumber = data.address.house_number || '';
                 const city = data.address.city || data.address.town || '';
 
                 setFormData(prev => ({
                     ...prev,
-                    barangay: barangay,
+                    // barangay: barangay, // Don't overwrite barangay as it's a strict dropdown now
                     address: `${houseNumber} ${street}, ${city}`.trim(),
                 }));
             }
@@ -133,43 +175,6 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
             // We don't set a hard error here to avoid disrupting the UI during drag
         }
     }, []);
-
-    const handleGetLocation = useCallback(() => {
-        setIsLoadingLocation(true);
-        setLocationError('');
-
-        if (!navigator.geolocation) {
-            setLocationError('Geolocation is not supported by your browser');
-            setIsLoadingLocation(false);
-            return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const { latitude, longitude } = position.coords;
-                setCoordinates({ lat: latitude, lng: longitude });
-                await fetchAddress(latitude, longitude);
-                setIsLoadingLocation(false);
-            },
-            (error) => {
-                console.error('Geolocation error:', error);
-                setLocationError('Unable to retrieve your location.');
-                setIsLoadingLocation(false);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
-            }
-        );
-    }, [fetchAddress]);
-
-    // Auto-get location when entering Step 2 if not already set
-    useEffect(() => {
-        if (isOpen && currentStep === 2 && !coordinates) {
-            handleGetLocation();
-        }
-    }, [isOpen, currentStep, coordinates, handleGetLocation]);
 
     // Fetch plans from Supabase
     useEffect(() => {
@@ -252,6 +257,8 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
         // Reset form
         setCurrentStep(1);
         setCoordinates(null);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
         setFormData({
             name: '',
             mobileNumber: '',
@@ -259,7 +266,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
             address: '',
             landmark: '',
             businessUnitId: '',
-            installationDate: new Date().toISOString().split('T')[0],
+            installationDate: tomorrow.toISOString().split('T')[0],
             planId: '',
             referrerId: '',
 
@@ -281,8 +288,13 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
 
     if (!isOpen) return null;
 
-    // Default coordinates (Manila) if none set
-    const mapCenter = coordinates || { lat: 14.5995, lng: 120.9842 };
+    // Default coordinates (Malolos) if none set
+    const mapCenter = coordinates || { lat: 14.8437, lng: 120.8113 };
+
+    // Calculate min date for installation (tomorrow)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const minDate = tomorrow.toISOString().split('T')[0];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -367,9 +379,11 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                             name="mobileNumber"
                                             value={formData.mobileNumber}
                                             onChange={handleChange}
+                                            maxLength={11}
                                             className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
-                                            placeholder="e.g. 0917 123 4567"
+                                            placeholder="09xxxxxxxxx"
                                         />
+                                        <p className="text-xs text-gray-500 mt-1">Must start with 09 and contain 11 digits</p>
                                     </div>
                                 </div>
                             </div>
@@ -382,18 +396,6 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                         <MapPin className="w-5 h-5 mr-2 text-red-600" />
                                         Installation Location
                                     </h3>
-                                    <button
-                                        onClick={handleGetLocation}
-                                        disabled={isLoadingLocation}
-                                        className="flex items-center px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
-                                    >
-                                        {isLoadingLocation ? (
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        ) : (
-                                            <MapPin className="w-4 h-4 mr-2" />
-                                        )}
-                                        Use My Current Location
-                                    </button>
                                 </div>
 
                                 {locationError && (
@@ -428,14 +430,17 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Barangay <span className="text-red-500">*</span></label>
-                                            <input
-                                                type="text"
+                                            <select
                                                 name="barangay"
                                                 value={formData.barangay}
-                                                onChange={handleChange}
+                                                onChange={handleBarangayChange}
                                                 className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
-                                                placeholder="e.g. Brgy. San Isidro"
-                                            />
+                                            >
+                                                <option value="">Select Barangay</option>
+                                                {BARANGAY_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt}>{opt}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Landmark <span className="text-red-500">*</span></label>
@@ -450,7 +455,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Street Address <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Complete Address (House No/Street/Subd/Sitio) <span className="text-red-500">*</span></label>
                                         <textarea
                                             name="address"
                                             value={formData.address}
@@ -477,7 +482,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                             type="date"
                                             name="installationDate"
                                             value={formData.installationDate}
-                                            min={new Date().toISOString().split('T')[0]}
+                                            min={minDate}
                                             onChange={handleChange}
                                             className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
                                         />
@@ -527,41 +532,32 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                     Additional Details
                                 </h3>
                                 <div className="grid gap-6">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Referred By (Optional)</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={referrerName}
-                                                readOnly
-                                                placeholder="Select a referrer..."
-                                                className="flex-1 px-4 py-3 rounded-lg border border-gray-300 bg-gray-50 text-gray-900 focus:outline-none cursor-default"
-                                                onClick={() => setIsLookupOpen(true)}
-                                            />
-                                            <button
-                                                onClick={() => setIsLookupOpen(true)}
-                                                className="px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors text-gray-600"
-                                                title="Select referrer"
-                                            >
-                                                <MoreHorizontal className="w-5 h-5" />
-                                            </button>
-                                            {formData.referrerId && (
-                                                <button
-                                                    onClick={() => {
-                                                        setFormData({ ...formData, referrerId: '' });
-                                                        setReferrerName('');
-                                                    }}
-                                                    className="px-4 py-2 bg-red-50 border border-red-300 rounded-lg hover:bg-red-100 transition-colors text-red-600"
-                                                    title="Clear referrer"
+                                    {/* Referred By section - Only for Admin */}
+                                    {isAdmin && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Referred By (Optional)</label>
+                                            <div className="flex items-center gap-2">
+                                                <div
+                                                    onClick={() => setIsLookupOpen(true)}
+                                                    className="flex-1 px-4 py-3 rounded-lg border border-gray-300 bg-white cursor-pointer hover:border-red-500 transition-colors flex items-center justify-between"
                                                 >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
-                                            )}
+                                                    <span className={referrerName ? 'text-gray-900' : 'text-gray-400'}>
+                                                        {referrerName || 'Select Referrer'}
+                                                    </span>
+                                                    <Search className="w-4 h-4 text-gray-400" />
+                                                </div>
+                                                {referrerName && (
+                                                    <button
+                                                        onClick={clearReferrer}
+                                                        className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        title="Clear Referrer"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        <p className="mt-1 text-xs text-gray-500">
-                                            This is lookup table for customer to make it referrer
-                                        </p>
-                                    </div>
+                                    )}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Inquiries / Notes (Optional)</label>
                                         <textarea
@@ -664,7 +660,7 @@ export default function SubscribeModal({ isOpen, onClose }: SubscribeModalProps)
                                     disabled={isSubmitting}
                                     className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center justify-center"
                                 >
-                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Yes, Create'}
+                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Yes, Apply'}
                                 </button>
                             </div>
                         </div>

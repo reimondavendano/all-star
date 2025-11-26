@@ -27,26 +27,17 @@ export default function ProfilePage() {
 
     const fetchProfile = async () => {
         try {
-            const portalPath = `/portal/${params.id}`;
+            const customerId = params.id as string;
 
-            // First get the subscription to find the customer ID
-            const { data: subData, error: subError } = await supabase
-                .from('subscriptions')
-                .select('subscriber_id')
-                .eq('customer_portal', portalPath)
-                .single();
-
-            if (subError) throw subError;
-            if (!subData) throw new Error('Subscription not found');
-
-            // Then fetch customer details
+            // Directly fetch customer details using the ID from params
             const { data: customerData, error: customerError } = await supabase
                 .from('customers')
                 .select('id, name, mobile_number')
-                .eq('id', subData.subscriber_id)
+                .eq('id', customerId)
                 .single();
 
             if (customerError) throw customerError;
+            if (!customerData) throw new Error('Customer not found');
 
             setProfile(customerData);
         } catch (err) {

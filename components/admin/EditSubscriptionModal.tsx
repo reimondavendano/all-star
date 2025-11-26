@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
 
 // Dynamically import MapPicker
-// Dynamically import MapPicker
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
     loading: () => (
@@ -53,6 +52,8 @@ interface EditSubscriptionModalProps {
     subscription: Subscription;
     onUpdate: () => void;
 }
+
+const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
 
 export default function EditSubscriptionModal({ isOpen, onClose, subscription, onUpdate }: EditSubscriptionModalProps) {
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
@@ -148,14 +149,13 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             const data = await response.json();
 
             if (data && data.address) {
-                const barangay = data.address.quarter || data.address.neighbourhood || data.address.suburb || '';
+                // Don't auto-set barangay here to respect dropdown
                 const street = data.address.road || '';
                 const houseNumber = data.address.house_number || '';
                 const city = data.address.city || data.address.town || '';
 
                 setFormData(prev => ({
                     ...prev,
-                    barangay: barangay,
                     address: `${houseNumber} ${street}, ${city}`.trim(),
                 }));
             }
@@ -167,6 +167,14 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const handleLocationSelect = (lat: number, lng: number) => {
         setCoordinates({ lat, lng });
         fetchAddress(lat, lng);
+    };
+
+    const handleBarangayChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedBarangay = e.target.value;
+        setFormData(prev => ({ ...prev, barangay: selectedBarangay }));
+
+        // Always focus on Malolos when changing barangay
+        setCoordinates({ lat: 14.8437, lng: 120.8113 });
     };
 
     const handleUpdateClick = () => {
@@ -215,6 +223,11 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     };
 
     if (!isOpen) return null;
+
+    // Calculate min date for installation (tomorrow)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const minDate = tomorrow.toISOString().split('T')[0];
 
     return (
         <>
@@ -369,6 +382,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                 <input
                                     type="date"
                                     value={formData.date_installed}
+                                    min={minDate}
                                     onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
                                 />
@@ -423,7 +437,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                 <div className="h-64 rounded-lg overflow-hidden border border-gray-800 relative z-0">
                                     <MapPicker
                                         onChange={(val) => handleLocationSelect(val.lat, val.lng)}
-                                        center={coordinates ? [coordinates.lat, coordinates.lng] : [14.5995, 120.9842]}
+                                        center={coordinates ? [coordinates.lat, coordinates.lng] : [14.8437, 120.8113]}
                                         value={coordinates}
                                     />
                                 </div>
@@ -454,15 +468,19 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">Barangay</label>
-                                        <input
-                                            type="text"
+                                        <select
                                             value={formData.barangay}
-                                            onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
+                                            onChange={handleBarangayChange}
                                             className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                        />
+                                        >
+                                            <option value="">Select Barangay</option>
+                                            {BARANGAY_OPTIONS.map(opt => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Address</label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Complete Address (House No/Street/Subd/Sitio)</label>
                                         <textarea
                                             value={formData.address}
                                             onChange={(e) => setFormData({ ...formData, address: e.target.value })}

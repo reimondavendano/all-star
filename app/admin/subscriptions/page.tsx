@@ -350,31 +350,13 @@ export default function SubscriptionsPage() {
                                                                     {/* Level 3: Details */}
                                                                     {expandedSubscription === subscription.id && (
                                                                         <tr className="bg-[#151515] border-b border-gray-800">
-                                                                            <td colSpan={6} className="p-6 pl-12">
+                                                                            <td colSpan={7} className="p-6 pl-12">
                                                                                 <div className="grid grid-cols-2 gap-6">
                                                                                     <div>
                                                                                         <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase">Customer Information</h3>
                                                                                         <div className="space-y-3">
                                                                                             <div className="flex items-start gap-3">
                                                                                                 <User className="w-4 h-4 text-blue-500 mt-0.5" />
-                                                                                                <div className="flex-1">
-                                                                                                    <label className="text-xs text-gray-500">Customer Name</label>
-                                                                                                    <p className="text-sm text-white">{subscription.customer_name}</p>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            <div className="flex items-start gap-3">
-                                                                                                <UserCheck className="w-4 h-4 text-teal-500 mt-0.5" />
-                                                                                                <div className="flex-1">
-                                                                                                    <label className="text-xs text-gray-500">Contact Person</label>
-                                                                                                    <p className="text-sm text-gray-300">{subscription.contact_person || '-'}</p>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            <div className="flex items-start gap-3">
-                                                                                                {subscription.active ? (
-                                                                                                    <ToggleRight className="w-4 h-4 text-green-500 mt-0.5" />
-                                                                                                ) : (
-                                                                                                    <ToggleLeft className="w-4 h-4 text-red-500 mt-0.5" />
-                                                                                                )}
                                                                                                 <div className="flex-1">
                                                                                                     <label className="text-xs text-gray-500">Status</label>
                                                                                                     <p className={`text-sm font-medium ${subscription.active ? 'text-green-500' : 'text-red-500'

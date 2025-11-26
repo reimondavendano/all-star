@@ -178,17 +178,18 @@ export default function ProspectsPage() {
                             <th className="w-10"></th>
                             <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Name</th>
                             <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Mobile</th>
-                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Barangay</th>
-                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Address</th>
+                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Address/Brgy</th>
+                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Plan</th>
+                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Installation</th>
+                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Details</th>
                             <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Created Date</th>
                             <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {isLoading ? (
                             <tr>
-                                <td colSpan={8} className="text-center p-8 text-gray-500">
+                                <td colSpan={9} className="text-center p-8 text-gray-500">
                                     Loading...
                                 </td>
                             </tr>
@@ -216,8 +217,12 @@ export default function ProspectsPage() {
                                         </td>
                                         <td className="p-4 text-white" onClick={() => toggleRow(prospect.id)}>{prospect.name}</td>
                                         <td className="p-4 text-gray-400" onClick={() => toggleRow(prospect.id)}>{prospect.mobile_number || '-'}</td>
-                                        <td className="p-4 text-gray-400" onClick={() => toggleRow(prospect.id)}>{prospect.barangay || '-'}</td>
-                                        <td className="p-4 text-gray-400 max-w-xs truncate" onClick={() => toggleRow(prospect.id)}>{prospect.address || '-'}</td>
+                                        <td className="p-4 text-gray-400 max-w-xs truncate" onClick={() => toggleRow(prospect.id)}>
+                                            {prospect.address && prospect.barangay ? `${prospect.address}, ${prospect.barangay}` : prospect.address || prospect.barangay || '-'}
+                                        </td>
+                                        <td className="p-4 text-gray-400" onClick={() => toggleRow(prospect.id)}>{getPlanDisplay(prospect.plan_id)}</td>
+                                        <td className="p-4 text-gray-400" onClick={() => toggleRow(prospect.id)}>{formatDate(prospect.installation_date)}</td>
+                                        <td className="p-4 text-gray-400 max-w-xs truncate" onClick={() => toggleRow(prospect.id)}>{prospect.details || '-'}</td>
                                         <td className="p-4" onClick={() => toggleRow(prospect.id)}>
                                             <span className={`text-xs font-medium ${prospect.status === 'Open'
                                                 ? 'text-green-500'
@@ -228,7 +233,6 @@ export default function ProspectsPage() {
                                                 {prospect.status}
                                             </span>
                                         </td>
-                                        <td className="p-4 text-gray-400" onClick={() => toggleRow(prospect.id)}>{formatDate(prospect.created_at)}</td>
                                         <td className="p-4">
                                             <div className="flex items-center gap-2">
                                                 <button
@@ -257,7 +261,7 @@ export default function ProspectsPage() {
 
                                     {expandedRow === prospect.id && (
                                         <tr className="border-b border-gray-900 bg-[#0f0f0f]">
-                                            <td colSpan={8} className="p-6">
+                                            <td colSpan={9} className="p-6">
                                                 <div className="grid grid-cols-2 gap-6">
                                                     <div>
                                                         <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase">Basic Information</h3>
