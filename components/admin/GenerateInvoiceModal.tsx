@@ -150,10 +150,10 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             // ============================================
 
             const invoices = subsWithBalances.map(sub => {
-                let amountDue = sub.plans.monthly_fee + sub.currentBalance;
-
-                // Ensure amount doesn't go below 0
-                if (amountDue < 0) amountDue = 0;
+                // Amount due is just the monthly fee. 
+                // Previous balances (credits/debts) remain in the subscription 
+                // and will be reconciled during payment recording.
+                const amountDue = sub.plans.monthly_fee;
 
                 return {
                     subscription_id: sub.id,
@@ -165,16 +165,11 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 };
             });
 
+            // Insert invoices
             const { error } = await supabase.from('invoices').insert(invoices);
             if (error) throw error;
 
-            // Reset all subscription balances to 0 after generating invoices
-            // The balance from previous month is now included in the invoice amount_due
-            const subscriptionIds = subsToInvoice.map(s => s.id);
-            await supabase
-                .from('subscriptions')
-                .update({ balance: 0 })
-                .in('id', subscriptionIds);
+            // We do NOT reset subscription balances. They persist until paid/reconciled.
 
             onSuccess();
             onClose();
@@ -236,10 +231,10 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                                 onClick={() => setCycleDate('15th')}
                                 disabled={!!(selectedUnit && businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('malanggam'))}
                                 className={`flex-1 py-2 rounded-lg border transition-colors ${cycleDate === '15th'
-                                        ? 'bg-blue-600 border-blue-600 text-white'
-                                        : selectedUnit && businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('malanggam')
-                                            ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
-                                            : 'bg-[#1a1a1a] border-gray-800 text-gray-400 hover:border-gray-700'
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : selectedUnit && businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('malanggam')
+                                        ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
+                                        : 'bg-[#1a1a1a] border-gray-800 text-gray-400 hover:border-gray-700'
                                     }`}
                             >
                                 15th
@@ -252,10 +247,10 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                                 onClick={() => setCycleDate('30th')}
                                 disabled={!!(selectedUnit && (businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('bulihan') || businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('extension')))}
                                 className={`flex-1 py-2 rounded-lg border transition-colors ${cycleDate === '30th'
-                                        ? 'bg-blue-600 border-blue-600 text-white'
-                                        : selectedUnit && (businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('bulihan') || businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('extension'))
-                                            ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
-                                            : 'bg-[#1a1a1a] border-gray-800 text-gray-400 hover:border-gray-700'
+                                    ? 'bg-blue-600 border-blue-600 text-white'
+                                    : selectedUnit && (businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('bulihan') || businessUnits.find(u => u.id === selectedUnit)?.name.toLowerCase().includes('extension'))
+                                        ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
+                                        : 'bg-[#1a1a1a] border-gray-800 text-gray-400 hover:border-gray-700'
                                     }`}
                             >
                                 30th

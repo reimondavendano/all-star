@@ -117,38 +117,11 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             if (paymentError) throw paymentError;
 
             // ============================================
-            // BALANCE CALCULATION LOGIC
-            // ============================================
-            // Formula: balance = (monthly_fee - payment) + previous_balance
-            //
-            // Scenarios:
-            // 1. Full Payment: monthly=999, payment=999, prev=0
-            //    → balance = (999-999) + 0 = 0 ✓
-            //
-            // 2. Partial Payment: monthly=999, payment=300, prev=0
-            //    → balance = (999-300) + 0 = 699 (owes 699) ✓
-            //
-            // 3. Overpayment: monthly=999, payment=2000, prev=0
-            //    → balance = (999-2000) + 0 = -1001 (credit 1001) ✓
-            //
-            // 4. Payment with existing balance: monthly=999, payment=999, prev=699
-            //    → balance = (999-999) + 699 = 699 (still owes 699)
-            //
-            // 5. Full payment of debt: monthly=999, payment=1698, prev=699
-            //    → balance = (999-1698) + 699 = 0 ✓
+            // NEW BALANCE & INVOICE LOGIC
             // ============================================
 
-            let newBalance = (monthlyFee - paymentAmount) + currentBalance;
-
-            // Update subscription balance
-            await supabase
-                .from('subscriptions')
-                .update({ balance: newBalance })
-                .eq('id', selectedSubscriber);
-
-            // Get the current month's invoice for this subscription
-            const currentMonth = new Date().toISOString().slice(0, 7);
-            const [year, month] = currentMonth.split('-');
+            // 1. Find the invoice for the settlement month
+            const [year, month] = settlementDate.split('-');
             const startDate = new Date(parseInt(year), parseInt(month) - 1, 1).toISOString().split('T')[0];
             const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
 
@@ -160,26 +133,51 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                 .lte('due_date', endDate)
                 .order('due_date', { ascending: true });
 
-            // Update invoice payment status
-            if (invoices && invoices.length > 0) {
-                const invoice = invoices[0];
+            const invoice = invoices && invoices.length > 0 ? invoices[0] : null;
+            const invoiceAmount = invoice ? invoice.amount_due : 0;
+
+            // 2. Calculate Total Payments for this month/invoice
+            const { data: allPayments } = await supabase
+                .from('payments')
+                .select('amount')
+                .eq('subscription_id', selectedSubscriber)
+                .gte('settlement_date', startDate)
+                .lte('settlement_date', endDate);
+
+            const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+            // 3. Calculate New Balance
+            // We need to isolate "AdHoc" adjustments (like referrals) from the invoice debt.
+            // If this is the first payment (totalPaid approx equals paymentAmount), AdHoc is just the current balance.
+            // If subsequent, we reverse the previous invoice-debt effect to find AdHoc.
+
+            let adHocBalance = currentBalance;
+
+            // If we have an invoice (or treating 0 as invoice) and this is NOT the first payment
+            if (Math.abs(totalPaid - paymentAmount) > 0.01) {
+                const previousTotalPaid = totalPaid - paymentAmount;
+                const previousRemainingDebt = invoiceAmount - previousTotalPaid;
+                adHocBalance = currentBalance - previousRemainingDebt;
+            }
+
+            // New Balance = (InvoiceDebt - TotalPaid) + AdHoc
+            // If no invoice, InvoiceDebt is 0.
+            const newBalance = (invoiceAmount - totalPaid) + adHocBalance;
+
+            // Update subscription balance
+            await supabase
+                .from('subscriptions')
+                .update({ balance: newBalance })
+                .eq('id', selectedSubscriber);
+
+            // 4. Update Invoice Status
+            if (invoice) {
                 let paymentStatus: 'Paid' | 'Unpaid' | 'Partially Paid' = 'Unpaid';
 
-                // Check total payments for this invoice period
-                const { data: allPayments } = await supabase
-                    .from('payments')
-                    .select('amount')
-                    .eq('subscription_id', selectedSubscriber)
-                    .gte('settlement_date', startDate)
-                    .lte('settlement_date', endDate);
-
-                const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-
-                if (totalPaid >= monthlyFee) {
-                    // Full payment or overpayment
+                // We compare Total Paid against Invoice Amount
+                if (totalPaid >= invoiceAmount) {
                     paymentStatus = 'Paid';
-                } else if (totalPaid > 0 && totalPaid < monthlyFee) {
-                    // Partial payment
+                } else if (totalPaid > 0) {
                     paymentStatus = 'Partially Paid';
                 }
 

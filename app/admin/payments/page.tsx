@@ -436,14 +436,35 @@ export default function PaymentsPage() {
                                                                                         Amount Due: <span className="text-white font-medium">₱{invoice.amount_due.toLocaleString()}</span>
                                                                                     </div>
                                                                                 )}
+
                                                                                 <div className="text-xs text-green-400">
-                                                                                    Paid: ₱{(invoice.total_paid || 0).toLocaleString()}
+                                                                                    {invoice.payment_status === 'Partially Paid' ? 'Downpayment: ' : 'Amount Paid: '}
+                                                                                    ₱{(invoice.total_paid || 0).toLocaleString()}
                                                                                 </div>
-                                                                                {!invoice.is_virtual && (
-                                                                                    <div className={`text-xs font-medium ${(invoice.remaining_balance || 0) > 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                                                                                        Balance: ₱{(invoice.remaining_balance || 0).toLocaleString()}
-                                                                                    </div>
-                                                                                )}
+
+                                                                                {!invoice.is_virtual && (() => {
+                                                                                    const subBalance = invoice.subscriptions.balance || 0;
+                                                                                    const displayBalance = invoice.payment_status === 'Unpaid'
+                                                                                        ? (invoice.amount_due + subBalance)
+                                                                                        : subBalance;
+
+                                                                                    let label = 'Balance';
+                                                                                    let color = 'text-gray-500';
+
+                                                                                    if (displayBalance < 0) {
+                                                                                        label = 'Extra Balance';
+                                                                                        color = 'text-green-400';
+                                                                                    } else if (displayBalance > 0) {
+                                                                                        label = 'Credit Balance';
+                                                                                        color = 'text-red-400';
+                                                                                    }
+
+                                                                                    return (
+                                                                                        <div className={`text-xs font-medium ${color}`}>
+                                                                                            {label}: ₱{Math.abs(displayBalance).toLocaleString()}
+                                                                                        </div>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                         </div>
                                                                         <div className={`px-3 py-1 rounded-full text-xs font-medium ${invoice.payment_status === 'Paid'
