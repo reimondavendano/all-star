@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import {
     Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, ChevronDown, ChevronUp,
     User, Building2, Wifi, MapPin, Home, Landmark as LandmarkIcon, Calendar,
-    CreditCard, UserCheck, ExternalLink, ToggleLeft, ToggleRight, Plus
+    CreditCard, UserCheck, ExternalLink, ToggleLeft, ToggleRight, Plus, DollarSign
 } from 'lucide-react';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
@@ -32,6 +32,7 @@ interface Subscription {
     plan_name?: string;
     plan_fee?: number;
     business_unit_name?: string;
+    balance?: number;
 }
 
 export default function SubscriptionsPage() {
@@ -426,6 +427,17 @@ export default function SubscriptionsPage() {
                                                                                     <div>
                                                                                         <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase">Billing & Portal</h3>
                                                                                         <div className="space-y-3">
+                                                                                            <div className="flex items-start gap-3">
+                                                                                                <DollarSign className="w-4 h-4 text-green-500 mt-0.5" />
+                                                                                                <div className="flex-1">
+                                                                                                    <label className="text-xs text-gray-500">
+                                                                                                        {(subscription.balance || 0) < 0 ? 'Extra Balance' : (subscription.balance || 0) > 0 ? 'Credit Balance' : 'Balance'}
+                                                                                                    </label>
+                                                                                                    <p className={`text-sm font-medium ${(subscription.balance || 0) > 0 ? 'text-red-400' : (subscription.balance || 0) < 0 ? 'text-green-400' : 'text-gray-300'}`}>
+                                                                                                        ₱{Math.abs(subscription.balance || 0).toLocaleString()}
+                                                                                                    </p>
+                                                                                                </div>
+                                                                                            </div>
                                                                                             <div className="flex items-start gap-3">
                                                                                                 <CreditCard className="w-4 h-4 text-emerald-500 mt-0.5" />
                                                                                                 <div className="flex-1">

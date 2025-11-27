@@ -20,7 +20,7 @@ export async function getMikrotikData() {
         user,
         password,
         port,
-        timeout: 30, // Increased timeout to 30 seconds
+        timeout: 5000, // Increased timeout to 30 seconds
         keepalive: true,
 
     });

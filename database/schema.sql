@@ -8,6 +8,7 @@ create type invoice_date_enum as enum ('15th', '30th');
 create type payment_mode as enum ('Cash', 'E-Wallet', 'Referral Credit');
 create type expense_reason as enum ('Maintenance', 'Materials', 'Transportation', 'Others');
 create type barangay_enum as enum ('Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon');
+create type invoice_status as enum ('Paid', 'Unpaid', 'Partially Paid');
 
 -- Business Units
 create table public.business_units (
@@ -85,6 +86,7 @@ create table public.subscriptions (
   invoice_date invoice_date_enum,
   customer_portal text,
   referral_credit_applied boolean default false,
+  balance numeric default 0,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -96,7 +98,7 @@ create table public.invoices (
   to_date date,
   due_date date,
   amount_due numeric not null,
-  paid boolean default false,
+  payment_status invoice_status default 'Unpaid',
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

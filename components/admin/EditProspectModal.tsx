@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2 } from 'lucide-react';
+import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2, ClipboardCheck, Hash, UserCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import dynamic from 'next/dynamic';
 
@@ -24,6 +24,7 @@ interface Prospect {
     referrer_id: string;
     details: string;
     status: string;
+    router_serial_number?: string;
     created_at: string;
     'x-coordinates'?: number;
     'y-coordinates'?: number;
@@ -52,13 +53,26 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     const [plans, setPlans] = useState<{ [key: string]: Plan }>({});
     const [isLoading, setIsLoading] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
+    const [showReasonModal, setShowReasonModal] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [reason, setReason] = useState('');
 
     const [formData, setFormData] = useState({
         business_unit_id: prospect.business_unit_id || '',
-        status: prospect.status || 'Closed Won'
+        status: prospect.status || 'Closed Won',
+        installation_date: prospect.installation_date || '',
+        router_serial_number: prospect.router_serial_number || ''
     });
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+    const [referrerName, setReferrerName] = useState<string>('');
+
+    // Calculate tomorrow's date for min attribute (Local Time)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const year = tomorrow.getFullYear();
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const day = String(tomorrow.getDate()).padStart(2, '0');
+    const minDate = `${year}-${month}-${day}`;
 
     useEffect(() => {
         if (isOpen) {
@@ -72,8 +86,43 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             } else {
                 setCoordinates(null);
             }
+            // Initialize form data from prospect
+            let initialDate = prospect.installation_date;
+            if (!initialDate || initialDate < minDate) {
+                initialDate = minDate;
+            }
+
+            setFormData({
+                business_unit_id: prospect.business_unit_id || '',
+                status: prospect.status || 'Closed Won',
+                installation_date: initialDate,
+                router_serial_number: prospect.router_serial_number || ''
+            });
         }
-    }, [isOpen]);
+    }, [isOpen, prospect, minDate]);
+
+    useEffect(() => {
+        if (prospect.referrer_id) {
+            fetchReferrerName();
+        } else {
+            setReferrerName('');
+        }
+    }, [prospect.referrer_id]);
+
+    const fetchReferrerName = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('name')
+                .eq('id', prospect.referrer_id)
+                .single();
+
+            if (error) throw error;
+            if (data) setReferrerName(data.name);
+        } catch (error) {
+            console.error('Error fetching referrer name:', error);
+        }
+    };
 
     const fetchBusinessUnits = async () => {
         try {
@@ -107,24 +156,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         }
     };
 
-    // Auto-set invoice date based on business unit selection
-    useEffect(() => {
-        if (formData.business_unit_id && businessUnits.length > 0) {
-            const unit = businessUnits.find(u => u.id === formData.business_unit_id);
-            if (unit) {
-                const unitName = unit.name.toLowerCase();
-                if (unitName.includes('malanggam')) {
-                    // Malanggam gets 30th
-                    setFormData(prev => ({ ...prev, invoice_date: '30th' }));
-                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
-                    // Bulihan and Extension get 15th
-                    setFormData(prev => ({ ...prev, invoice_date: '15th' }));
-                }
-            }
-        }
-    }, [formData.business_unit_id, businessUnits]);
-
-
     const getPlanDisplay = (planId: string) => {
         if (!planId || !plans[planId]) return '-';
         const plan = plans[planId];
@@ -137,12 +168,60 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         return date.toISOString().split('T')[0];
     };
 
+    // Check if all required fields are filled
+    const isFormValid = () => {
+        return formData.business_unit_id &&
+            formData.business_unit_id !== '' &&
+            formData.status &&
+            formData.installation_date &&
+            formData.router_serial_number;
+    };
+
     const handleApproveClick = () => {
-        if (!formData.business_unit_id) {
-            alert('Please select a Business Unit');
+        if (!isFormValid()) {
+            alert('Please fill in all required fields: Business Unit, Status, Installation Date, and Router Serial');
             return;
         }
-        setShowConfirmation(true);
+
+        // If status is Closed Lost, show reason modal
+        if (formData.status === 'Closed Lost') {
+            setShowReasonModal(true);
+        } else {
+            setShowConfirmation(true);
+        }
+    };
+
+    const handleReasonSubmit = async () => {
+        if (!reason.trim()) {
+            alert('Please provide a reason for Closed Lost status');
+            return;
+        }
+
+        setIsLoading(true);
+        setShowReasonModal(false);
+
+        try {
+            // Update prospect with reason in details field
+            const { error } = await supabase
+                .from('prospects')
+                .update({
+                    status: formData.status,
+                    business_unit_id: formData.business_unit_id,
+                    installation_date: formData.installation_date,
+                    router_serial_number: formData.router_serial_number,
+                    details: reason
+                })
+                .eq('id', prospect.id);
+
+            if (error) throw error;
+
+            setShowSuccess(true);
+        } catch (error) {
+            console.error('Error updating prospect:', error);
+            alert('Failed to update prospect');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleConfirmApprove = async () => {
@@ -151,23 +230,19 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
         try {
             // Determine invoice_date based on business unit
-            const selectedBusinessUnit = businessUnits.find(unit => unit.id === formData.business_unit_id);
-            let invoiceDate = null;
-
-            if (selectedBusinessUnit) {
-                const unitName = selectedBusinessUnit.name.toLowerCase();
-                // Check if business unit is Bulihan & Extension
-                if (unitName.includes('bulihan') || unitName.includes('extension')) {
-                    invoiceDate = '15th';
-                }
-                // Check if business unit is Malanggam
-                else if (unitName.includes('malanggam')) {
-                    invoiceDate = '30th';
+            let invoice_date = '15th'; // default
+            const unit = businessUnits.find(u => u.id === formData.business_unit_id);
+            if (unit) {
+                const unitName = unit.name.toLowerCase();
+                if (unitName.includes('malanggam')) {
+                    invoice_date = '30th';
+                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                    invoice_date = '15th';
                 }
             }
 
-            // 1. Create customer record
-            const { data: customerData, error: customerError } = await supabase
+            // 1. Create customer
+            const { data: newCustomer, error: customerError } = await supabase
                 .from('customers')
                 .insert({
                     name: prospect.name,
@@ -178,30 +253,91 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
             if (customerError) throw customerError;
 
-            // 2. Create subscription record with customer_portal
-            const { error: subscriptionError } = await supabase
+            // 2. Create subscription
+            const { data: newSubscription, error: subscriptionError } = await supabase
                 .from('subscriptions')
                 .insert({
-                    subscriber_id: customerData.id,
-                    business_unit_id: formData.business_unit_id,
+                    subscriber_id: newCustomer.id,
                     plan_id: prospect.plan_id,
-                    active: true,
-                    date_installed: prospect.installation_date,
-                    contact_person: prospect.referrer_id, // referrer_id maps to contact_person
+                    business_unit_id: formData.business_unit_id,
                     address: prospect.address,
-                    barangay: prospect.barangay,
+                    label: prospect.label,
                     landmark: prospect.landmark,
-                    label: prospect.label, // Copy label from prospect
-                    customer_portal: `/portal/${customerData.id}`, // Set customer_portal in subscriptions
-                    invoice_date: invoiceDate, // Automatically set based on business unit
-                    referral_credit_applied: false,
+                    barangay: prospect.barangay,
+                    invoice_date: invoice_date,
+                    contact_person: prospect.referrer_id || null,
+                    router_serial_number: formData.router_serial_number,
                     'x-coordinates': coordinates?.lng || null,
                     'y-coordinates': coordinates?.lat || null
-                });
+                })
+                .select()
+                .single();
 
             if (subscriptionError) throw subscriptionError;
 
-            // 3. Delete the prospect from prospects table (conversion complete)
+            // 3. Referral Logic: If referrer exists, create a 300 payment for the REFERRER's subscription
+            if (prospect.referrer_id) {
+                console.log('Processing referral for:', prospect.referrer_id);
+
+                // Find referrer's subscription (Latest one created)
+                const { data: referrerSubs, error: subError } = await supabase
+                    .from('subscriptions')
+                    .select('id, balance')
+                    .eq('subscriber_id', prospect.referrer_id)
+                    .order('created_at', { ascending: false }) // Latest subscription
+                    .limit(1);
+
+                if (subError) {
+                    console.error('Error finding referrer subscription:', subError);
+                }
+
+                const referrerSub = referrerSubs && referrerSubs.length > 0 ? referrerSubs[0] : null;
+                console.log('Referrer subscription found:', referrerSub);
+
+                if (referrerSub) {
+                    // Create referral credit payment
+                    const { error: referralError } = await supabase
+                        .from('payments')
+                        .insert({
+                            subscription_id: referrerSub.id,
+                            amount: 300,
+                            mode: 'Referral Credit',
+                            notes: `Referral bonus for new subscriber: ${prospect.name}`,
+                            settlement_date: new Date().toISOString().split('T')[0]
+                        });
+
+                    if (referralError) {
+                        console.error('Error creating referral credit:', referralError);
+                    }
+
+                    // Update referrer's balance by subtracting 300
+                    const currentBalance = Number(referrerSub.balance) || 0;
+                    const newBalance = currentBalance - 300;
+
+                    console.log(`Updating balance from ${currentBalance} to ${newBalance}`);
+
+                    const { error: updateError } = await supabase
+                        .from('subscriptions')
+                        .update({
+                            balance: newBalance,
+                            referral_credit_applied: true
+                        })
+                        .eq('id', referrerSub.id);
+
+                    if (updateError) {
+                        console.error('Error updating referrer balance:', updateError);
+                        // alert('Failed to update referrer balance: ' + updateError.message);
+                    } else {
+                        console.log('Referrer balance updated successfully');
+                        // alert(`Referral credit applied! New Balance: ${newBalance}`);
+                    }
+                } else {
+                    console.warn('No subscription found for referrer:', prospect.referrer_id);
+                    // alert('Referrer has no subscription to apply credit to.');
+                }
+            }
+
+            // 4. Delete the prospect from prospects table (conversion complete)
             const { error: prospectError } = await supabase
                 .from('prospects')
                 .delete()
@@ -209,11 +345,11 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
             if (prospectError) throw prospectError;
 
-            // Show success modal
             setShowSuccess(true);
+
         } catch (error) {
             console.error('Error approving prospect:', error);
-            alert('Failed to approve prospect and create customer/subscription');
+            alert('Failed to approve prospect. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -236,8 +372,11 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     {/* Header */}
                     <div className="sticky top-0 bg-[#0a0a0a] border-b border-red-900/30 p-6 flex justify-between items-center">
                         <div>
-                            <h2 className="text-2xl font-bold text-white neon-text">Edit Prospect</h2>
-                            <p className="text-gray-400 text-sm mt-1">Update prospect information and status</p>
+                            <h2 className="text-2xl font-bold text-white neon-text flex items-center gap-2">
+                                <ClipboardCheck className="w-6 h-6" />
+                                Verify Prospect
+                            </h2>
+                            <p className="text-gray-400 text-sm mt-1">Review and verify prospect information</p>
                         </div>
                         <button
                             onClick={onClose}
@@ -249,12 +388,12 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     {/* Content */}
                     <div className="p-6 space-y-6">
-                        {/* Editable Fields */}
-                        <div className="grid grid-cols-2 gap-4 p-4 bg-[#0f0f0f] border border-red-900/20 rounded-lg">
+                        {/* Editable Fields - 4 columns */}
+                        <div className="grid grid-cols-4 gap-4 p-4 bg-[#0f0f0f] border border-red-900/20 rounded-lg">
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
                                     <Building2 className="w-4 h-4 inline mr-2" />
-                                    Business Unit
+                                    Business Unit <span className="text-red-500">*</span>
                                 </label>
                                 <select
                                     value={formData.business_unit_id}
@@ -273,7 +412,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
                                     <FileText className="w-4 h-4 inline mr-2" />
-                                    Status
+                                    Status <span className="text-red-500">*</span>
                                 </label>
                                 <select
                                     value={formData.status}
@@ -283,6 +422,34 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     <option value="Closed Won">Closed Won</option>
                                     <option value="Closed Lost">Closed Lost</option>
                                 </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    <Calendar className="w-4 h-4 inline mr-2" />
+                                    Installation Date <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="date"
+                                    value={formData.installation_date}
+                                    min={minDate}
+                                    onChange={(e) => setFormData({ ...formData, installation_date: e.target.value })}
+                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    <Hash className="w-4 h-4 inline mr-2" />
+                                    Router Serial <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.router_serial_number}
+                                    onChange={(e) => setFormData({ ...formData, router_serial_number: e.target.value })}
+                                    placeholder="Enter serial number"
+                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                />
                             </div>
                         </div>
 
@@ -295,31 +462,17 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                 </h3>
                                 <div className="space-y-4">
                                     <div className="flex items-start gap-3">
-                                        <User className="w-5 h-5 text-blue-500 mt-0.5" />
+                                        <User className="w-4 h-4 text-blue-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Name</label>
-                                            <p className="text-sm text-white font-medium">{prospect.name}</p>
+                                            <p className="text-sm text-white">{prospect.name}</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
-                                        <Phone className="w-5 h-5 text-green-500 mt-0.5" />
+                                        <Phone className="w-4 h-4 text-green-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Mobile Number</label>
                                             <p className="text-sm text-gray-300">{prospect.mobile_number || '-'}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <FileText className="w-5 h-5 text-purple-500 mt-0.5" />
-                                        <div className="flex-1">
-                                            <label className="text-xs text-gray-500">Current Status</label>
-                                            <p className={`text-sm font-medium ${prospect.status === 'Open'
-                                                ? 'text-green-500'
-                                                : prospect.status === 'Converted'
-                                                    ? 'text-blue-500'
-                                                    : 'text-red-500'
-                                                }`}>
-                                                {prospect.status}
-                                            </p>
                                         </div>
                                     </div>
                                 </div>
@@ -332,92 +485,96 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                 </h3>
                                 <div className="space-y-4">
                                     <div className="flex items-start gap-3">
-                                        <MapPin className="w-5 h-5 text-red-500 mt-0.5" />
+                                        <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Barangay</label>
                                             <p className="text-sm text-gray-300">{prospect.barangay || '-'}</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
-                                        <Home className="w-5 h-5 text-orange-500 mt-0.5" />
+                                        <Home className="w-4 h-4 text-orange-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Address</label>
                                             <p className="text-sm text-gray-300">{prospect.address || '-'}</p>
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
-                                        <LandmarkIcon className="w-5 h-5 text-yellow-500 mt-0.5" />
+                                        <LandmarkIcon className="w-4 h-4 text-yellow-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Landmark</label>
                                             <p className="text-sm text-gray-300">{prospect.landmark || '-'}</p>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Service Information */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
+                                    Service Information
+                                </h3>
+                                <div className="space-y-4">
                                     <div className="flex items-start gap-3">
-                                        <Building2 className="w-5 h-5 text-indigo-500 mt-0.5" />
+                                        <Wifi className="w-4 h-4 text-cyan-500 mt-0.5" />
                                         <div className="flex-1">
-                                            <label className="text-xs text-gray-500">Location Type</label>
-                                            <p className="text-sm text-gray-300">{prospect.label || '-'}</p>
+                                            <label className="text-xs text-gray-500">Plan</label>
+                                            <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
                                         </div>
                                     </div>
+                                    {prospect.label && (
+                                        <div className="flex items-start gap-3">
+                                            <FileText className="w-4 h-4 text-purple-500 mt-0.5" />
+                                            <div className="flex-1">
+                                                <label className="text-xs text-gray-500">Label</label>
+                                                <p className="text-sm text-gray-300">{prospect.label}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Additional Details */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
+                                    Additional Details
+                                </h3>
+                                <div className="space-y-4">
+                                    {prospect.referrer_id && (
+                                        <div className="flex items-start gap-3">
+                                            <UserCheck className="w-4 h-4 text-teal-500 mt-0.5" />
+                                            <div className="flex-1">
+                                                <label className="text-xs text-gray-500">Referrer</label>
+                                                <p className="text-sm text-gray-300 font-medium">{referrerName || 'Loading...'}</p>
+                                                <p className="text-xs text-gray-500 font-mono mt-0.5">{prospect.referrer_id}</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {prospect.details && (
+                                        <div className="flex items-start gap-3">
+                                            <FileText className="w-4 h-4 text-amber-500 mt-0.5" />
+                                            <div className="flex-1">
+                                                <label className="text-xs text-gray-500">Notes</label>
+                                                <p className="text-sm text-gray-300">{prospect.details}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Map Location */}
-                        <div className="col-span-2">
-                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
-                                Map Location
-                            </h3>
-                            <div className="h-[300px] w-full rounded-lg overflow-hidden border border-red-900/30 relative bg-[#0f0f0f]">
-                                <MapPicker
-                                    center={coordinates ? [coordinates.lat, coordinates.lng] : [14.3150, 121.0100]}
-                                    value={coordinates}
-                                    onChange={setCoordinates}
-                                />
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">
-                                Click or drag the marker to set the exact location.
-                            </p>
-                        </div>
-
-                        {/* Service Information */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
-                                Service Information
-                            </h3>
-                            <div className="space-y-4">
-                                <div className="flex items-start gap-3">
-                                    <Wifi className="w-5 h-5 text-cyan-500 mt-0.5" />
-                                    <div className="flex-1">
-                                        <label className="text-xs text-gray-500">Plan</label>
-                                        <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-start gap-3">
-                                    <Calendar className="w-5 h-5 text-pink-500 mt-0.5" />
-                                    <div className="flex-1">
-                                        <label className="text-xs text-gray-500">Installation Date</label>
-                                        <p className="text-sm text-gray-300">{formatDate(prospect.installation_date)}</p>
-                                    </div>
+                        {/* Map */}
+                        {coordinates && (
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase">Location Map</h3>
+                                <div className="w-full h-64 rounded-lg overflow-hidden border border-gray-800">
+                                    <MapPicker
+                                        center={[coordinates.lat, coordinates.lng]}
+                                        value={coordinates}
+                                        onChange={() => { }}
+                                    />
                                 </div>
                             </div>
-                        </div>
-
-                        {/* Additional Details */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">
-                                Additional Details
-                            </h3>
-                            <div className="space-y-4">
-                                <div className="flex items-start gap-3">
-                                    <FileText className="w-5 h-5 text-amber-500 mt-0.5" />
-                                    <div className="flex-1">
-                                        <label className="text-xs text-gray-500">Details / Notes</label>
-                                        <p className="text-sm text-gray-300">{prospect.details || '-'}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        )}
                     </div>
 
                     {/* Footer */}
@@ -430,12 +587,15 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                         </button>
                         <button
                             onClick={handleApproveClick}
-                            disabled={isLoading}
-                            className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!isFormValid() || isLoading}
+                            className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${isFormValid() && !isLoading
+                                ? 'bg-green-600 hover:bg-green-700 text-white'
+                                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                }`}
                         >
                             {isLoading ? (
                                 <>
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <Loader2 className="w-4 h-4 animate-spin" />
                                     Processing...
                                 </>
                             ) : (
@@ -449,20 +609,56 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 </div>
             </div>
 
+            {/* Reason Modal for Closed Lost */}
+            {showReasonModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowReasonModal(false)} />
+                    <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-md p-6">
+                        <h3 className="text-xl font-bold text-white mb-4">Reason for Closed Lost</h3>
+                        <p className="text-gray-400 text-sm mb-4">Please provide a reason why this prospect is marked as Closed Lost:</p>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            rows={4}
+                            placeholder="Enter reason..."
+                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 resize-none"
+                        />
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => setShowReasonModal(false)}
+                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleReasonSubmit}
+                                disabled={!reason.trim() || isLoading}
+                                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${reason.trim() && !isLoading
+                                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    }`}
+                            >
+                                {isLoading ? 'Saving...' : 'Submit'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Confirmation Modal */}
-            {
-                showConfirmation && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                        <div className="relative bg-[#0a0a0a] border-2 border-yellow-500/50 rounded-xl shadow-[0_0_50px_rgba(255,255,0,0.3)] w-full max-w-md p-6">
-                            <div className="flex items-center gap-3 mb-4">
-                                <AlertCircle className="w-8 h-8 text-yellow-500" />
-                                <h3 className="text-xl font-bold text-white">Confirm Approval</h3>
+            {showConfirmation && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowConfirmation(false)} />
+                    <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.2)] w-full max-w-md p-6">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-12 h-12 bg-green-900/20 rounded-full flex items-center justify-center mb-4">
+                                <AlertCircle className="w-6 h-6 text-green-500" />
                             </div>
-                            <p className="text-gray-300 mb-6">
-                                This will create a customer and subscription record. Are you sure you want to proceed?
+                            <h3 className="text-xl font-bold text-white mb-2">Confirm Approval</h3>
+                            <p className="text-gray-400 mb-6">
+                                Are you sure you want to approve this prospect? This will create a customer and subscription record.
                             </p>
-                            <div className="flex gap-3">
+                            <div className="flex gap-3 w-full">
                                 <button
                                     onClick={() => setShowConfirmation(false)}
                                     className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
@@ -473,37 +669,39 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     onClick={handleConfirmApprove}
                                     className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
                                 >
-                                    Confirm
+                                    Yes, Approve
                                 </button>
                             </div>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
 
             {/* Success Modal */}
-            {
-                showSuccess && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                        <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.3)] w-full max-w-md p-6">
-                            <div className="flex items-center gap-3 mb-4">
+            {showSuccess && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+                    <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.3)] w-full max-w-md p-6">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-green-900/20 rounded-full flex items-center justify-center mb-4">
                                 <CheckCircle className="w-8 h-8 text-green-500" />
-                                <h3 className="text-xl font-bold text-white">Success!</h3>
                             </div>
-                            <p className="text-gray-300 mb-6">
-                                Customer and subscription have been created successfully!
+                            <h3 className="text-2xl font-bold text-white mb-2">Success!</h3>
+                            <p className="text-gray-400 mb-6">
+                                {formData.status === 'Closed Lost'
+                                    ? 'Prospect has been updated with the reason.'
+                                    : 'Prospect has been successfully approved and converted to a customer.'}
                             </p>
                             <button
                                 onClick={handleSuccessClose}
-                                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                                className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
                             >
-                                Done
+                                Close
                             </button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
         </>
     );
 }

@@ -426,7 +426,7 @@ export default function ProspectsPage() {
             </div>
 
             {showModal && (
-                <SubscribeModal isOpen={showModal} onClose={handleModalClose} />
+                <SubscribeModal isOpen={showModal} onClose={handleModalClose} isAdmin={true} />
             )}
 
             {editingProspect && (

@@ -14,6 +14,7 @@ interface DataTableProps<T> {
     title: string;
     actionLabel?: string;
     onAction?: () => void;
+    filters?: React.ReactNode;
 }
 
 export default function DataTable<T extends { id: string }>({
@@ -21,7 +22,8 @@ export default function DataTable<T extends { id: string }>({
     columns,
     title,
     actionLabel,
-    onAction
+    onAction,
+    filters
 }: DataTableProps<T>) {
     return (
         <div className="glass-card overflow-hidden">
@@ -29,6 +31,7 @@ export default function DataTable<T extends { id: string }>({
                 <h2 className="text-xl font-semibold text-white">{title}</h2>
 
                 <div className="flex items-center gap-3">
+                    {filters}
                     <div className="relative">
                         <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
                         <input

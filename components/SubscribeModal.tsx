@@ -68,9 +68,12 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
         if (isOpen) {
             const tomorrow = new Date();
             tomorrow.setDate(tomorrow.getDate() + 1);
+            const year = tomorrow.getFullYear();
+            const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+            const day = String(tomorrow.getDate()).padStart(2, '0');
             setFormData(prev => ({
                 ...prev,
-                installationDate: tomorrow.toISOString().split('T')[0]
+                installationDate: `${year}-${month}-${day}`
             }));
         }
     }, [isOpen]);
@@ -292,9 +295,13 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
     const mapCenter = coordinates || { lat: 14.8437, lng: 120.8113 };
 
     // Calculate min date for installation (tomorrow)
+    // Calculate min date for installation (tomorrow)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const minDate = tomorrow.toISOString().split('T')[0];
+    const year = tomorrow.getFullYear();
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const day = String(tomorrow.getDate()).padStart(2, '0');
+    const minDate = `${year}-${month}-${day}`;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
