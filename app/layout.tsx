@@ -27,10 +27,10 @@ export const metadata: Metadata = {
     description: "Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support.",
     images: [
       {
-        url: "https://all-star-three.vercel.app/logo/allstars.png",
+        url: "https://all-star-three.vercel.app/og-image.png",
         width: 1200,
         height: 630,
-        alt: "AllStar Tech Logo",
+        alt: "AllStar Tech - Fiber Internet Service Provider",
       },
     ],
   },
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "AllStar Tech - Fiber Internet Service Provider",
     description: "Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support.",
-    images: ["https://all-star-three.vercel.app/logo/allstars.png"],
+    images: ["https://all-star-three.vercel.app/og-image.png"],
   },
   icons: {
     icon: "/logo/allstars.png",
@@ -59,10 +59,10 @@ export default function RootLayout({
         <meta property="og:url" content="https://all-star-three.vercel.app" />
         <meta property="og:title" content="AllStar Tech - Fiber Internet Service Provider" />
         <meta property="og:description" content="Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support." />
-        <meta property="og:image" content="https://all-star-three.vercel.app/logo/allstars.png" />
+        <meta property="og:image" content="https://all-star-three.vercel.app/og-image.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="AllStar Tech Logo" />
+        <meta property="og:image:alt" content="AllStar Tech - Fiber Internet Service Provider" />
 
         {/* Facebook specific */}
         <meta property="fb:app_id" content="your-facebook-app-id" />
@@ -71,7 +71,7 @@ export default function RootLayout({
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="AllStar Tech - Fiber Internet Service Provider" />
         <meta name="twitter:description" content="Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support." />
-        <meta name="twitter:image" content="https://all-star-three.vercel.app/logo/allstars.png" />
+        <meta name="twitter:image" content="https://all-star-three.vercel.app/og-image.png" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
