@@ -13,7 +13,6 @@ export default function ReferralRedirect() {
             // Ensure id is a string (useParams can return string | string[])
             const referrerId = Array.isArray(params.id) ? params.id[0] : params.id;
             sessionStorage.setItem('referrer_id', referrerId);
-            console.log('Referrer ID stored:', referrerId); // Debug log
         }
 
         // Redirect to home page

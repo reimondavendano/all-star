@@ -257,15 +257,11 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                 'y-coordinates': coordinates?.lat || null
             };
 
-            console.log('Submitting Prospect:', newProspect);
-
             const { error } = await supabase
                 .from('prospects') // Use plural table name as per schema
                 .insert([newProspect]);
 
             if (error) throw error;
-
-            console.log('Prospect Created Successfully');
 
             // Clear referrer from session after successful submission
             sessionStorage.removeItem('referrer_id');
