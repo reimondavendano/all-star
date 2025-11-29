@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { CreditCard, Calendar, Wifi, AlertCircle, Loader2 } from 'lucide-react';
+import { CreditCard, Calendar, Wifi, AlertCircle, Loader2, Share2 } from 'lucide-react';
 
 interface PortalData {
     customer: {
@@ -30,6 +30,7 @@ export default function CustomerDashboard() {
     const [data, setData] = useState<PortalData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [showPayModal, setShowPayModal] = useState(false);
+    const [showShareModal, setShowShareModal] = useState(false);
 
     useEffect(() => {
         fetchPortalData();
@@ -119,6 +120,38 @@ export default function CustomerDashboard() {
         return nextDate;
     };
 
+    const handleShareToFacebook = () => {
+        if (!data?.customer.id) return;
+
+        // Determine the base URL
+        const baseUrl = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+            ? 'http://localhost:3000'
+            : 'https://all-star-three.vercel.app';
+
+        // Create referral link
+        const referralUrl = `${baseUrl}/ref/${data.customer.id}`;
+
+        // Facebook share URL
+        const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralUrl)}`;
+
+        // Open Facebook share dialog
+        window.open(facebookShareUrl, '_blank', 'width=600,height=400');
+        setShowShareModal(false);
+    };
+
+    const copyReferralLink = () => {
+        if (!data?.customer.id) return;
+
+        const baseUrl = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+            ? 'http://localhost:3000'
+            : 'https://all-star-three.vercel.app';
+
+        const referralUrl = `${baseUrl}/ref/${data.customer.id}`;
+
+        navigator.clipboard.writeText(referralUrl);
+        alert('Referral link copied to clipboard!');
+    };
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -144,10 +177,19 @@ export default function CustomerDashboard() {
                     <h1 className="text-2xl font-bold text-white neon-text">My Dashboard</h1>
                     <p className="text-xs text-gray-500 font-mono mt-1">SUBSCRIBER: {data.customer.name}</p>
                 </div>
-                <span className="px-3 py-1 rounded border border-green-500/30 bg-green-900/10 text-green-400 text-sm font-mono flex items-center">
-                    <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                    ACTIVE SERVICE
-                </span>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setShowShareModal(true)}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
+                    >
+                        <Share2 className="w-4 h-4" />
+                        Refer a Friend
+                    </button>
+                    <span className="px-3 py-1 rounded border border-green-500/30 bg-green-900/10 text-green-400 text-sm font-mono flex items-center">
+                        <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                        ACTIVE SERVICE
+                    </span>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -226,7 +268,7 @@ export default function CustomerDashboard() {
                 </div>
             </div>
 
-            {/* Pay Modal / Toast */}
+            {/* Pay Modal */}
             {showPayModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowPayModal(false)} />
@@ -246,6 +288,43 @@ export default function CustomerDashboard() {
                         >
                             Close
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Share Modal */}
+            {showShareModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowShareModal(false)} />
+                    <div className="relative bg-[#0a0a0a] border border-blue-500/30 rounded-xl p-6 max-w-md w-full">
+                        <div className="w-12 h-12 bg-blue-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Share2 className="w-6 h-6 text-blue-500" />
+                        </div>
+                        <h3 className="text-xl font-bold text-white mb-2 text-center">Refer a Friend</h3>
+                        <p className="text-gray-400 mb-6 text-center text-sm">
+                            Share ALLSTAR with your friends and get ₱300 credit when they subscribe!
+                        </p>
+                        <div className="space-y-3">
+                            <button
+                                onClick={handleShareToFacebook}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition-colors flex items-center justify-center gap-2"
+                            >
+                                <Share2 className="w-5 h-5" />
+                                Share to Facebook
+                            </button>
+                            <button
+                                onClick={copyReferralLink}
+                                className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded transition-colors"
+                            >
+                                Copy Referral Link
+                            </button>
+                            <button
+                                onClick={() => setShowShareModal(false)}
+                                className="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

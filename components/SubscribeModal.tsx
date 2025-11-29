@@ -63,7 +63,7 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
         label: '',
     });
 
-    // Initialize installation date to tomorrow
+    // Initialize installation date to tomorrow and check for referrer in session
     useEffect(() => {
         if (isOpen) {
             const tomorrow = new Date();
@@ -71,10 +71,20 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
             const year = tomorrow.getFullYear();
             const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
             const day = String(tomorrow.getDate()).padStart(2, '0');
+
+            // Check for referrer ID in sessionStorage
+            const storedReferrerId = sessionStorage.getItem('referrer_id');
+
             setFormData(prev => ({
                 ...prev,
-                installationDate: `${year}-${month}-${day}`
+                installationDate: `${year}-${month}-${day}`,
+                referrerId: storedReferrerId || prev.referrerId
             }));
+
+            // Fetch referrer name if ID exists
+            if (storedReferrerId) {
+                fetchReferrerName(storedReferrerId);
+            }
         }
     }, [isOpen]);
 
@@ -117,6 +127,22 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
             referrerId: ''
         }));
         setReferrerName('');
+    };
+
+    const fetchReferrerName = async (customerId: string) => {
+        try {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('name')
+                .eq('id', customerId)
+                .single();
+
+            if (!error && data) {
+                setReferrerName(data.name);
+            }
+        } catch (error) {
+            console.error('Error fetching referrer name:', error);
+        }
     };
 
     const validateStep = (step: number) => {
@@ -240,6 +266,9 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
             if (error) throw error;
 
             console.log('Prospect Created Successfully');
+
+            // Clear referrer from session after successful submission
+            sessionStorage.removeItem('referrer_id');
 
             // Close confirmation and open success modal
             setIsConfirmOpen(false);
