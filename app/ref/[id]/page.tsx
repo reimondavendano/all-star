@@ -1,20 +1,24 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 
-export default function ReferralRedirect({ params }: { params: { id: string } }) {
+export default function ReferralRedirect() {
     const router = useRouter();
+    const params = useParams();
 
     useEffect(() => {
         // Store referrer ID in sessionStorage
-        if (params.id) {
-            sessionStorage.setItem('referrer_id', params.id);
+        if (params?.id) {
+            // Ensure id is a string (useParams can return string | string[])
+            const referrerId = Array.isArray(params.id) ? params.id[0] : params.id;
+            sessionStorage.setItem('referrer_id', referrerId);
+            console.log('Referrer ID stored:', referrerId); // Debug log
         }
 
         // Redirect to home page
         router.push('/');
-    }, [params.id, router]);
+    }, [params, router]);
 
     return (
         <div className="min-h-screen bg-[#050505] flex items-center justify-center">
