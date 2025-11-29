@@ -44,6 +44,7 @@ interface GroupedInvoice {
         planName: string;
         address?: string;
         label?: string;
+        balance?: number;
         businessUnitName: string;
         invoices: Invoice[];
     }[];
@@ -121,23 +122,36 @@ export default function InvoicesPage() {
 
             if (error) throw error;
 
-            // Fetch payments for these subscriptions in this date range
+            // Calculate date range for payments based on invoices
+            let minDate = startDate;
+            let maxDate = endDate; // Default to end of month to capture late payments
+
+            if (invoicesData && invoicesData.length > 0) {
+                const fromDates = invoicesData.map((i: any) => i.from_date).sort();
+                if (fromDates[0] < minDate) minDate = fromDates[0];
+                // We don't limit maxDate by invoice.to_date anymore, we keep it at least endDate (end of month)
+                // to ensure we fetch payments made after the due date within the month.
+            }
+
+            // Fetch payments for these subscriptions in the calculated date range
             const subscriptionIds = (invoicesData as any[]).map(inv => inv.subscription_id);
 
             const { data: paymentsData } = await supabase
                 .from('payments')
-                .select('subscription_id, amount')
+                .select('subscription_id, amount, settlement_date')
                 .in('subscription_id', subscriptionIds)
-                .gte('settlement_date', startDate)
-                .lte('settlement_date', endDate);
+                .gte('settlement_date', minDate)
+                .lte('settlement_date', maxDate);
 
-            const paymentsMap = (paymentsData || []).reduce((acc: { [key: string]: number }, payment) => {
-                acc[payment.subscription_id] = (acc[payment.subscription_id] || 0) + Number(payment.amount);
-                return acc;
-            }, {});
-
+            // Map payments to invoices based on date range
             const formattedInvoices = (invoicesData as any[]).map(inv => {
-                const totalPaid = paymentsMap[inv.subscription_id] || 0;
+                const paymentsForInvoice = (paymentsData || []).filter((p: any) =>
+                    p.subscription_id === inv.subscription_id &&
+                    p.settlement_date >= inv.from_date
+                    // Removed p.settlement_date <= inv.to_date to allow late payments to be attributed to this invoice
+                );
+
+                const totalPaid = paymentsForInvoice.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
                 const remainingBalance = Math.max(0, inv.amount_due - totalPaid);
 
                 return {
@@ -207,6 +221,7 @@ export default function InvoicesPage() {
                     planName: planName,
                     address: address,
                     label: label,
+                    balance: invoice.subscriptions.balance,
                     businessUnitName: businessUnitName,
                     invoices: []
                 };
@@ -340,57 +355,52 @@ export default function InvoicesPage() {
                                                                             <div className="text-sm text-white">
                                                                                 {new Date(invoice.due_date).toLocaleDateString()}
                                                                             </div>
+                                                                            {/* Disconnection Date */}
+                                                                            {(() => {
+                                                                                const dueDate = new Date(invoice.due_date);
+                                                                                const discDate = new Date(dueDate);
+                                                                                discDate.setDate(discDate.getDate() + 5);
+                                                                                return (
+                                                                                    <div className="text-xs text-red-400 mt-0.5">
+                                                                                        Disconnection: {discDate.toLocaleDateString()}
+                                                                                    </div>
+                                                                                );
+                                                                            })()}
                                                                             <div className="text-xs text-gray-500 mt-0.5">
                                                                                 {new Date(invoice.from_date).toLocaleDateString()} - {new Date(invoice.to_date).toLocaleDateString()}
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div className="flex items-center gap-4">
+
+                                                                    <div className="flex items-center gap-8">
                                                                         <div className="text-right">
-                                                                            <div className="flex flex-col items-end gap-0.5">
-                                                                                <div className="text-xs text-gray-400">
-                                                                                    Amount Due: <span className="text-white font-medium">₱{invoice.amount_due.toLocaleString()}</span>
-                                                                                </div>
-
-                                                                                <div className="text-xs text-green-400">
-                                                                                    {invoice.payment_status === 'Partially Paid' ? 'Downpayment: ' : 'Amount Paid: '}
-                                                                                    ₱{(invoice.total_paid || 0).toLocaleString()}
-                                                                                </div>
-
-                                                                                {(() => {
-                                                                                    const subBalance = invoice.subscriptions.balance || 0;
-                                                                                    // If Unpaid, the debt is in the invoice (amount_due) plus any existing subscription balance adjustments.
-                                                                                    // If Paid/Partial, the debt has been moved back to subscription balance by RecordPayment.
-                                                                                    const displayBalance = invoice.payment_status === 'Unpaid'
-                                                                                        ? (invoice.amount_due + subBalance)
-                                                                                        : subBalance;
-
-                                                                                    let label = 'Balance';
-                                                                                    let color = 'text-gray-500';
-
-                                                                                    if (displayBalance < 0) {
-                                                                                        label = 'Extra Balance';
-                                                                                        color = 'text-green-400';
-                                                                                    } else if (displayBalance > 0) {
-                                                                                        label = 'Credit Balance';
-                                                                                        color = 'text-red-400';
-                                                                                    }
-
-                                                                                    return (
-                                                                                        <div className={`text-xs font-medium ${color}`}>
-                                                                                            {label}: ₱{Math.abs(displayBalance).toLocaleString()}
-                                                                                        </div>
-                                                                                    );
-                                                                                })()}
+                                                                            <div className="text-xs text-gray-400">Amount Due</div>
+                                                                            <div className="text-sm font-bold text-white">
+                                                                                ₱{((Number(invoice.amount_due) || 0) + Math.max(0, (Number(sub.balance) || 0))).toLocaleString()}
                                                                             </div>
                                                                         </div>
-                                                                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${invoice.payment_status === 'Paid'
-                                                                            ? 'bg-green-900/30 text-green-400 border border-green-700/50'
-                                                                            : invoice.payment_status === 'Partially Paid'
-                                                                                ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-700/50'
-                                                                                : 'bg-red-900/30 text-red-400 border border-red-700/50'
-                                                                            }`}>
-                                                                            {invoice.payment_status}
+
+                                                                        <div className="text-right">
+                                                                            <div className="text-xs text-gray-400">Amount Paid</div>
+                                                                            <div className="text-sm text-green-400">
+                                                                                ₱{(invoice.total_paid || 0).toLocaleString()}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <div className="text-xs text-gray-400">
+                                                                                {Number(sub.balance) > 0 ? 'Balance' : Number(sub.balance) < 0 ? 'Extra Balance' : 'Balance'}
+                                                                            </div>
+                                                                            <div className={`text-sm font-bold ${Number(sub.balance) > 0 ? 'text-red-400' : Number(sub.balance) < 0 ? 'text-green-400' : 'text-gray-400'}`}>
+                                                                                ₱{Math.abs(Number(sub.balance) || 0).toLocaleString()}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className={`px-2 py-1 rounded-full text-xs ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400' :
+                                                                                    invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400' :
+                                                                                        'bg-red-900/30 text-red-400'
+                                                                                }`}>
+                                                                                {invoice.payment_status}
+                                                                            </span>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -403,60 +413,29 @@ export default function InvoicesPage() {
                                     )}
                                 </div>
                             ))}
-                        </div>
-                    )}
 
-                    {/* Pagination Controls */}
-                    {!isLoading && totalPages > 1 && (
-                        <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-800">
-                            <div className="text-sm text-gray-400">
-                                Page {currentPage} of {totalPages}
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                    disabled={currentPage === 1}
-                                    className="px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white text-sm hover:bg-[#202020] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    Previous
-                                </button>
-
-                                <div className="flex items-center gap-1">
-                                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                        let pageNum;
-                                        if (totalPages <= 5) {
-                                            pageNum = i + 1;
-                                        } else if (currentPage <= 3) {
-                                            pageNum = i + 1;
-                                        } else if (currentPage >= totalPages - 2) {
-                                            pageNum = totalPages - 4 + i;
-                                        } else {
-                                            pageNum = currentPage - 2 + i;
-                                        }
-
-                                        return (
-                                            <button
-                                                key={pageNum}
-                                                onClick={() => setCurrentPage(pageNum)}
-                                                className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${currentPage === pageNum
-                                                    ? 'bg-blue-600 text-white'
-                                                    : 'bg-[#1a1a1a] border border-gray-800 text-gray-400 hover:bg-[#202020]'
-                                                    }`}
-                                            >
-                                                {pageNum}
-                                            </button>
-                                        );
-                                    })}
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div className="flex justify-center items-center gap-4 pt-4 border-t border-gray-800">
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white disabled:opacity-50 hover:bg-[#252525]"
+                                    >
+                                        Previous
+                                    </button>
+                                    <span className="text-gray-400">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className="px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white disabled:opacity-50 hover:bg-[#252525]"
+                                    >
+                                        Next
+                                    </button>
                                 </div>
-
-                                <button
-                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                    disabled={currentPage === totalPages}
-                                    className="px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white text-sm hover:bg-[#202020] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    Next
-                                </button>
-                            </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -465,7 +444,10 @@ export default function InvoicesPage() {
             <GenerateInvoiceModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                onSuccess={fetchInvoices}
+                onSuccess={() => {
+                    fetchInvoices();
+                    setIsModalOpen(false);
+                }}
             />
         </>
     );
