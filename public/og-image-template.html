@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AllStar Tech OG Image</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            width: 1200px;
+            height: 630px;
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Network background effect */
+        body::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(220, 38, 38, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(220, 38, 38, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.3;
+        }
+        
+        .container {
+            text-align: center;
+            z-index: 1;
+            padding: 60px;
+        }
+        
+        .logo {
+            width: 180px;
+            height: 90px;
+            background: white;
+            border-radius: 12px;
+            margin: 0 auto 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 40px rgba(220, 38, 38, 0.5);
+        }
+        
+        .logo-text {
+            font-size: 48px;
+            font-weight: bold;
+            color: #DC2626;
+        }
+        
+        h1 {
+            font-size: 72px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            letter-spacing: -2px;
+        }
+        
+        .allstar {
+            color: #DC2626;
+            text-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
+        }
+        
+        .tech {
+            color: white;
+        }
+        
+        .tagline {
+            font-size: 28px;
+            color: #DC2626;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .subtitle {
+            font-size: 24px;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 400;
+        }
+        
+        .features {
+            display: flex;
+            justify-content: center;
+            gap: 60px;
+            margin-top: 40px;
+        }
+        
+        .feature {
+            text-align: center;
+        }
+        
+        .feature-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        
+        .feature-text {
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.9);
+            font-weight: 600;
+        }
+        
+        .feature-desc {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-text">★</div>
+        </div>
+        
+        <h1>
+            <span class="allstar">ALLSTAR</span>
+            <span class="tech">TECH</span>
+        </h1>
+        
+        <p class="tagline">Next-Generation Fiber Internet Service Provider</p>
+        <p class="subtitle">Lightning-fast connectivity with 99.9% uptime</p>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">⚡</div>
+                <div class="feature-text">Ultra-Fast</div>
+                <div class="feature-desc">Up to 1Gbps</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🛡️</div>
+                <div class="feature-text">Reliable</div>
+                <div class="feature-desc">99.9% Uptime</div>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">⚙️</div>
+                <div class="feature-text">Support</div>
+                <div class="feature-desc">24/7 Available</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

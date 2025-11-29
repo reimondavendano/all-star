@@ -14,8 +14,36 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AllStar Tech",
-  description: "Next-Generation Fiber Internet Service Provider",
+  title: "AllStar Tech - Fiber Internet Service Provider",
+  description: "Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support.",
+  keywords: ["fiber internet", "ISP", "internet service provider", "high-speed internet", "allstar tech"],
+  authors: [{ name: "AllStar Tech" }],
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "https://all-star-three.vercel.app",
+    siteName: "AllStar Tech",
+    title: "AllStar Tech - Fiber Internet Service Provider",
+    description: "Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support.",
+    images: [
+      {
+        url: "https://all-star-three.vercel.app/logo/allstars.png",
+        width: 1200,
+        height: 630,
+        alt: "AllStar Tech Logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AllStar Tech - Fiber Internet Service Provider",
+    description: "Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support.",
+    images: ["https://all-star-three.vercel.app/logo/allstars.png"],
+  },
+  icons: {
+    icon: "/logo/allstars.png",
+    apple: "/logo/allstars.png",
+  },
 };
 
 export default function RootLayout({
@@ -25,6 +53,26 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        {/* Additional Open Graph tags for better Facebook sharing */}
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://all-star-three.vercel.app" />
+        <meta property="og:title" content="AllStar Tech - Fiber Internet Service Provider" />
+        <meta property="og:description" content="Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support." />
+        <meta property="og:image" content="https://all-star-three.vercel.app/logo/allstars.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="AllStar Tech Logo" />
+
+        {/* Facebook specific */}
+        <meta property="fb:app_id" content="your-facebook-app-id" />
+
+        {/* Twitter Card */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="AllStar Tech - Fiber Internet Service Provider" />
+        <meta name="twitter:description" content="Next-Generation Fiber Internet Service Provider. Lightning-fast connectivity with 99.9% uptime and technical support." />
+        <meta name="twitter:image" content="https://all-star-three.vercel.app/logo/allstars.png" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
