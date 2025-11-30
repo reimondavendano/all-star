@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useParams } from 'next/navigation';
 import { CreditCard, Calendar, Wifi, AlertCircle, Loader2, Share2, MapPin, Router, Phone, Download, ChevronDown } from 'lucide-react';
+import axios from 'axios';
 
 interface Subscription {
     id: string;
@@ -52,6 +53,7 @@ export default function CustomerPortalPage() {
     const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
     const [paymentType, setPaymentType] = useState<'all' | 'single'>('all');
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
     useEffect(() => {
         if (params.id) {
@@ -221,16 +223,129 @@ export default function CustomerPortalPage() {
         setShowInvoiceModal(true);
     };
 
-    const handleGenerateInvoice = () => {
-        // Placeholder for invoice generation
-        alert(`Generating invoice for ${selectedMonth}/${selectedYear}...\nThis feature will be implemented soon!`);
-        setShowInvoiceModal(false);
+    const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+
+    // ... (keep existing code)
+
+    const handleGenerateInvoice = async () => {
+        if (!selectedSubscription || !data) return;
+        setIsGeneratingInvoice(true);
+
+        try {
+            // 1. Try to find an existing invoice for this period
+            const startDate = `${selectedYear}-${selectedMonth}-01`;
+            // Get last day of selected month
+            const lastDay = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
+            const endDate = `${selectedYear}-${selectedMonth}-${lastDay}`;
+
+            // We look for invoices due within this month
+            const { data: existingInvoices, error } = await supabase
+                .from('invoices')
+                .select('*')
+                .eq('subscription_id', selectedSubscription.id)
+                .gte('due_date', startDate)
+                .lte('due_date', endDate)
+                .maybeSingle();
+
+            let invoiceData;
+
+            if (existingInvoices) {
+                invoiceData = {
+                    invoiceNumber: existingInvoices.id.split('-')[0].toUpperCase(),
+                    date: existingInvoices.created_at.split('T')[0],
+                    dueDate: existingInvoices.due_date,
+                    customerName: data.customer.name,
+                    customerAddress: `${selectedSubscription.address}, ${selectedSubscription.barangay}`,
+                    accountNumber: data.customer.id.split('-')[0].toUpperCase(),
+                    billingPeriod: `${formatDate(existingInvoices.from_date)} - ${formatDate(existingInvoices.to_date)}`,
+                    items: [
+                        { description: `${selectedSubscription.plan.name} - Monthly Fee`, amount: existingInvoices.amount_due }
+                    ],
+                    totalAmount: existingInvoices.amount_due,
+                    status: existingInvoices.payment_status
+                };
+            } else {
+                // Generate a provisional/draft invoice based on Plan
+                const dueDate = `${selectedYear}-${selectedMonth}-${selectedSubscription.invoice_date === '15th' ? '15' : '30'}`;
+                const invoiceNum = `INV-${selectedYear}${selectedMonth}${selectedSubscription.invoice_date === '15th' ? '15' : '30'}-${selectedSubscription.id.slice(0, 4).toUpperCase()}`;
+
+                invoiceData = {
+                    invoiceNumber: invoiceNum,
+                    date: new Date().toISOString().split('T')[0],
+                    dueDate: dueDate,
+                    customerName: data.customer.name,
+                    customerAddress: `${selectedSubscription.address}, ${selectedSubscription.barangay}`,
+                    accountNumber: data.customer.id.split('-')[0].toUpperCase(),
+                    billingPeriod: `${selectedMonth}/01/${selectedYear} - ${selectedMonth}/${lastDay}/${selectedYear}`,
+                    items: [
+                        { description: `${selectedSubscription.plan.name} - Monthly Fee`, amount: selectedSubscription.plan.monthly_fee }
+                    ],
+                    totalAmount: selectedSubscription.plan.monthly_fee,
+                    status: 'Unpaid'
+                };
+            }
+
+            if (invoiceData) {
+                // Dynamically import the generator to avoid SSR issues with jsPDF
+                const { generateInvoicePDF } = await import('@/utils/generateInvoice');
+                await generateInvoicePDF(invoiceData);
+            }
+
+            setShowInvoiceModal(false);
+
+        } catch (err) {
+            console.error('Error generating invoice:', err);
+            alert('Failed to generate invoice. Please try again.');
+        } finally {
+            setIsGeneratingInvoice(false);
+        }
     };
 
-    const handlePaymentSubmit = () => {
-        // Placeholder for payment processing
-        alert('Payment processing will be integrated with PayMongo/Xendit soon!');
-        setShowPayModal(false);
+    const handlePayment = async (method: 'gcash' | 'grab_pay' | 'paymaya' | 'dob' | 'dob_ubp') => {
+        if (!data) return;
+        setIsProcessingPayment(true);
+
+        try {
+            const amount = paymentType === 'single' && selectedSubscription
+                ? selectedSubscription.balance
+                : data.totalBalance;
+
+            // If paying all, we just pick the first subscription ID for reference for now
+            const subscriptionId = paymentType === 'single' && selectedSubscription
+                ? selectedSubscription.id
+                : data.subscriptions[0]?.id;
+
+            if (!subscriptionId) {
+                alert('No active subscription found to apply payment to.');
+                setIsProcessingPayment(false);
+                return;
+            }
+
+            // 1. Create Source
+            const response = await axios.post('/api/paymongo/create-source', {
+                amount: amount,
+                type: method,
+                redirect_success: `${window.location.origin}/payment/success`,
+                redirect_failed: `${window.location.origin}/portal/${data.customer.id}`
+            });
+
+            const { data: sourceData } = response.data;
+            const checkoutUrl = sourceData.attributes.redirect.checkout_url;
+
+            // Store details for verification later
+            sessionStorage.setItem('pending_payment_source_id', sourceData.id);
+            sessionStorage.setItem('pending_payment_amount', amount.toString());
+            sessionStorage.setItem('pending_payment_sub_id', subscriptionId);
+            sessionStorage.setItem('pending_payment_customer_id', data.customer.id);
+
+            // 2. Redirect User
+            window.location.href = checkoutUrl;
+
+        } catch (error: any) {
+            console.error('Payment Error:', error);
+            alert(error.response?.data?.error || 'Payment initialization failed. Please check your connection.');
+            setIsProcessingPayment(false);
+        }
     };
 
     const months = [
@@ -311,15 +426,13 @@ export default function CustomerPortalPage() {
                             {data.totalBalance > 0 ? 'Payment Due' : 'All Paid Up!'}
                         </p>
                     </div>
-                    {data.totalBalance > 0 && (
-                        <button
-                            onClick={() => handlePayBills()}
-                            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors flex items-center gap-2"
-                        >
-                            <CreditCard className="w-5 h-5" />
-                            Pay All Bills
-                        </button>
-                    )}
+                    <button
+                        onClick={() => handlePayBills()}
+                        className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-colors flex items-center gap-2"
+                    >
+                        <CreditCard className="w-5 h-5" />
+                        Pay All Bills
+                    </button>
                 </div>
             </div>
 
@@ -341,8 +454,8 @@ export default function CustomerPortalPage() {
                                     <div className="flex items-center gap-3 mb-2">
                                         <h3 className="text-2xl font-bold text-white neon-text">{sub.plan.name}</h3>
                                         <span className={`px-2 py-0.5 rounded text-xs font-mono border ${sub.active
-                                                ? 'border-green-500/30 bg-green-900/10 text-green-400'
-                                                : 'border-red-500/30 bg-red-900/10 text-red-400'
+                                            ? 'border-green-500/30 bg-green-900/10 text-green-400'
+                                            : 'border-red-500/30 bg-red-900/10 text-red-400'
                                             }`}>
                                             {sub.active ? 'ACTIVE' : 'INACTIVE'}
                                         </span>
@@ -409,15 +522,13 @@ export default function CustomerPortalPage() {
                                         {sub.balance > 0 ? 'Payment Required' : 'Paid Up'}
                                     </p>
                                     <div className="flex gap-2">
-                                        {sub.balance > 0 && (
-                                            <button
-                                                onClick={() => handlePayBills(sub)}
-                                                className="flex-1 py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors flex items-center justify-center gap-2"
-                                            >
-                                                <CreditCard className="w-4 h-4" />
-                                                Pay Bill
-                                            </button>
-                                        )}
+                                        <button
+                                            onClick={() => handlePayBills(sub)}
+                                            className="flex-1 py-2 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <CreditCard className="w-4 h-4" />
+                                            Pay Bill
+                                        </button>
                                         <button
                                             onClick={() => handleDownloadInvoice(sub)}
                                             className="flex-1 py-2 px-3 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded transition-colors flex items-center justify-center gap-2"
@@ -439,8 +550,8 @@ export default function CustomerPortalPage() {
                                                 </span>
                                                 <span className="text-white font-mono">₱{invoice.amount_due.toLocaleString()}</span>
                                                 <span className={`px-2 py-0.5 rounded font-mono ${invoice.payment_status === 'Paid'
-                                                        ? 'bg-green-900/20 text-green-400'
-                                                        : 'bg-yellow-900/20 text-yellow-400'
+                                                    ? 'bg-green-900/20 text-green-400'
+                                                    : 'bg-yellow-900/20 text-yellow-400'
                                                     }`}>
                                                     {invoice.payment_status || 'UNPAID'}
                                                 </span>
@@ -469,7 +580,7 @@ export default function CustomerPortalPage() {
             {showPayModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowPayModal(false)} />
-                    <div className="relative bg-[#0a0a0a] border border-red-500/30 rounded-xl p-6 max-w-md w-full">
+                    <div className="relative bg-[#0a0a0a] border border-red-500/30 rounded-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
                         <div className="w-12 h-12 bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
                             <CreditCard className="w-6 h-6 text-red-500" />
                         </div>
@@ -482,55 +593,105 @@ export default function CustomerPortalPage() {
                         </p>
 
                         <div className="space-y-3 mb-6">
-                            <button className="w-full p-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition-all flex items-center justify-between group">
+                            <p className="text-xs font-mono text-gray-500 uppercase mb-2">E-Wallets</p>
+
+                            <button
+                                onClick={() => handlePayment('gcash')}
+                                disabled={isProcessingPayment}
+                                className="w-full p-4 bg-[#007DFE]/10 border border-[#007DFE]/30 hover:bg-[#007DFE]/20 text-white rounded-lg transition-all flex items-center justify-between group disabled:opacity-50"
+                            >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                                        <CreditCard className="w-5 h-5" />
+                                    <div className="w-10 h-10 bg-[#007DFE] rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                        GC
                                     </div>
                                     <div className="text-left">
                                         <p className="font-bold">GCash</p>
-                                        <p className="text-xs text-blue-100">Pay via GCash wallet</p>
+                                        <p className="text-xs text-gray-400">Pay via GCash App</p>
                                     </div>
                                 </div>
-                                <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">SOON</span>
+                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
                             </button>
 
-                            <button className="w-full p-4 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white rounded-lg transition-all flex items-center justify-between group">
+                            <button
+                                onClick={() => handlePayment('paymaya')}
+                                disabled={isProcessingPayment}
+                                className="w-full p-4 bg-[#000000]/20 border border-white/20 hover:bg-white/5 text-white rounded-lg transition-all flex items-center justify-between group disabled:opacity-50"
+                            >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                                        <CreditCard className="w-5 h-5" />
+                                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                                        <span className="text-black font-bold text-xs">Maya</span>
                                     </div>
                                     <div className="text-left">
-                                        <p className="font-bold">PayMaya</p>
-                                        <p className="text-xs text-purple-100">Pay via PayMaya wallet</p>
+                                        <p className="font-bold">Maya</p>
+                                        <p className="text-xs text-gray-400">Pay via Maya App</p>
                                     </div>
                                 </div>
-                                <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">SOON</span>
+                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
                             </button>
 
-                            <button className="w-full p-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-lg transition-all flex items-center justify-between group">
+                            <button
+                                onClick={() => handlePayment('grab_pay')}
+                                disabled={isProcessingPayment}
+                                className="w-full p-4 bg-[#00B14F]/10 border border-[#00B14F]/30 hover:bg-[#00B14F]/20 text-white rounded-lg transition-all flex items-center justify-between group disabled:opacity-50"
+                            >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                                        <CreditCard className="w-5 h-5" />
+                                    <div className="w-10 h-10 bg-[#00B14F] rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                        GP
                                     </div>
                                     <div className="text-left">
-                                        <p className="font-bold">Credit/Debit Card</p>
-                                        <p className="text-xs text-green-100">Visa, Mastercard, etc.</p>
+                                        <p className="font-bold">GrabPay</p>
+                                        <p className="text-xs text-gray-400">Pay via GrabPay</p>
                                     </div>
                                 </div>
-                                <span className="text-xs bg-yellow-500 text-black px-2 py-1 rounded font-bold">SOON</span>
+                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
+                            </button>
+
+                            <p className="text-xs font-mono text-gray-500 uppercase mt-4 mb-2">Online Banking</p>
+
+                            <button
+                                onClick={() => handlePayment('dob')}
+                                disabled={isProcessingPayment}
+                                className="w-full p-4 bg-[#B10025]/10 border border-[#B10025]/30 hover:bg-[#B10025]/20 text-white rounded-lg transition-all flex items-center justify-between group disabled:opacity-50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-[#B10025] rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                        BPI
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="font-bold">BPI Online</p>
+                                        <p className="text-xs text-gray-400">Direct Online Banking</p>
+                                    </div>
+                                </div>
+                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
+                            </button>
+
+                            <button
+                                onClick={() => handlePayment('dob_ubp')}
+                                disabled={isProcessingPayment}
+                                className="w-full p-4 bg-[#F68E1E]/10 border border-[#F68E1E]/30 hover:bg-[#F68E1E]/20 text-white rounded-lg transition-all flex items-center justify-between group disabled:opacity-50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-[#F68E1E] rounded-lg flex items-center justify-center text-white font-bold text-xs">
+                                        UBP
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="font-bold">UnionBank</p>
+                                        <p className="text-xs text-gray-400">Direct Online Banking</p>
+                                    </div>
+                                </div>
+                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
                             </button>
                         </div>
 
                         <p className="text-gray-500 text-xs text-center mb-4">
-                            Online payment integration coming soon via PayMongo/Xendit
+                            Secure payment processing via PayMongo
                         </p>
 
                         <button
                             onClick={() => setShowPayModal(false)}
                             className="w-full bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition-colors"
                         >
-                            Close
+                            Cancel
                         </button>
                     </div>
                 </div>
@@ -586,10 +747,20 @@ export default function CustomerPortalPage() {
                         <div className="space-y-3">
                             <button
                                 onClick={handleGenerateInvoice}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition-colors flex items-center justify-center gap-2"
+                                disabled={isGeneratingInvoice}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <Download className="w-5 h-5" />
-                                Generate & Download
+                                {isGeneratingInvoice ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        Generating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download className="w-5 h-5" />
+                                        Generate & Download
+                                    </>
+                                )}
                             </button>
                             <button
                                 onClick={() => setShowInvoiceModal(false)}
