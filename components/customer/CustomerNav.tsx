@@ -4,12 +4,37 @@ import Link from 'next/link';
 import { usePathname, useParams, useRouter } from 'next/navigation';
 import { Home, User, CreditCard, LogOut } from 'lucide-react';
 import clsx from 'clsx';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 export default function CustomerNav() {
     const pathname = usePathname();
     const params = useParams();
     const router = useRouter();
     const id = params?.id as string;
+    const [initials, setInitials] = useState('..');
+
+    useEffect(() => {
+        const fetchCustomer = async () => {
+            if (!id) return;
+            const { data } = await supabase
+                .from('customers')
+                .select('name')
+                .eq('id', id)
+                .single();
+
+            if (data?.name) {
+                const nameParts = data.name.split(' ');
+                if (nameParts.length >= 2) {
+                    setInitials(`${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase());
+                } else {
+                    setInitials(data.name.substring(0, 2).toUpperCase());
+                }
+            }
+        };
+
+        fetchCustomer();
+    }, [id]);
 
     // Base path depends on whether we have an ID
     const basePath = id ? `/portal/${id}` : '/portal';
@@ -61,8 +86,8 @@ export default function CustomerNav() {
                             </div>
                             <button className="bg-white/5 p-1 rounded-full text-gray-400 hover:text-white focus:outline-none border border-transparent hover:border-red-500/30 transition-all">
                                 <span className="sr-only">View notifications</span>
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-red-600 to-red-900 flex items-center justify-center text-white font-bold shadow-[0_0_10px_rgba(255,0,0,0.4)]">
-                                    JD
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-red-600 to-red-900 flex items-center justify-center text-white font-bold shadow-[0_0_10px_rgba(255,0,0,0.4)] text-xs">
+                                    {initials}
                                 </div>
                             </button>
                             <button
