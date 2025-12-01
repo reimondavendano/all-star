@@ -103,20 +103,24 @@ export default function CustomerPortalPage() {
             // 3. For each subscription, get balance and recent invoices
             const subscriptionsWithDetails = await Promise.all(
                 (subscriptionsData || []).map(async (sub: any) => {
-                    // Get balance
-                    const { data: balanceData } = await supabase
-                        .from('subscription_balance_view')
-                        .select('balance')
-                        .eq('subscription_id', sub.id)
-                        .single();
-
-                    // Get recent invoices
-                    const { data: invoices } = await supabase
+                    // Get ALL invoices for this subscription
+                    const { data: allInvoices } = await supabase
                         .from('invoices')
                         .select('*')
                         .eq('subscription_id', sub.id)
-                        .order('created_at', { ascending: false })
-                        .limit(3);
+                        .order('created_at', { ascending: false });
+
+                    // Calculate balance from UNPAID invoices only
+                    const unpaidInvoices = (allInvoices || []).filter(
+                        (inv: any) => inv.payment_status === 'Unpaid' || inv.payment_status === 'Partially Paid'
+                    );
+
+                    const balance = unpaidInvoices.reduce((sum: number, inv: any) => {
+                        return sum + (Number(inv.amount_due) || 0);
+                    }, 0);
+
+                    // Get recent invoices for display (limit to 3)
+                    const recentInvoices = (allInvoices || []).slice(0, 3);
 
                     const plan = Array.isArray(sub.plans) ? sub.plans[0] : sub.plans;
 
@@ -128,13 +132,13 @@ export default function CustomerPortalPage() {
                         address: sub.address,
                         barangay: sub.barangay,
                         router_serial_number: sub.router_serial_number,
-                        balance: balanceData?.balance || 0,
+                        balance: balance,
                         plan: {
                             name: plan?.name || 'Unknown Plan',
                             monthly_fee: plan?.monthly_fee || 0,
                             details: plan?.details || ''
                         },
-                        invoices: invoices || []
+                        invoices: recentInvoices
                     };
                 })
             );

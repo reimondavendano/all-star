@@ -26,45 +26,78 @@ export default function PaymentSuccessPage() {
 
             try {
                 // 1. Create Payment (Charge the source)
-                await axios.post('/api/paymongo/create-payment', {
+                const paymentResponse = await axios.post('/api/paymongo/create-payment', {
                     source_id: sourceId,
                     amount: parseFloat(amount),
                     description: `Subscription Payment - ${subscriptionId}`
                 });
 
+                const paymentData = paymentResponse.data;
+
                 // 2. Record Payment in Supabase
                 if (subscriptionId) {
+                    const paymentAmount = parseFloat(amount);
+
+                    // Insert payment record
                     const { error: paymentError } = await supabase
                         .from('payments')
                         .insert({
                             subscription_id: subscriptionId,
-                            amount: parseFloat(amount),
-                            mode: 'GCash/PayMaya',
-                            notes: `Online Payment via PayMongo (Source: ${sourceId})`,
+                            amount: paymentAmount,
+                            mode: 'E-Wallet',
+                            notes: `Online Payment via PayMongo (Ref: ${paymentData.data?.id || sourceId})`,
                             settlement_date: new Date().toISOString().split('T')[0]
                         });
 
-                    if (paymentError) console.error('Error recording payment:', paymentError);
+                    if (paymentError) {
+                        console.error('Error recording payment:', paymentError);
+                        throw new Error('Failed to record payment in database');
+                    }
 
-                    // 3. Update Subscription Balance
-                    // Fetch current balance first
-                    const { data: sub } = await supabase
-                        .from('subscriptions')
-                        .select('balance')
-                        .eq('id', subscriptionId)
-                        .single();
+                    // 3. Get all unpaid invoices for this subscription
+                    const { data: unpaidInvoices, error: invoiceError } = await supabase
+                        .from('invoices')
+                        .select('*')
+                        .eq('subscription_id', subscriptionId)
+                        .in('payment_status', ['Unpaid', 'Partially Paid'])
+                        .order('due_date', { ascending: true });
 
-                    if (sub) {
-                        const newBalance = (sub.balance || 0) - parseFloat(amount);
-                        await supabase
-                            .from('subscriptions')
-                            .update({ balance: newBalance })
-                            .eq('id', subscriptionId);
+                    if (invoiceError) {
+                        console.error('Error fetching invoices:', invoiceError);
+                    }
+
+                    // 4. Mark invoices as Paid
+                    if (unpaidInvoices && unpaidInvoices.length > 0) {
+                        let remainingAmount = paymentAmount;
+
+                        for (const invoice of unpaidInvoices) {
+                            if (remainingAmount <= 0) break;
+
+                            const invoiceAmount = Number(invoice.amount_due);
+
+                            if (remainingAmount >= invoiceAmount) {
+                                // Full payment - mark as Paid
+                                await supabase
+                                    .from('invoices')
+                                    .update({ payment_status: 'Paid' })
+                                    .eq('id', invoice.id);
+
+                                remainingAmount -= invoiceAmount;
+                            } else {
+                                // Partial payment
+                                await supabase
+                                    .from('invoices')
+                                    .update({ payment_status: 'Partially Paid' })
+                                    .eq('id', invoice.id);
+
+                                remainingAmount = 0;
+                            }
+                        }
                     }
                 }
 
                 setStatus('success');
-                setMessage('Payment successful! Your balance has been updated.');
+                setMessage('Payment successful! Your invoices have been updated.');
 
                 // Clear session
                 sessionStorage.removeItem('pending_payment_source_id');
@@ -74,7 +107,7 @@ export default function PaymentSuccessPage() {
             } catch (error: any) {
                 console.error('Payment Finalization Error:', error);
                 setStatus('failed');
-                setMessage(error.response?.data?.error || 'Failed to process payment. Please contact support.');
+                setMessage(error.response?.data?.error || error.message || 'Failed to process payment. Please contact support.');
             }
         };
 
