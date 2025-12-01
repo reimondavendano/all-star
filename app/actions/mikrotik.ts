@@ -1,83 +1,113 @@
 'use server';
 
-import { RouterOSAPI } from 'node-routeros';
-
 export async function getMikrotikData() {
-    const host = process.env.MIKROTIK_HOST?.trim();
+    let host = process.env.MIKROTIK_HOST?.trim();
     const user = process.env.MIKROTIK_USER?.trim();
     const password = process.env.MIKROTIK_PASSWORD?.trim();
-    const port = parseInt(process.env.MIKROTIK_PORT || '8728');
+
+    // Handle case where user puts port in the host variable
+    if (host && host.includes(':')) {
+        const parts = host.split(':');
+        host = parts[0];
+        // If port is in host, we could use it, but let's rely on MIKROTIK_PORT or default
+    }
+
+    // Default to 80 (HTTP) as confirmed by user
+    const port = process.env.MIKROTIK_PORT || '80';
 
     if (!host || !user || !password) {
         return {
             success: false,
-            error: 'Mikrotik credentials not configured in environment variables.'
+            error: 'Mikrotik credentials not configured in environment variables. Please check .env.local'
         };
     }
 
-    const client = new RouterOSAPI({
-        host,
-        user,
-        password,
-        port,
-        timeout: 5000, // Increased timeout to 30 seconds
-        keepalive: true,
+    // Use HTTP for port 80 (standard) or 230 (legacy/custom), HTTPS for others (443, etc)
+    const protocol = (port === '80' || port === '230' || port === '8080') ? 'http' : 'https';
+    const baseUrl = `${protocol}://${host}:${port}/rest`;
+    const auth = Buffer.from(`${user}:${password}`).toString('base64');
 
-    });
+    console.log(`[Mikrotik] Connecting to ${baseUrl}...`);
 
-    console.log(`[Mikrotik] Attempting connection to ${host}:${port} (TLS: ${port === 8728})...`);
+    // Helper function to fetch data with timeout
+    const fetchMikrotik = async (endpoint: string) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        try {
+            const response = await fetch(`${baseUrl}${endpoint}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Basic ${auth}`,
+                    'Content-Type': 'application/json'
+                },
+                cache: 'no-store',
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`API Error ${response.status}: ${text || response.statusText}`);
+            }
+
+            return await response.json();
+        } catch (error: any) {
+            clearTimeout(timeoutId);
+
+            if (error.name === 'AbortError') {
+                throw new Error(`Connection timed out to ${baseUrl}. The router might be unreachable or the REST API service is not enabled on port ${port}.`);
+            }
+            if (error.cause?.code === 'ECONNREFUSED') {
+                throw new Error(`Connection refused to ${baseUrl}. Check IP and Port.`);
+            }
+            if (error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT') {
+                throw new Error('SSL Error: Self-signed certificate detected.');
+            }
+            throw error;
+        }
+    };
 
     try {
-        await client.connect();
-        console.log('Mikrotik Connected Successfully!');
+        // Parallel fetch for efficiency
+        const [resources, interfaces, leases] = await Promise.all([
+            fetchMikrotik('/system/resource'),
+            fetchMikrotik('/interface'),
+            fetchMikrotik('/ip/dhcp-server/lease')
+        ]);
 
-        // Fetch System Resources (lightweight)
-        const resources = await client.write('/system/resource/print');
+        // The REST API returns arrays for these endpoints (equivalent to 'print' command)
 
-        // Fetch only first 10 Interfaces
-        const allInterfaces = await client.write('/interface/print');
-        const interfaces = allInterfaces.slice(0, 10);
+        // Process Resources
+        const resourceData = Array.isArray(resources) && resources.length > 0 ? resources[0] : {};
 
-        // Fetch only ACTIVE DHCP Leases (max 50)
-        const allLeases = await client.write('/ip/dhcp-server/lease/print');
-        const activeLeases = allLeases
-            .filter((lease: any) => lease.status === 'bound')
-            .slice(0, 50);
+        // Process Interfaces (Limit to 10)
+        const interfaceData = Array.isArray(interfaces)
+            ? interfaces.slice(0, 10)
+            : [];
 
-        client.close();
+        // Process Leases (Active only, Limit to 50)
+        const leaseData = Array.isArray(leases)
+            ? leases
+                .filter((lease: any) => lease.status === 'bound')
+                .slice(0, 50)
+            : [];
 
         return {
             success: true,
             data: {
-                resources: resources[0] || {},
-                interfaces: interfaces || [],
-                leases: activeLeases || []
+                resources: resourceData,
+                interfaces: interfaceData,
+                leases: leaseData
             }
         };
 
     } catch (error: any) {
-        try {
-            client.close();
-        } catch (e) {
-            // Ignore close error
-        }
-
-        console.error('[Mikrotik] Connection Error:', error);
-
-        let errorMessage = error.message || 'Failed to connect to Mikrotik router.';
-
-        // Add helpful hints based on error type
-        if (error.errno === 'SOCKTMOUT' || errorMessage.includes('Timed out')) {
-            errorMessage += ' The router is not responding. Check if the IP and port are correct, and if the API service is enabled on the router.';
-        } else if (error.errno === -4078 || errorMessage.includes('ECONNREFUSED')) {
-            errorMessage += ' Connection refused. The API service might not be running on this port.';
-        } else if (error.errno === -3008 || errorMessage.includes('ENOTFOUND')) {
-            errorMessage += ' Host not found. Check if the IP address is correct.';
-        }
-
+        console.error('[Mikrotik] Fetch Error:', error.message);
         return {
             success: false,
-            error: errorMessage
+            error: error.message || 'Failed to connect to Mikrotik router via REST API.'
         };
     }
 }
