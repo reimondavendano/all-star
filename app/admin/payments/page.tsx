@@ -374,7 +374,16 @@ export default function PaymentsPage() {
                                                                                 <div className="text-right">
                                                                                     <div className="text-xs text-gray-400">Amount Due</div>
                                                                                     <div className="text-sm font-bold text-white">
-                                                                                        ₱{((Number(invoice.amount_due) || 0) + Math.max(0, (Number(sub.balance) || 0))).toLocaleString()}
+                                                                                        ₱{(() => {
+                                                                                            const baseAmount = Number(invoice.amount_due) || 0;
+                                                                                            // Only apply balance adjustment if invoice is Unpaid
+                                                                                            if (invoice.payment_status === 'Unpaid') {
+                                                                                                const balance = Number(sub.balance) || 0;
+                                                                                                return Math.max(0, baseAmount + balance).toLocaleString();
+                                                                                            }
+                                                                                            // For Paid or Partially Paid, show original amount
+                                                                                            return baseAmount.toLocaleString();
+                                                                                        })()}
                                                                                     </div>
                                                                                 </div>
                                                                             </>
@@ -385,18 +394,11 @@ export default function PaymentsPage() {
                                                                                 ₱{(invoice.total_paid || 0).toLocaleString()}
                                                                             </div>
                                                                         </div>
-                                                                        <div className="text-right">
-                                                                            <div className="text-xs text-gray-400">
-                                                                                {Number(sub.balance) > 0 ? 'Balance' : Number(sub.balance) < 0 ? 'Extra Balance' : 'Balance'}
-                                                                            </div>
-                                                                            <div className={`text-sm font-bold ${Number(sub.balance) > 0 ? 'text-red-400' : Number(sub.balance) < 0 ? 'text-green-400' : 'text-gray-400'}`}>
-                                                                                ₱{Math.abs(Number(sub.balance) || 0).toLocaleString()}
-                                                                            </div>
-                                                                        </div>
+
                                                                         <div>
                                                                             <span className={`px-2 py-1 rounded-full text-xs ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400' :
-                                                                                    invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400' :
-                                                                                        'bg-red-900/30 text-red-400'
+                                                                                invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400' :
+                                                                                    'bg-red-900/30 text-red-400'
                                                                                 }`}>
                                                                                 {invoice.payment_status}
                                                                             </span>
@@ -438,7 +440,7 @@ export default function PaymentsPage() {
                         </div>
                     )}
                 </div>
-            </div>
+            </div >
 
             <RecordPaymentModal
                 isOpen={isModalOpen}

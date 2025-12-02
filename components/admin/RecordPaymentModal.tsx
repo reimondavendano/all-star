@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Search, Check, User, Wifi, MoreHorizontal } from 'lucide-react';
+import { X, Search, Check, User, Wifi, MoreHorizontal, Calendar } from 'lucide-react';
 import SubscriberSelectModal from './SubscriberSelectModal';
 
 interface RecordPaymentModalProps {
@@ -28,21 +28,64 @@ interface Subscriber {
 
 }
 
+interface AvailableInvoice {
+    id: string;
+    due_date: string;
+    amount_due: number;
+    payment_status: string;
+    month_label: string;
+}
+
 export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: RecordPaymentModalProps) {
     const [selectedSubscriber, setSelectedSubscriber] = useState<string>('');
     const [subscriberDetails, setSubscriberDetails] = useState<Subscriber | null>(null);
+    const [availableInvoices, setAvailableInvoices] = useState<AvailableInvoice[]>([]);
+    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
     const [amount, setAmount] = useState('');
     const [mode, setMode] = useState<'Cash' | 'E-Wallet'>('Cash');
     const [notes, setNotes] = useState('');
     const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
     const [isLoading, setIsLoading] = useState(false);
     const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
+    const [suggestedAmount, setSuggestedAmount] = useState<{
+        amount: number;
+        invoiceAmount: number;
+        balance: number;
+    } | null>(null);
 
     useEffect(() => {
         if (selectedSubscriber) {
             fetchSubscriberDetails();
+            fetchAvailableInvoices();
+        } else {
+            setSubscriberDetails(null);
+            setAvailableInvoices([]);
+            setSelectedInvoiceId('');
         }
     }, [selectedSubscriber]);
+
+    useEffect(() => {
+        if (selectedInvoiceId && subscriberDetails) {
+            calculateSuggestedAmount();
+        } else {
+            setSuggestedAmount(null);
+        }
+    }, [selectedInvoiceId, subscriberDetails]);
+
+    // Reset form when modal is closed
+    useEffect(() => {
+        if (!isOpen) {
+            setSelectedSubscriber('');
+            setSubscriberDetails(null);
+            setAvailableInvoices([]);
+            setSelectedInvoiceId('');
+            setAmount('');
+            setMode('Cash');
+            setNotes('');
+            setSettlementDate(new Date().toISOString().split('T')[0]);
+            setSuggestedAmount(null);
+        }
+    }, [isOpen]);
 
     const fetchSubscriberDetails = async () => {
         try {
@@ -83,10 +126,66 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         }
     };
 
+    const fetchAvailableInvoices = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('invoices')
+                .select('id, due_date, amount_due, payment_status')
+                .eq('subscription_id', selectedSubscriber)
+                .order('due_date', { ascending: false });
+
+            if (error) throw error;
+
+            const invoicesWithLabels = (data || []).map((inv: any) => {
+                const dueDate = new Date(inv.due_date);
+                const monthLabel = dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+                return {
+                    ...inv,
+                    month_label: monthLabel
+                };
+            });
+
+            setAvailableInvoices(invoicesWithLabels);
+        } catch (error) {
+            console.error('Error fetching invoices:', error);
+        }
+    };
+
+    const calculateSuggestedAmount = async () => {
+        if (!selectedInvoiceId || !subscriberDetails) {
+            setSuggestedAmount(null);
+            return;
+        }
+
+        try {
+            const selectedInvoice = availableInvoices.find(inv => inv.id === selectedInvoiceId);
+            if (!selectedInvoice) return;
+
+            const invoiceAmount = selectedInvoice.amount_due;
+            const currentBalance = Number(subscriberDetails.balance) || 0;
+
+            // Logic: Payable = Invoice Amount + Balance
+            // If Balance is negative (credit), it reduces the payable amount.
+            // If Balance is positive (debt), it increases the payable amount.
+            const totalAmount = Math.max(0, invoiceAmount + currentBalance);
+
+            setSuggestedAmount({
+                amount: totalAmount,
+                invoiceAmount: invoiceAmount,
+                balance: currentBalance
+            });
+
+            // Auto-set settlement date to the invoice's due date
+            setSettlementDate(selectedInvoice.due_date);
+        } catch (error) {
+            console.error('Error calculating suggested amount:', error);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!selectedSubscriber || !amount || !subscriberDetails) {
+        if (!selectedSubscriber || !amount || !subscriberDetails || !selectedInvoiceId) {
             alert('Please fill in all required fields');
             return;
         }
@@ -190,6 +289,8 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             // Reset form
             setSelectedSubscriber('');
             setSubscriberDetails(null);
+            setAvailableInvoices([]);
+            setSelectedInvoiceId('');
             setAmount('');
             setMode('Cash');
             setNotes('');
@@ -217,8 +318,8 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-                <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-2xl">
-                    <div className="p-6 border-b border-red-900/30 flex justify-between items-center">
+                <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-2xl max-h-[90vh] flex flex-col">
+                    <div className="p-6 border-b border-red-900/30 flex justify-between items-center flex-shrink-0">
                         <h2 className="text-2xl font-bold text-white neon-text">Record Payment</h2>
                         <button
                             onClick={onClose}
@@ -228,7 +329,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                         </button>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                    <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
                         {/* Subscriber Selection */}
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -268,66 +369,130 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                             </div>
                         </div>
 
-                        {/* Payment Mode */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Payment Mode <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={mode}
-                                onChange={(e) => setMode(e.target.value as any)}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
-                            >
-                                <option value="Cash">Cash</option>
-                                <option value="E-Wallet">E-Wallet</option>
-                            </select>
-                        </div>
-
-                        {/* Amount */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Amount <span className="text-red-500">*</span>
-                            </label>
-                            <div className="relative">
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₱</span>
-                                <input
-                                    type="number"
-                                    value={amount}
-                                    onChange={(e) => setAmount(e.target.value)}
-                                    step="0.01"
-                                    min="0"
-                                    placeholder="0.00"
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 pl-8 text-white focus:outline-none focus:border-red-500"
-                                />
+                        {/* Invoice Month Selection */}
+                        {selectedSubscriber && availableInvoices.length > 0 && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-2">
+                                    <Calendar className="w-4 h-4 inline mr-2" />
+                                    Select Invoice Month <span className="text-red-500">*</span>
+                                </label>
+                                <select
+                                    value={selectedInvoiceId}
+                                    onChange={(e) => setSelectedInvoiceId(e.target.value)}
+                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
+                                >
+                                    <option value="">Select an invoice month</option>
+                                    {availableInvoices
+                                        .filter(inv => inv.payment_status === 'Unpaid') // Only show Unpaid invoices
+                                        .map((inv) => (
+                                            <option key={inv.id} value={inv.id}>
+                                                {inv.month_label} - {subscriberDetails?.plans?.name || 'Plan'} ({inv.payment_status})
+                                            </option>
+                                        ))}
+                                </select>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Settlement Date */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Settlement Date <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={settlementDate}
-                                onChange={(e) => setSettlementDate(e.target.value)}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
+                        {selectedSubscriber && availableInvoices.length > 0 && availableInvoices.filter(inv => inv.payment_status === 'Unpaid').length === 0 && (
+                            <div className="text-center py-4 text-yellow-400 bg-yellow-900/20 border border-yellow-700/50 rounded">
+                                No unpaid invoices available for this subscriber.
+                            </div>
+                        )}
 
-                        {/* Notes */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Notes (Optional)
-                            </label>
-                            <textarea
-                                value={notes}
-                                onChange={(e) => setNotes(e.target.value)}
-                                rows={3}
-                                placeholder="Add any additional notes..."
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500 resize-none"
-                            />
-                        </div>
+                        {selectedSubscriber && availableInvoices.length === 0 && (
+                            <div className="text-center py-4 text-yellow-400 bg-yellow-900/20 border border-yellow-700/50 rounded">
+                                No invoices available for this subscriber.
+                            </div>
+                        )}
+
+                        {/* Payment Fields - Only show when invoice is selected */}
+                        {selectedInvoiceId && (
+                            <>
+                                {/* Payment Mode */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        Payment Mode <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        value={mode}
+                                        onChange={(e) => setMode(e.target.value as any)}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
+                                    >
+                                        <option value="Cash">Cash</option>
+                                        <option value="E-Wallet">E-Wallet</option>
+                                    </select>
+                                </div>
+
+                                {/* Amount */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        Amount <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₱</span>
+                                        <input
+                                            type="number"
+                                            value={amount}
+                                            onChange={(e) => setAmount(e.target.value)}
+                                            step="0.01"
+                                            min="0"
+                                            placeholder="0.00"
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 pl-8 text-white focus:outline-none focus:border-red-500"
+                                        />
+                                    </div>
+                                    {suggestedAmount && (
+                                        <div className="mt-2 text-xs text-gray-400 bg-gray-900/50 p-2 rounded border border-gray-800">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span>Amount Total:</span>
+                                                <span className="font-bold text-white">₱{suggestedAmount.amount.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center text-[10px] text-gray-500">
+                                                <span>Breakdown:</span>
+                                                <span>
+                                                    Invoice (₱{suggestedAmount.invoiceAmount.toLocaleString()})
+                                                    {suggestedAmount.balance >= 0 ? ' + ' : ' - '}
+                                                    {suggestedAmount.balance >= 0 ? 'Debt' : 'Credit'} (₱{Math.abs(suggestedAmount.balance).toLocaleString()})
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAmount(suggestedAmount.amount.toString())}
+                                                className="mt-1 text-[10px] text-blue-400 hover:text-blue-300 underline"
+                                            >
+                                                Use Suggested Amount
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Settlement Date */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        Settlement Date <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={settlementDate}
+                                        onChange={(e) => setSettlementDate(e.target.value)}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
+                                    />
+                                </div>
+
+                                {/* Notes */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        Notes (Optional)
+                                    </label>
+                                    <textarea
+                                        value={notes}
+                                        onChange={(e) => setNotes(e.target.value)}
+                                        rows={3}
+                                        placeholder="Add any additional notes..."
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500 resize-none"
+                                    />
+                                </div>
+                            </>
+                        )}
 
                         {/* Actions */}
                         <div className="flex gap-3 pt-4">
@@ -340,8 +505,8 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                             </button>
                             <button
                                 type="submit"
-                                disabled={isLoading || !selectedSubscriber || !amount}
-                                className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isLoading || !selectedSubscriber || !amount
+                                disabled={isLoading || !selectedSubscriber || !amount || !selectedInvoiceId}
+                                className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isLoading || !selectedSubscriber || !amount || !selectedInvoiceId
                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     : 'bg-green-600 hover:bg-green-700 text-white'
                                     }`}
