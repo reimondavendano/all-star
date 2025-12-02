@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Loader2, CreditCard, FileText, Wifi, Calendar, MapPin, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, FileText, Wifi, MapPin, AlertCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Payment {
@@ -23,6 +23,8 @@ interface Invoice {
     amount_due: number;
     payment_status: string;
     created_at: string;
+    payments: Payment[];
+    total_paid: number;
 }
 
 interface Subscription {
@@ -34,7 +36,7 @@ interface Subscription {
     address: string;
     barangay: string;
     active: boolean;
-    payments: Payment[];
+    balance: number;
     invoices: Invoice[];
 }
 
@@ -51,6 +53,8 @@ export default function CustomerPaymentsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [expandedSub, setExpandedSub] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState<{ [key: string]: number }>({});
+    const itemsPerPage = 10;
 
     useEffect(() => {
         if (params.id) {
@@ -72,7 +76,7 @@ export default function CustomerPaymentsPage() {
             if (customerError) throw customerError;
             if (!customer) throw new Error('Customer not found');
 
-            // 2. Fetch Subscriptions with Plans
+            // 2. Fetch Subscriptions with Plans and Balance
             const { data: subscriptions, error: subsError } = await supabase
                 .from('subscriptions')
                 .select(`
@@ -80,28 +84,48 @@ export default function CustomerPaymentsPage() {
                     address,
                     barangay,
                     active,
+                    balance,
                     plans (name, monthly_fee)
                 `)
                 .eq('subscriber_id', customerId);
 
             if (subsError) throw subsError;
 
-            // 3. Fetch Payments and Invoices for each subscription
+            // 3. Fetch Invoices and Payments for each subscription
             const subscriptionsWithHistory = await Promise.all(
                 (subscriptions || []).map(async (sub: any) => {
-                    // Fetch Payments
-                    const { data: payments } = await supabase
-                        .from('payments')
-                        .select('*')
-                        .eq('subscription_id', sub.id)
-                        .order('settlement_date', { ascending: false });
-
                     // Fetch Invoices
                     const { data: invoices } = await supabase
                         .from('invoices')
                         .select('*')
                         .eq('subscription_id', sub.id)
-                        .order('created_at', { ascending: false });
+                        .order('due_date', { ascending: false });
+
+                    // Fetch all payments for this subscription
+                    const { data: allPayments } = await supabase
+                        .from('payments')
+                        .select('*')
+                        .eq('subscription_id', sub.id);
+
+                    // Group payments by invoice month
+                    const invoicesWithPayments = (invoices || []).map((invoice: any) => {
+                        const [year, month] = invoice.due_date.split('-');
+                        const startDate = new Date(parseInt(year), parseInt(month) - 1, 1).toISOString().split('T')[0];
+                        const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+
+                        // Find payments that fall within this invoice's month
+                        const invoicePayments = (allPayments || []).filter((payment: any) => {
+                            return payment.settlement_date >= startDate && payment.settlement_date <= endDate;
+                        });
+
+                        const totalPaid = invoicePayments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+
+                        return {
+                            ...invoice,
+                            payments: invoicePayments,
+                            total_paid: totalPaid
+                        };
+                    });
 
                     return {
                         id: sub.id,
@@ -109,8 +133,8 @@ export default function CustomerPaymentsPage() {
                         address: sub.address,
                         barangay: sub.barangay,
                         active: sub.active,
-                        payments: payments || [],
-                        invoices: invoices || []
+                        balance: sub.balance || 0,
+                        invoices: invoicesWithPayments
                     };
                 })
             );
@@ -123,6 +147,7 @@ export default function CustomerPaymentsPage() {
             // Expand the first subscription by default if exists
             if (subscriptionsWithHistory.length > 0) {
                 setExpandedSub(subscriptionsWithHistory[0].id);
+                setCurrentPage({ [subscriptionsWithHistory[0].id]: 1 });
             }
 
         } catch (err: any) {
@@ -134,7 +159,22 @@ export default function CustomerPaymentsPage() {
     };
 
     const toggleSubscription = (subId: string) => {
-        setExpandedSub(expandedSub === subId ? null : subId);
+        const newExpanded = expandedSub === subId ? null : subId;
+        setExpandedSub(newExpanded);
+        if (newExpanded && !currentPage[subId]) {
+            setCurrentPage({ ...currentPage, [subId]: 1 });
+        }
+    };
+
+    const getDisplayAmount = (invoice: Invoice, subscription: Subscription) => {
+        const baseAmount = invoice.amount_due;
+        // Only apply balance adjustment if invoice is Unpaid
+        if (invoice.payment_status === 'Unpaid') {
+            const balance = subscription.balance;
+            return Math.max(0, baseAmount + balance);
+        }
+        // For Paid or Partially Paid, show original amount
+        return baseAmount;
     };
 
     if (isLoading) {
@@ -169,129 +209,152 @@ export default function CustomerPaymentsPage() {
 
             {/* Subscriptions List */}
             <div className="space-y-6">
-                {data.subscriptions.map((sub) => (
-                    <div key={sub.id} className="tech-card rounded-xl overflow-hidden border border-gray-800 bg-[#0a0a0a]">
-                        {/* Subscription Header */}
-                        <div
-                            onClick={() => toggleSubscription(sub.id)}
-                            className="p-6 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-between"
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-lg ${sub.active ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-500'}`}>
-                                    <Wifi className="w-6 h-6" />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                                        {sub.plan.name}
-                                        <span className={`text-xs px-2 py-0.5 rounded border ${sub.active
+                {data.subscriptions.map((sub) => {
+                    const page = currentPage[sub.id] || 1;
+                    const totalPages = Math.ceil(sub.invoices.length / itemsPerPage);
+                    const startIndex = (page - 1) * itemsPerPage;
+                    const endIndex = startIndex + itemsPerPage;
+                    const paginatedInvoices = sub.invoices.slice(startIndex, endIndex);
+
+                    return (
+                        <div key={sub.id} className="tech-card rounded-xl overflow-hidden border border-gray-800 bg-[#0a0a0a]">
+                            {/* Subscription Header */}
+                            <div
+                                onClick={() => toggleSubscription(sub.id)}
+                                className="p-6 cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-between"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-3 rounded-lg ${sub.active ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-500'}`}>
+                                        <Wifi className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                                            {sub.plan.name}
+                                            <span className={`text-xs px-2 py-0.5 rounded border ${sub.active
                                                 ? 'border-green-500/30 text-green-400 bg-green-500/10'
                                                 : 'border-red-500/30 text-red-400 bg-red-500/10'
-                                            }`}>
-                                            {sub.active ? 'ACTIVE' : 'INACTIVE'}
-                                        </span>
-                                    </h3>
-                                    <div className="flex items-center gap-4 mt-1 text-sm text-gray-400 font-mono">
-                                        <span className="flex items-center gap-1">
-                                            <MapPin className="w-3 h-3" />
-                                            {sub.address}, {sub.barangay}
-                                        </span>
-                                        <span className="text-gray-600">|</span>
-                                        <span>₱{sub.plan.monthly_fee.toLocaleString()}/mo</span>
+                                                }`}>
+                                                {sub.active ? 'ACTIVE' : 'INACTIVE'}
+                                            </span>
+                                        </h3>
+                                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-400 font-mono">
+                                            <span className="flex items-center gap-1">
+                                                <MapPin className="w-3 h-3" />
+                                                {sub.address}, {sub.barangay}
+                                            </span>
+                                            <span className="text-gray-600">|</span>
+                                            <span>₱{sub.plan.monthly_fee.toLocaleString()}/mo</span>
+                                        </div>
                                     </div>
                                 </div>
+                                {expandedSub === sub.id ? (
+                                    <ChevronUp className="w-5 h-5 text-gray-500" />
+                                ) : (
+                                    <ChevronDown className="w-5 h-5 text-gray-500" />
+                                )}
                             </div>
-                            {expandedSub === sub.id ? (
-                                <ChevronUp className="w-5 h-5 text-gray-500" />
-                            ) : (
-                                <ChevronDown className="w-5 h-5 text-gray-500" />
+
+                            {/* Expanded Content */}
+                            {expandedSub === sub.id && (
+                                <div className="border-t border-gray-800 p-6 bg-black/20">
+                                    {/* Invoice History */}
+                                    <h4 className="text-sm font-mono text-gray-400 uppercase mb-4 flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-blue-500" />
+                                        Transaction History
+                                    </h4>
+                                    <div className="space-y-3">
+                                        {paginatedInvoices.length > 0 ? (
+                                            <>
+                                                {paginatedInvoices.map((invoice) => (
+                                                    <div key={invoice.id} className="bg-[#111] border border-gray-800 rounded-lg p-4 hover:border-gray-700 transition-colors">
+                                                        <div className="flex items-center justify-between">
+                                                            <div>
+                                                                <p className="text-white font-bold">
+                                                                    ₱{getDisplayAmount(invoice, sub).toLocaleString()}
+                                                                </p>
+                                                                <p className="text-xs text-gray-500 font-mono mt-1">
+                                                                    Due: {invoice.due_date ? format(new Date(invoice.due_date), 'MMM dd, yyyy') : '-'}
+                                                                </p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <span className={`px-2 py-1 rounded text-xs font-mono border ${invoice.payment_status === 'Paid'
+                                                                    ? 'bg-green-900/20 text-green-400 border-green-500/20'
+                                                                    : invoice.payment_status === 'Partially Paid'
+                                                                        ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/20'
+                                                                        : 'bg-red-900/20 text-red-400 border-red-500/20'
+                                                                    }`}>
+                                                                    {invoice.payment_status}
+                                                                </span>
+                                                                <p className="text-xs text-gray-500 mt-1">
+                                                                    {invoice.from_date && invoice.to_date
+                                                                        ? `${format(new Date(invoice.from_date), 'MMM dd')} - ${format(new Date(invoice.to_date), 'MMM dd')}`
+                                                                        : 'Billing Period'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Show payments if any */}
+                                                        {invoice.payments && invoice.payments.length > 0 && (
+                                                            <div className="mt-3 pt-3 border-t border-gray-800">
+                                                                <p className="text-xs text-gray-500 mb-2">Payments:</p>
+                                                                <div className="space-y-2">
+                                                                    {invoice.payments.map((payment) => (
+                                                                        <div key={payment.id} className="flex items-center justify-between text-sm">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="px-2 py-0.5 rounded text-xs font-mono bg-blue-900/20 text-blue-400 border border-blue-500/20">
+                                                                                    {payment.mode}
+                                                                                </span>
+                                                                                <span className="text-gray-400 text-xs">
+                                                                                    {format(new Date(payment.settlement_date), 'MMM dd, yyyy')}
+                                                                                </span>
+                                                                            </div>
+                                                                            <span className="text-green-400 font-bold">
+                                                                                ₱{payment.amount.toLocaleString()}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+
+                                                {/* Pagination */}
+                                                {totalPages > 1 && (
+                                                    <div className="flex items-center justify-between pt-4 border-t border-gray-800">
+                                                        <button
+                                                            onClick={() => setCurrentPage({ ...currentPage, [sub.id]: Math.max(1, page - 1) })}
+                                                            disabled={page === 1}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#252525] transition-colors"
+                                                        >
+                                                            <ChevronLeft className="w-4 h-4" />
+                                                            Previous
+                                                        </button>
+                                                        <span className="text-sm text-gray-400">
+                                                            Page {page} of {totalPages}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => setCurrentPage({ ...currentPage, [sub.id]: Math.min(totalPages, page + 1) })}
+                                                            disabled={page === totalPages}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#252525] transition-colors"
+                                                        >
+                                                            Next
+                                                            <ChevronRight className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <div className="text-center py-8 border border-dashed border-gray-800 rounded-lg">
+                                                <p className="text-gray-500 text-sm">No transaction history</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             )}
                         </div>
-
-                        {/* Expanded Content */}
-                        {expandedSub === sub.id && (
-                            <div className="border-t border-gray-800 p-6 bg-black/20">
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-                                    {/* Payments Section */}
-                                    <div>
-                                        <h4 className="text-sm font-mono text-gray-400 uppercase mb-4 flex items-center gap-2">
-                                            <CreditCard className="w-4 h-4 text-red-500" />
-                                            Payment History
-                                        </h4>
-                                        <div className="space-y-3">
-                                            {sub.payments.length > 0 ? (
-                                                sub.payments.map((payment) => (
-                                                    <div key={payment.id} className="bg-[#111] border border-gray-800 rounded-lg p-4 flex items-center justify-between hover:border-gray-700 transition-colors">
-                                                        <div>
-                                                            <p className="text-white font-bold">₱{payment.amount.toLocaleString()}</p>
-                                                            <p className="text-xs text-gray-500 font-mono mt-1">
-                                                                {payment.settlement_date ? format(new Date(payment.settlement_date), 'MMM dd, yyyy') : 'Pending'}
-                                                            </p>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <span className="px-2 py-1 rounded text-xs font-mono bg-blue-900/20 text-blue-400 border border-blue-500/20">
-                                                                {payment.mode}
-                                                            </span>
-                                                            {payment.notes && (
-                                                                <p className="text-xs text-gray-500 mt-1 max-w-[150px] truncate">
-                                                                    {payment.notes}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-center py-8 border border-dashed border-gray-800 rounded-lg">
-                                                    <p className="text-gray-500 text-sm">No payments recorded</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Invoices Section */}
-                                    <div>
-                                        <h4 className="text-sm font-mono text-gray-400 uppercase mb-4 flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-blue-500" />
-                                            Invoice History
-                                        </h4>
-                                        <div className="space-y-3">
-                                            {sub.invoices.length > 0 ? (
-                                                sub.invoices.map((invoice) => (
-                                                    <div key={invoice.id} className="bg-[#111] border border-gray-800 rounded-lg p-4 flex items-center justify-between hover:border-gray-700 transition-colors">
-                                                        <div>
-                                                            <p className="text-white font-bold">₱{invoice.amount_due.toLocaleString()}</p>
-                                                            <p className="text-xs text-gray-500 font-mono mt-1">
-                                                                Due: {invoice.due_date ? format(new Date(invoice.due_date), 'MMM dd, yyyy') : '-'}
-                                                            </p>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <span className={`px-2 py-1 rounded text-xs font-mono border ${invoice.payment_status === 'Paid'
-                                                                    ? 'bg-green-900/20 text-green-400 border-green-500/20'
-                                                                    : 'bg-yellow-900/20 text-yellow-400 border-yellow-500/20'
-                                                                }`}>
-                                                                {invoice.payment_status}
-                                                            </span>
-                                                            <p className="text-xs text-gray-500 mt-1">
-                                                                {invoice.from_date && invoice.to_date
-                                                                    ? `${format(new Date(invoice.from_date), 'MMM dd')} - ${format(new Date(invoice.to_date), 'MMM dd')}`
-                                                                    : 'Billing Period'}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-center py-8 border border-dashed border-gray-800 rounded-lg">
-                                                    <p className="text-gray-500 text-sm">No invoices generated</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ))}
+                    );
+                })}
 
                 {data.subscriptions.length === 0 && (
                     <div className="text-center py-12">

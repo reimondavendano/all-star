@@ -93,6 +93,7 @@ export default function CustomerPortalPage() {
                     address,
                     barangay,
                     router_serial_number,
+                    balance,
                     plans (name, monthly_fee, details)
                 `)
                 .eq('subscriber_id', customerId)
@@ -100,7 +101,7 @@ export default function CustomerPortalPage() {
 
             if (subsError) throw subsError;
 
-            // 3. For each subscription, get balance and recent invoices
+            // 3. For each subscription, get recent invoices
             const subscriptionsWithDetails = await Promise.all(
                 (subscriptionsData || []).map(async (sub: any) => {
                     // Get ALL invoices for this subscription
@@ -109,15 +110,6 @@ export default function CustomerPortalPage() {
                         .select('*')
                         .eq('subscription_id', sub.id)
                         .order('created_at', { ascending: false });
-
-                    // Calculate balance from UNPAID invoices only
-                    const unpaidInvoices = (allInvoices || []).filter(
-                        (inv: any) => inv.payment_status === 'Unpaid' || inv.payment_status === 'Partially Paid'
-                    );
-
-                    const balance = unpaidInvoices.reduce((sum: number, inv: any) => {
-                        return sum + (Number(inv.amount_due) || 0);
-                    }, 0);
 
                     // Get recent invoices for display (limit to 3)
                     const recentInvoices = (allInvoices || []).slice(0, 3);
@@ -132,7 +124,7 @@ export default function CustomerPortalPage() {
                         address: sub.address,
                         barangay: sub.barangay,
                         router_serial_number: sub.router_serial_number,
-                        balance: balance,
+                        balance: sub.balance || 0, // Use fetched balance
                         plan: {
                             name: plan?.name || 'Unknown Plan',
                             monthly_fee: plan?.monthly_fee || 0,
@@ -546,7 +538,18 @@ export default function CustomerPortalPage() {
                                                 <span className="text-gray-400 font-mono">
                                                     {new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                                 </span>
-                                                <span className="text-white font-mono">₱{invoice.amount_due.toLocaleString()}</span>
+                                                <span className="text-white font-mono">
+                                                    ₱{(() => {
+                                                        const baseAmount = Number(invoice.amount_due) || 0;
+                                                        // Only apply balance adjustment if invoice is Unpaid
+                                                        if (invoice.payment_status === 'Unpaid') {
+                                                            const balance = Number(sub.balance) || 0;
+                                                            return Math.max(0, baseAmount + balance).toLocaleString();
+                                                        }
+                                                        // For Paid or Partially Paid, show original amount
+                                                        return baseAmount.toLocaleString();
+                                                    })()}
+                                                </span>
                                                 <span className={`px-2 py-0.5 rounded font-mono ${invoice.payment_status === 'Paid'
                                                     ? 'bg-green-900/20 text-green-400'
                                                     : 'bg-yellow-900/20 text-yellow-400'
