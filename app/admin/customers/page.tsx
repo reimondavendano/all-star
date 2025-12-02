@@ -10,7 +10,7 @@ interface Customer {
     name: string;
     mobile_number: string;
     created_at: string;
-    subscriptions?: { id: string }[];
+    subscriptions?: { id: string; active: boolean }[];
 }
 
 export default function CustomersPage() {
@@ -28,7 +28,8 @@ export default function CustomersPage() {
     const itemsPerPage = 10;
 
     const handleCopyLink = (customerId: string) => {
-        const url = `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/portal/${customerId}`;
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const url = `${origin}/portal/${customerId}`;
         navigator.clipboard.writeText(url);
         setCopiedId(customerId);
         setTimeout(() => setCopiedId(null), 2000);
@@ -43,7 +44,7 @@ export default function CustomersPage() {
         try {
             const { data, error } = await supabase
                 .from('customers')
-                .select('*, subscriptions(id)')
+                .select('*, subscriptions(id, active)')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -170,17 +171,39 @@ export default function CustomersPage() {
                                 </td>
                                 <td className="p-4 text-gray-400">{customer.mobile_number || '-'}</td>
                                 <td className="p-4 text-gray-400">
-                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${(customer.subscriptions?.length || 0) > 0
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-gray-100 text-gray-800'
-                                        }`}>
-                                        {customer.subscriptions?.length || 0}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        {(() => {
+                                            const totalSubs = customer.subscriptions?.length || 0;
+                                            const activeSubs = customer.subscriptions?.filter(sub => sub.active).length || 0;
+                                            const disconnectedSubs = totalSubs - activeSubs;
+
+                                            return (
+                                                <>
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${totalSubs > 0
+                                                        ? 'bg-blue-900/30 text-blue-400 border border-blue-800'
+                                                        : 'bg-gray-800 text-gray-400 border border-gray-700'
+                                                        }`}>
+                                                        {totalSubs} Total
+                                                    </span>
+                                                    {activeSubs > 0 && (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/30 text-green-400 border border-green-800">
+                                                            {activeSubs} Active
+                                                        </span>
+                                                    )}
+                                                    {disconnectedSubs > 0 && (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900/30 text-red-400 border border-red-800">
+                                                            {disconnectedSubs} Disconnected
+                                                        </span>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
                                 </td>
                                 <td className="p-4">
                                     <div className="flex items-center gap-2">
                                         <a
-                                            href={`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/portal/${customer.id}`}
+                                            href={`/portal/${customer.id}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             className="text-blue-400 hover:text-blue-300 underline text-sm"
@@ -209,13 +232,13 @@ export default function CustomersPage() {
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>
-                                        <button
+                                        {/* <button
                                             onClick={() => setDeleteConfirm(customer.id)}
                                             className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
                                             title="Delete customer"
                                         >
                                             <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        </button> */}
                                     </div>
                                 </td>
                             </tr>

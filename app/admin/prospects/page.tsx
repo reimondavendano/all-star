@@ -44,6 +44,7 @@ export default function ProspectsPage() {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [showModal, setShowModal] = useState(false);
     const [editingProspect, setEditingProspect] = useState<Prospect | null>(null);
+    const [activeTab, setActiveTab] = useState<'Open' | 'Closed Lost'>('Open');
 
     const itemsPerPage = 10;
 
@@ -131,9 +132,10 @@ export default function ProspectsPage() {
     };
 
     const filteredProspects = prospects.filter(prospect =>
-        prospect.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        prospect.mobile_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        prospect.barangay?.toLowerCase().includes(searchQuery.toLowerCase())
+        (prospect.status === activeTab) &&
+        (prospect.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            prospect.mobile_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            prospect.barangay?.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
     const totalPages = Math.ceil(filteredProspects.length / itemsPerPage);
@@ -145,7 +147,29 @@ export default function ProspectsPage() {
         <>
             <div className="bg-[#0a0a0a] rounded-lg overflow-hidden border-2 border-red-900/50">
                 <div className="p-6 flex justify-between items-center border-b border-gray-900">
-                    <h1 className="text-2xl font-bold text-white">Prospects</h1>
+                    <div className="flex items-center gap-6">
+                        <h1 className="text-2xl font-bold text-white">Prospects</h1>
+                        <div className="flex bg-[#1a1a1a] rounded-lg p-1 border border-gray-800">
+                            <button
+                                onClick={() => { setActiveTab('Open'); setCurrentPage(1); }}
+                                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'Open'
+                                    ? 'bg-red-600 text-white shadow-lg'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                Open
+                            </button>
+                            <button
+                                onClick={() => { setActiveTab('Closed Lost'); setCurrentPage(1); }}
+                                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === 'Closed Lost'
+                                    ? 'bg-red-600 text-white shadow-lg'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                Closed Lost
+                            </button>
+                        </div>
+                    </div>
                     <div className="flex items-center gap-3">
                         <div className="relative">
                             <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />

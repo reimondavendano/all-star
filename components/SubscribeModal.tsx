@@ -47,6 +47,8 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
     // Confirmation & Success Modal States
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+    const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+    const [duplicateMessage, setDuplicateMessage] = useState('');
 
     const [formData, setFormData] = useState({
         name: '',
@@ -159,7 +161,51 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
         }
     };
 
-    const handleNext = () => {
+    const checkDuplicateNumber = async () => {
+        setIsSubmitting(true);
+        try {
+            // Check prospects (Open status)
+            const { data: prospectData, error: prospectError } = await supabase
+                .from('prospects')
+                .select('id')
+                .eq('mobile_number', formData.mobileNumber)
+                .eq('status', 'Open')
+                .single();
+
+            if (prospectData) {
+                setDuplicateMessage('There is already a pending application under this mobile number.');
+                setIsDuplicateModalOpen(true);
+                return true;
+            }
+
+            // Check customers
+            const { data: customerData, error: customerError } = await supabase
+                .from('customers')
+                .select('id')
+                .eq('mobile_number', formData.mobileNumber)
+                .single();
+
+            if (customerData) {
+                setDuplicateMessage('This mobile number is already registered to an existing customer.');
+                setIsDuplicateModalOpen(true);
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            console.error('Error checking duplicate:', error);
+            return false;
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleNext = async () => {
+        if (currentStep === 1) {
+            const isDuplicate = await checkDuplicateNumber();
+            if (isDuplicate) return;
+        }
+
         if (currentStep < STEPS.length) {
             setCurrentStep(prev => prev + 1);
         } else {
@@ -256,6 +302,21 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                 'x-coordinates': coordinates?.lng || null,
                 'y-coordinates': coordinates?.lat || null
             };
+
+            // Check for existing prospect with same mobile number (Open status)
+            const { data: existingProspect, error: checkError } = await supabase
+                .from('prospects')
+                .select('id')
+                .eq('mobile_number', formData.mobileNumber)
+                .eq('status', 'Open')
+                .single();
+
+            if (existingProspect) {
+                alert('There is already a pending application under this mobile number.');
+                setIsSubmitting(false);
+                setIsConfirmOpen(false);
+                return;
+            }
 
             const { error } = await supabase
                 .from('prospects') // Use plural table name as per schema
@@ -717,6 +778,31 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                             <button
                                 onClick={handleCloseSuccess}
                                 className="w-full px-4 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Duplicate Error Modal */}
+            {isDuplicateModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDuplicateModalOpen(false)} />
+                    <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                                <AlertCircle className="w-8 h-8 text-red-600" />
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">Duplicate Number</h3>
+                            <p className="text-gray-600 mb-6">
+                                {duplicateMessage}
+                            </p>
+
+                            <button
+                                onClick={() => setIsDuplicateModalOpen(false)}
+                                className="w-full px-4 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
                             >
                                 Close
                             </button>

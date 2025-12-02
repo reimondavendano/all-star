@@ -403,10 +403,7 @@ export default function CustomerPortalPage() {
                             <Phone className="w-4 h-4" />
                             {data.customer.mobile_number}
                         </p>
-                        <p className="text-sm text-gray-500 font-mono flex items-center gap-2">
-                            <Wifi className="w-4 h-4" />
-                            {data.subscriptions.length} Subscription{data.subscriptions.length !== 1 ? 's' : ''}
-                        </p>
+
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -466,10 +463,7 @@ export default function CustomerPortalPage() {
                                     </div>
                                     <p className="text-sm text-gray-500 font-mono">{sub.plan.details || 'High-speed internet'}</p>
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-3xl font-bold text-white">₱{sub.plan.monthly_fee.toLocaleString()}</p>
-                                    <p className="text-xs text-red-400 font-mono">Due on {sub.invoice_date || '30th'}</p>
-                                </div>
+
                             </div>
 
                             {/* Subscription Details Grid */}

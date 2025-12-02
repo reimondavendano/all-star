@@ -63,6 +63,18 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         installation_date: prospect.installation_date || '',
         router_serial_number: prospect.router_serial_number || ''
     });
+
+    const [prospectData, setProspectData] = useState({
+        name: prospect.name || '',
+        mobile_number: prospect.mobile_number || '',
+        barangay: prospect.barangay || '',
+        address: prospect.address || '',
+        landmark: prospect.landmark || '',
+        label: prospect.label || '',
+        details: prospect.details || '',
+        plan_id: prospect.plan_id || ''
+    });
+
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
     const [referrerName, setReferrerName] = useState<string>('');
 
@@ -97,6 +109,17 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 status: prospect.status || 'Closed Won',
                 installation_date: initialDate,
                 router_serial_number: prospect.router_serial_number || ''
+            });
+
+            setProspectData({
+                name: prospect.name || '',
+                mobile_number: prospect.mobile_number || '',
+                barangay: prospect.barangay || '',
+                address: prospect.address || '',
+                landmark: prospect.landmark || '',
+                label: prospect.label || '',
+                details: prospect.details || '',
+                plan_id: prospect.plan_id || ''
             });
         }
     }, [isOpen, prospect, minDate]);
@@ -168,17 +191,48 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         return date.toISOString().split('T')[0];
     };
 
-    // Check if all required fields are filled
-    const isFormValid = () => {
-        return formData.business_unit_id &&
-            formData.business_unit_id !== '' &&
-            formData.status &&
-            formData.installation_date &&
-            formData.router_serial_number;
+    const formatDateDisplay = (dateString: string) => {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const year = date.getFullYear();
+        return `${month}/${day}/${year}`;
     };
 
-    const handleApproveClick = () => {
-        if (!isFormValid()) {
+    // Check if all required fields are filled
+    const isFormValid = () => {
+        // For Open status, always valid (just editing prospect)
+        if (formData.status === 'Open') {
+            return true;
+        }
+
+        // For Closed Won, we need all fields
+        if (formData.status === 'Closed Won') {
+            return formData.business_unit_id &&
+                formData.business_unit_id !== '' &&
+                formData.status &&
+                formData.installation_date &&
+                formData.router_serial_number;
+        }
+
+        // For Closed Lost, we don't need business unit, installation date, or router
+        if (formData.status === 'Closed Lost') {
+            return true;
+        }
+
+        return false;
+    };
+
+    const handleApproveClick = async () => {
+        // For Open status, just update the prospect
+        if (formData.status === 'Open') {
+            await handleOpenUpdate();
+            return;
+        }
+
+        // For Closed Won, validate required fields
+        if (formData.status === 'Closed Won' && !isFormValid()) {
             alert('Please fill in all required fields: Business Unit, Status, Installation Date, and Router Serial');
             return;
         }
@@ -187,7 +241,39 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         if (formData.status === 'Closed Lost') {
             setShowReasonModal(true);
         } else {
+            // Closed Won - show confirmation
             setShowConfirmation(true);
+        }
+    };
+
+    const handleOpenUpdate = async () => {
+        setIsLoading(true);
+        try {
+            const { error } = await supabase
+                .from('prospects')
+                .update({
+                    status: formData.status,
+                    name: prospectData.name,
+                    mobile_number: prospectData.mobile_number,
+                    barangay: prospectData.barangay,
+                    address: prospectData.address,
+                    landmark: prospectData.landmark,
+                    label: prospectData.label,
+                    details: prospectData.details,
+                    plan_id: prospectData.plan_id,
+                    installation_date: formData.installation_date,
+                    'x-coordinates': coordinates?.lng || null,
+                    'y-coordinates': coordinates?.lat || null
+                })
+                .eq('id', prospect.id);
+
+            if (error) throw error;
+            setShowSuccess(true);
+        } catch (error) {
+            console.error('Error updating prospect:', error);
+            alert('Failed to update prospect');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -388,27 +474,9 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     {/* Content */}
                     <div className="p-6 space-y-6">
-                        {/* Editable Fields - 4 columns */}
-                        <div className="grid grid-cols-4 gap-4 p-4 bg-[#0f0f0f] border border-red-900/20 rounded-lg">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">
-                                    <Building2 className="w-4 h-4 inline mr-2" />
-                                    Business Unit <span className="text-red-500">*</span>
-                                </label>
-                                <select
-                                    value={formData.business_unit_id}
-                                    onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                >
-                                    <option value="">Select Business Unit</option>
-                                    {businessUnits.map(unit => (
-                                        <option key={unit.id} value={unit.id}>
-                                            {unit.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
+                        {/* Editable Fields - Status First */}
+                        <div className="grid grid-cols-1 gap-4 p-4 bg-[#0f0f0f] border border-red-900/20 rounded-lg">
+                            {/* Status Field - Always First */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
                                     <FileText className="w-4 h-4 inline mr-2" />
@@ -419,37 +487,67 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
                                 >
+                                    <option value="Open">Open</option>
                                     <option value="Closed Won">Closed Won</option>
                                     <option value="Closed Lost">Closed Lost</option>
                                 </select>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">
-                                    <Calendar className="w-4 h-4 inline mr-2" />
-                                    Installation Date <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="date"
-                                    value={formData.installation_date}
-                                    min={minDate}
-                                    onChange={(e) => setFormData({ ...formData, installation_date: e.target.value })}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                />
-                            </div>
+                            {/* Conditional Fields Grid */}
+                            <div className={`grid gap-4 ${formData.status === 'Closed Won' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                                {/* Business Unit - Disabled for Open and Closed Lost */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        <Building2 className="w-4 h-4 inline mr-2" />
+                                        Business Unit {formData.status === 'Closed Won' && <span className="text-red-500">*</span>}
+                                    </label>
+                                    <select
+                                        value={formData.business_unit_id}
+                                        onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
+                                        disabled={formData.status === 'Open' || formData.status === 'Closed Lost'}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <option value="">Select Business Unit</option>
+                                        {businessUnits.map(unit => (
+                                            <option key={unit.id} value={unit.id}>
+                                                {unit.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">
-                                    <Hash className="w-4 h-4 inline mr-2" />
-                                    Router Serial <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.router_serial_number}
-                                    onChange={(e) => setFormData({ ...formData, router_serial_number: e.target.value })}
-                                    placeholder="Enter serial number"
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                />
+                                {/* Installation Date - Enabled for Open and Closed Won, Disabled for Closed Lost */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">
+                                        <Calendar className="w-4 h-4 inline mr-2" />
+                                        Installation Date {formData.status === 'Closed Won' && <span className="text-red-500">*</span>}
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={formData.installation_date}
+                                        min={minDate}
+                                        onChange={(e) => setFormData({ ...formData, installation_date: e.target.value })}
+                                        disabled={formData.status === 'Closed Lost'}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    />
+                                </div>
+
+                                {/* Router Serial - Only show for Closed Won */}
+                                {formData.status === 'Closed Won' && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">
+                                            <Hash className="w-4 h-4 inline mr-2" />
+                                            Router Serial <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.router_serial_number}
+                                            onChange={(e) => setFormData({ ...formData, router_serial_number: e.target.value })}
+                                            placeholder="Enter serial number"
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -465,14 +563,33 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         <User className="w-4 h-4 text-blue-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Name</label>
-                                            <p className="text-sm text-white">{prospect.name}</p>
+                                            {formData.status === 'Open' ? (
+                                                <input
+                                                    type="text"
+                                                    value={prospectData.name}
+                                                    onChange={(e) => setProspectData({ ...prospectData, name: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-white">{prospect.name}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
                                         <Phone className="w-4 h-4 text-green-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Mobile Number</label>
-                                            <p className="text-sm text-gray-300">{prospect.mobile_number || '-'}</p>
+                                            {formData.status === 'Open' ? (
+                                                <input
+                                                    type="tel"
+                                                    value={prospectData.mobile_number}
+                                                    onChange={(e) => setProspectData({ ...prospectData, mobile_number: e.target.value })}
+                                                    maxLength={11}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-gray-300">{prospect.mobile_number || '-'}</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -488,21 +605,48 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Barangay</label>
-                                            <p className="text-sm text-gray-300">{prospect.barangay || '-'}</p>
+                                            {formData.status === 'Open' ? (
+                                                <input
+                                                    type="text"
+                                                    value={prospectData.barangay}
+                                                    onChange={(e) => setProspectData({ ...prospectData, barangay: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-gray-300">{prospect.barangay || '-'}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
                                         <Home className="w-4 h-4 text-orange-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Address</label>
-                                            <p className="text-sm text-gray-300">{prospect.address || '-'}</p>
+                                            {formData.status === 'Open' ? (
+                                                <textarea
+                                                    value={prospectData.address}
+                                                    onChange={(e) => setProspectData({ ...prospectData, address: e.target.value })}
+                                                    rows={2}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1 resize-none"
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-gray-300">{prospect.address || '-'}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex items-start gap-3">
                                         <LandmarkIcon className="w-4 h-4 text-yellow-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Landmark</label>
-                                            <p className="text-sm text-gray-300">{prospect.landmark || '-'}</p>
+                                            {formData.status === 'Open' ? (
+                                                <input
+                                                    type="text"
+                                                    value={prospectData.landmark}
+                                                    onChange={(e) => setProspectData({ ...prospectData, landmark: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-gray-300">{prospect.landmark || '-'}</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -518,15 +662,40 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         <Wifi className="w-4 h-4 text-cyan-500 mt-0.5" />
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Plan</label>
-                                            <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
+                                            {formData.status === 'Open' ? (
+                                                <select
+                                                    value={prospectData.plan_id}
+                                                    onChange={(e) => setProspectData({ ...prospectData, plan_id: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                >
+                                                    <option value="">Select Plan</option>
+                                                    {Object.values(plans).map(plan => (
+                                                        <option key={plan.id} value={plan.id}>
+                                                            {plan.name} - ₱{plan.monthly_fee.toLocaleString()}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <p className="text-sm text-gray-300">{getPlanDisplay(prospect.plan_id)}</p>
+                                            )}
                                         </div>
                                     </div>
-                                    {prospect.label && (
+                                    {(formData.status === 'Open' || prospect.label) && (
                                         <div className="flex items-start gap-3">
                                             <FileText className="w-4 h-4 text-purple-500 mt-0.5" />
                                             <div className="flex-1">
                                                 <label className="text-xs text-gray-500">Label</label>
-                                                <p className="text-sm text-gray-300">{prospect.label}</p>
+                                                {formData.status === 'Open' ? (
+                                                    <input
+                                                        type="text"
+                                                        value={prospectData.label}
+                                                        onChange={(e) => setProspectData({ ...prospectData, label: e.target.value })}
+                                                        placeholder="e.g., Home, Office, Work"
+                                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
+                                                    />
+                                                ) : (
+                                                    <p className="text-sm text-gray-300">{prospect.label}</p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -539,6 +708,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     Additional Details
                                 </h3>
                                 <div className="space-y-4">
+                                    {/* Referrer - Always show, read-only */}
                                     {prospect.referrer_id && (
                                         <div className="flex items-start gap-3">
                                             <UserCheck className="w-4 h-4 text-teal-500 mt-0.5" />
@@ -549,12 +719,22 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                             </div>
                                         </div>
                                     )}
-                                    {prospect.details && (
+                                    {(formData.status === 'Open' || prospect.details) && (
                                         <div className="flex items-start gap-3">
                                             <FileText className="w-4 h-4 text-amber-500 mt-0.5" />
                                             <div className="flex-1">
                                                 <label className="text-xs text-gray-500">Notes</label>
-                                                <p className="text-sm text-gray-300">{prospect.details}</p>
+                                                {formData.status === 'Open' ? (
+                                                    <textarea
+                                                        value={prospectData.details}
+                                                        onChange={(e) => setProspectData({ ...prospectData, details: e.target.value })}
+                                                        rows={3}
+                                                        placeholder="Add any additional notes..."
+                                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1 resize-none"
+                                                    />
+                                                ) : (
+                                                    <p className="text-sm text-gray-300">{prospect.details}</p>
+                                                )}
                                             </div>
                                         </div>
                                     )}
@@ -589,7 +769,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             onClick={handleApproveClick}
                             disabled={!isFormValid() || isLoading}
                             className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${isFormValid() && !isLoading
-                                ? 'bg-green-600 hover:bg-green-700 text-white'
+                                ? 'bg-red-600 hover:bg-red-700 text-white'
                                 : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 }`}
                         >
@@ -600,8 +780,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                 </>
                             ) : (
                                 <>
-                                    <CheckCircle className="w-4 h-4" />
-                                    Approve
+                                    <Save className="w-4 h-4" />
+                                    Save
                                 </>
                             )}
                         </button>
@@ -646,19 +826,57 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             )}
 
             {/* Confirmation Modal */}
+            {/* Confirmation Modal */}
             {showConfirmation && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowConfirmation(false)} />
-                    <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.2)] w-full max-w-md p-6">
-                        <div className="flex flex-col items-center text-center">
-                            <div className="w-12 h-12 bg-green-900/20 rounded-full flex items-center justify-center mb-4">
-                                <AlertCircle className="w-6 h-6 text-green-500" />
+                    <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.2)] w-full max-w-2xl p-6">
+                        <div className="flex flex-col">
+                            <div className="flex items-center justify-center mb-4">
+                                <div className="w-12 h-12 bg-green-900/20 rounded-full flex items-center justify-center">
+                                    <AlertCircle className="w-6 h-6 text-green-500" />
+                                </div>
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2">Confirm Approval</h3>
-                            <p className="text-gray-400 mb-6">
-                                Are you sure you want to approve this prospect? This will create a customer and subscription record.
+                            <h3 className="text-xl font-bold text-white mb-2 text-center">Confirm Approval</h3>
+                            <p className="text-gray-400 mb-6 text-center">
+                                Please review the details below before approving this prospect.
                             </p>
-                            <div className="flex gap-3 w-full">
+
+                            {/* Details Grid */}
+                            <div className="bg-[#0f0f0f] border border-gray-800 rounded-lg p-6 mb-6 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Customer Name</label>
+                                        <p className="text-white font-medium">{prospect.name}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Customer Mobile</label>
+                                        <p className="text-white font-medium">{prospect.mobile_number}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Router Number</label>
+                                        <p className="text-white font-medium">{formData.router_serial_number}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Plan</label>
+                                        <p className="text-white font-medium">{plans[prospect.plan_id]?.name || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Installation Date</label>
+                                        <p className="text-white font-medium">{formatDateDisplay(formData.installation_date)}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Business Unit</label>
+                                        <p className="text-white font-medium">{businessUnits.find(bu => bu.id === formData.business_unit_id)?.name || '-'}</p>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="text-xs text-gray-500 uppercase">Location + Brgy</label>
+                                        <p className="text-white font-medium">{prospect.address}, {prospect.barangay}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowConfirmation(false)}
                                     className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
