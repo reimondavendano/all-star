@@ -61,7 +61,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         business_unit_id: prospect.business_unit_id || '',
         status: prospect.status || 'Closed Won',
         installation_date: prospect.installation_date || '',
-        router_serial_number: prospect.router_serial_number || ''
+        router_serial_number: prospect.router_serial_number || '',
+        invoice_date: '15th' // Default value
     });
 
     const [prospectData, setProspectData] = useState({
@@ -108,7 +109,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 business_unit_id: prospect.business_unit_id || '',
                 status: prospect.status || 'Closed Won',
                 installation_date: initialDate,
-                router_serial_number: prospect.router_serial_number || ''
+                router_serial_number: prospect.router_serial_number || '',
+                invoice_date: '15th'
             });
 
             setProspectData({
@@ -131,6 +133,21 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             setReferrerName('');
         }
     }, [prospect.referrer_id]);
+
+    // Auto-select Billing Period based on Business Unit
+    useEffect(() => {
+        if (!formData.business_unit_id || businessUnits.length === 0) return;
+
+        const unit = businessUnits.find(u => u.id === formData.business_unit_id);
+        if (unit) {
+            const unitName = unit.name.toLowerCase();
+            if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                setFormData(prev => ({ ...prev, invoice_date: '15th' }));
+            } else if (unitName.includes('malanggam')) {
+                setFormData(prev => ({ ...prev, invoice_date: '30th' }));
+            }
+        }
+    }, [formData.business_unit_id, businessUnits]);
 
     const fetchReferrerName = async () => {
         try {
@@ -207,13 +224,14 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             return true;
         }
 
-        // For Closed Won, we need all fields
+        // For Closed Won, we need all fields including invoice_date
         if (formData.status === 'Closed Won') {
             return formData.business_unit_id &&
                 formData.business_unit_id !== '' &&
                 formData.status &&
                 formData.installation_date &&
-                formData.router_serial_number;
+                formData.router_serial_number &&
+                formData.invoice_date;
         }
 
         // For Closed Lost, we don't need business unit, installation date, or router
@@ -233,7 +251,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
         // For Closed Won, validate required fields
         if (formData.status === 'Closed Won' && !isFormValid()) {
-            alert('Please fill in all required fields: Business Unit, Status, Installation Date, and Router Serial');
+            alert('Please fill in all required fields: Business Unit, Status, Installation Date, Router Serial, and Billing Period');
             return;
         }
 
@@ -288,13 +306,14 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
         try {
             // Update prospect with reason in details field
+            // For Closed Lost, we send null for fields that might be empty/invalid
             const { error } = await supabase
                 .from('prospects')
                 .update({
                     status: formData.status,
-                    business_unit_id: formData.business_unit_id,
-                    installation_date: formData.installation_date,
-                    router_serial_number: formData.router_serial_number,
+                    business_unit_id: formData.business_unit_id || null,
+                    installation_date: formData.installation_date || null,
+                    router_serial_number: formData.router_serial_number || null,
                     details: reason
                 })
                 .eq('id', prospect.id);
@@ -315,18 +334,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         setShowConfirmation(false);
 
         try {
-            // Determine invoice_date based on business unit
-            let invoice_date = '15th'; // default
-            const unit = businessUnits.find(u => u.id === formData.business_unit_id);
-            if (unit) {
-                const unitName = unit.name.toLowerCase();
-                if (unitName.includes('malanggam')) {
-                    invoice_date = '30th';
-                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
-                    invoice_date = '15th';
-                }
-            }
-
             // 1. Create customer
             const { data: newCustomer, error: customerError } = await supabase
                 .from('customers')
@@ -350,7 +357,9 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     label: prospect.label,
                     landmark: prospect.landmark,
                     barangay: prospect.barangay,
-                    invoice_date: invoice_date,
+                    invoice_date: formData.invoice_date, // Use selected invoice date
+                    date_installed: formData.installation_date, // Map installation date
+                    customer_portal: `/portal/${newCustomer.id}`, // Set portal link
                     contact_person: prospect.referrer_id || null,
                     router_serial_number: formData.router_serial_number,
                     'x-coordinates': coordinates?.lng || null,
@@ -494,7 +503,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             </div>
 
                             {/* Conditional Fields Grid */}
-                            <div className={`grid gap-4 ${formData.status === 'Closed Won' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                            <div className="grid grid-cols-2 gap-4">
                                 {/* Business Unit - Disabled for Open and Closed Lost */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -515,6 +524,37 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         ))}
                                     </select>
                                 </div>
+
+                                {/* Billing Period - Only show for Closed Won AND when Business Unit is selected */}
+                                {formData.status === 'Closed Won' && formData.business_unit_id && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">
+                                            <Calendar className="w-4 h-4 inline mr-2" />
+                                            Billing Period <span className="text-red-500">*</span>
+                                        </label>
+                                        <select
+                                            value={formData.invoice_date}
+                                            onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                        >
+                                            <option
+                                                value="15th"
+                                                disabled={businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase().includes('malanggam')}
+                                            >
+                                                15th of the Month
+                                            </option>
+                                            <option
+                                                value="30th"
+                                                disabled={(() => {
+                                                    const unitName = businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase() || '';
+                                                    return unitName.includes('bulihan') || unitName.includes('extension');
+                                                })()}
+                                            >
+                                                30th of the Month
+                                            </option>
+                                        </select>
+                                    </div>
+                                )}
 
                                 {/* Installation Date - Enabled for Open and Closed Won, Disabled for Closed Lost */}
                                 <div>
@@ -868,6 +908,10 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     <div>
                                         <label className="text-xs text-gray-500 uppercase">Business Unit</label>
                                         <p className="text-white font-medium">{businessUnits.find(bu => bu.id === formData.business_unit_id)?.name || '-'}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-500 uppercase">Billing Period</label>
+                                        <p className="text-white font-medium">{formData.invoice_date} of the Month</p>
                                     </div>
                                     <div className="col-span-2">
                                         <label className="text-xs text-gray-500 uppercase">Location + Brgy</label>

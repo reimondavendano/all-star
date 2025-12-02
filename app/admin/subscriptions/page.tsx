@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import {
     Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, ChevronDown, ChevronUp,
     User, Building2, Wifi, MapPin, Home, Landmark as LandmarkIcon, Calendar,
-    CreditCard, UserCheck, ExternalLink, ToggleLeft, ToggleRight, Plus, DollarSign
+    CreditCard, UserCheck, ExternalLink, ToggleLeft, ToggleRight, Plus, DollarSign, Hash
 } from 'lucide-react';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
@@ -33,6 +33,7 @@ interface Subscription {
     plan_fee?: number;
     business_unit_name?: string;
     balance?: number;
+    router_serial_number?: string;
 }
 
 export default function SubscriptionsPage() {
@@ -392,6 +393,13 @@ export default function SubscriptionsPage() {
                                                                                                 <div className="flex-1">
                                                                                                     <label className="text-xs text-gray-500">Installation Date</label>
                                                                                                     <p className="text-sm text-gray-300">{formatDate(subscription.date_installed)}</p>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="flex items-start gap-3">
+                                                                                                <Hash className="w-4 h-4 text-gray-500 mt-0.5" />
+                                                                                                <div className="flex-1">
+                                                                                                    <label className="text-xs text-gray-500">Router Serial</label>
+                                                                                                    <p className="text-sm text-gray-300">{subscription.router_serial_number || '-'}</p>
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
