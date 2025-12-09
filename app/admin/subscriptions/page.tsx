@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
+import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 
 interface Subscription {
     id: string;
@@ -114,21 +115,37 @@ export default function SubscriptionsPage() {
 
     const handleToggleActive = async (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
+
+        const newActiveState = !subscription.active;
+
         try {
+            // 1. Update subscription in database
             const { error } = await supabase
                 .from('subscriptions')
-                .update({ active: !subscription.active })
+                .update({ active: newActiveState })
                 .eq('id', subscription.id);
 
             if (error) throw error;
 
-            // Refresh the subscriptions list
+            // 2. Sync with MikroTik (enable/disable PPP secret)
+            console.log(`[Subscription] Syncing ${subscription.id} to MikroTik (active: ${newActiveState})`);
+            const syncResult = await syncSubscriptionToMikrotik(subscription.id, newActiveState);
+
+            if (!syncResult.success) {
+                console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
+                // Don't throw - the database update was successful, just log the warning
+            } else {
+                console.log(`[Subscription] MikroTik sync success: ${syncResult.message}`);
+            }
+
+            // 3. Refresh the subscriptions list
             fetchSubscriptions();
         } catch (error) {
             console.error('Error toggling subscription status:', error);
             alert('Failed to update subscription status');
         }
     };
+
 
     const formatDate = (dateString: string) => {
         if (!dateString) return '-';

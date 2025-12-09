@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import dynamic from 'next/dynamic';
 
 // Dynamically import MapPicker
@@ -186,6 +187,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         setShowConfirmation(false);
 
         try {
+            // 1. Update subscription in database
             const { error } = await supabase
                 .from('subscriptions')
                 .update({
@@ -207,6 +209,19 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
 
             if (error) throw error;
 
+            // 2. If active status changed, sync with MikroTik
+            if (formData.active !== subscription.active) {
+                console.log(`[Subscription] Active status changed, syncing to MikroTik (active: ${formData.active})`);
+                const syncResult = await syncSubscriptionToMikrotik(subscription.id, formData.active);
+
+                if (!syncResult.success) {
+                    console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
+                    // Don't throw - the database update was successful
+                } else {
+                    console.log(`[Subscription] MikroTik sync success: ${syncResult.message}`);
+                }
+            }
+
             setShowSuccess(true);
         } catch (error) {
             console.error('Error updating subscription:', error);
@@ -215,6 +230,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             setIsLoading(false);
         }
     };
+
 
     const handleSuccessClose = () => {
         setShowSuccess(false);

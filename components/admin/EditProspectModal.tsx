@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2, ClipboardCheck, Hash, UserCheck } from 'lucide-react';
+import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2, ClipboardCheck, Hash, UserCheck, Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { addPppSecret } from '@/app/actions/mikrotik';
 import dynamic from 'next/dynamic';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -54,8 +55,21 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     const [isLoading, setIsLoading] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showReasonModal, setShowReasonModal] = useState(false);
+    const [showPppModal, setShowPppModal] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [reason, setReason] = useState('');
+
+    // PPP Secret form state
+    const [pppForm, setPppForm] = useState({
+        name: '',
+        password: '',
+        service: 'pppoe',
+        profile: '50MBPS',
+        comment: '',
+        enabled: true
+    });
+    const [pppError, setPppError] = useState('');
+    const [addToMikrotik, setAddToMikrotik] = useState(false); // Default unchecked - only save to DB
 
     const [formData, setFormData] = useState({
         business_unit_id: prospect.business_unit_id || '',
@@ -259,8 +273,24 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         if (formData.status === 'Closed Lost') {
             setShowReasonModal(true);
         } else {
-            // Closed Won - show confirmation
-            setShowConfirmation(true);
+            // Closed Won - show PPP modal to configure MikroTik user
+            // Pre-populate PPP form with prospect data
+            const mikrotikName = prospect.name.toUpperCase().replace(/\s+/g, '');
+            const planName = plans[prospect.plan_id]?.name || '';
+            let profile = '50MBPS';
+            if (planName.includes('999') || planName.includes('100')) profile = '100MBPS';
+            if (planName.includes('1299') || planName.includes('130')) profile = '130MBPS';
+            if (planName.includes('1499') || planName.includes('150')) profile = '150MBPS';
+
+            setPppForm({
+                name: mikrotikName,
+                password: Math.random().toString(36).slice(-8), // Generate random password
+                service: 'pppoe',
+                profile: profile,
+                comment: `Converted from prospect: ${prospect.name}`,
+                enabled: true
+            });
+            setShowPppModal(true);
         }
     };
 
@@ -332,8 +362,30 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     const handleConfirmApprove = async () => {
         setIsLoading(true);
         setShowConfirmation(false);
+        setPppError('');
 
         try {
+            // 0. Optionally add PPP secret to MikroTik (only if checkbox is checked)
+            if (addToMikrotik) {
+                console.log('[PPP] Adding PPP secret to MikroTik router...');
+                const pppResult = await addPppSecret({
+                    name: pppForm.name,
+                    password: pppForm.password,
+                    service: pppForm.service,
+                    profile: pppForm.profile,
+                    comment: pppForm.comment
+                });
+
+                if (!pppResult.success) {
+                    console.error('[PPP] Failed to create PPP secret in MikroTik:', pppResult.error);
+                    // Continue anyway - don't block customer creation
+                } else {
+                    console.log('[PPP] PPP secret created in MikroTik successfully');
+                }
+            } else {
+                console.log('[PPP] Skipping MikroTik router (checkbox unchecked) - saving to DB only');
+            }
+
             // 1. Create customer
             const { data: newCustomer, error: customerError } = await supabase
                 .from('customers')
@@ -369,6 +421,32 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 .single();
 
             if (subscriptionError) throw subscriptionError;
+
+            // 2.5. Always save to mikrotik_ppp_secrets table (as backup)
+            console.log('[PPP] Saving PPP secret to database...');
+            const { error: pppDbError } = await supabase
+                .from('mikrotik_ppp_secrets')
+                .insert({
+                    customer_id: newCustomer.id,
+                    subscription_id: newSubscription.id,  // Link to subscription
+                    name: pppForm.name,
+                    password: pppForm.password,
+                    service: pppForm.service,
+                    profile: pppForm.profile,
+                    comment: pppForm.comment,
+                    enabled: pppForm.enabled,
+                    disabled: !pppForm.enabled,  // Inverse of enabled
+                    local_address: formData.router_serial_number,
+                    last_synced_at: addToMikrotik ? new Date().toISOString() : null
+                });
+
+            if (pppDbError) {
+                console.error('[PPP] Failed to save PPP secret to database:', pppDbError);
+                // Continue anyway - don't block customer creation
+            } else {
+                console.log('[PPP] PPP secret saved to database successfully');
+            }
+
 
             // 3. Referral Logic: If referrer exists, create a 300 payment for the REFERRER's subscription
             if (prospect.referrer_id) {
@@ -865,6 +943,167 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 </div>
             )}
 
+            {/* PPP Secret Modal - Step before Confirmation */}
+            {showPppModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowPppModal(false)} />
+                    <div className="relative bg-[#0a0a0a] border-2 border-blue-900/50 rounded-xl shadow-[0_0_50px_rgba(0,100,255,0.2)] w-full max-w-md p-6">
+                        <button
+                            onClick={() => setShowPppModal(false)}
+                            className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                            <Globe className="w-5 h-5 text-blue-500" />
+                            Create MikroTik User
+                        </h2>
+                        <p className="text-gray-400 text-sm mb-6">
+                            Configure the PPP secret that will be created in MikroTik for this customer.
+                        </p>
+
+                        {pppError && (
+                            <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                                {pppError}
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            {/* Enabled Checkbox */}
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="ppp-enabled"
+                                    checked={pppForm.enabled}
+                                    onChange={(e) => setPppForm({ ...pppForm, enabled: e.target.checked })}
+                                    className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+                                />
+                                <label htmlFor="ppp-enabled" className="text-sm font-medium text-gray-300">Enabled</label>
+                            </div>
+
+                            {/* Name (Username) */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Name (Username)</label>
+                                <input
+                                    type="text"
+                                    value={pppForm.name}
+                                    onChange={(e) => setPppForm({ ...pppForm, name: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white font-mono"
+                                    placeholder="CUSTOMERNAME"
+                                />
+                            </div>
+
+                            {/* Password */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
+                                <input
+                                    type="text"
+                                    value={pppForm.password}
+                                    onChange={(e) => setPppForm({ ...pppForm, password: e.target.value })}
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white font-mono"
+                                    placeholder="Enter password"
+                                />
+                            </div>
+
+                            {/* Service */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Service</label>
+                                <select
+                                    value={pppForm.service}
+                                    onChange={(e) => setPppForm({ ...pppForm, service: e.target.value })}
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
+                                >
+                                    <option value="any">any</option>
+                                    <option value="pppoe">pppoe</option>
+                                    <option value="pptp">pptp</option>
+                                    <option value="l2tp">l2tp</option>
+                                    <option value="ovpn">ovpn</option>
+                                    <option value="sstp">sstp</option>
+                                </select>
+                            </div>
+
+                            {/* Profile */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Profile</label>
+                                <select
+                                    value={pppForm.profile}
+                                    onChange={(e) => setPppForm({ ...pppForm, profile: e.target.value })}
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
+                                >
+                                    <option value="default">default</option>
+                                    <option value="50MBPS">50MBPS</option>
+                                    <option value="50MBPS-2">50MBPS-2</option>
+                                    <option value="100MBPS">100MBPS</option>
+                                    <option value="100MBPS-2">100MBPS-2</option>
+                                    <option value="130MBPS">130MBPS</option>
+                                    <option value="150MBPS">150MBPS</option>
+                                </select>
+                            </div>
+
+                            {/* Comment */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Comment</label>
+                                <input
+                                    type="text"
+                                    value={pppForm.comment}
+                                    onChange={(e) => setPppForm({ ...pppForm, comment: e.target.value })}
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
+                                    placeholder="Optional comment"
+                                />
+                            </div>
+
+                            {/* Add to MikroTik Checkbox */}
+                            <div className="pt-4 border-t border-gray-700">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="add-to-mikrotik"
+                                        checked={addToMikrotik}
+                                        onChange={(e) => setAddToMikrotik(e.target.checked)}
+                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
+                                    />
+                                    <label htmlFor="add-to-mikrotik" className="text-sm font-medium text-gray-300">
+                                        Also add to MikroTik Router
+                                    </label>
+                                </div>
+                                <p className={`text-xs mt-1 ${addToMikrotik ? 'text-green-400' : 'text-yellow-400'}`}>
+                                    {addToMikrotik
+                                        ? '✓ Will create PPP secret in MikroTik router'
+                                        : '⚠ Will only save to database (recommended for testing)'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={() => setShowPppModal(false)}
+                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (!pppForm.name || !pppForm.password) {
+                                        setPppError('Username and password are required');
+                                        return;
+                                    }
+                                    setShowPppModal(false);
+                                    setShowConfirmation(true);
+                                }}
+                                disabled={!pppForm.name || !pppForm.password}
+                                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${pppForm.name && pppForm.password
+                                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    }`}
+                            >
+                                Next: Review
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Confirmation Modal */}
             {/* Confirmation Modal */}
             {showConfirmation && (
@@ -916,6 +1155,28 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     <div className="col-span-2">
                                         <label className="text-xs text-gray-500 uppercase">Location + Brgy</label>
                                         <p className="text-white font-medium">{prospect.address}, {prospect.barangay}</p>
+                                    </div>
+                                </div>
+
+                                {/* MikroTik PPP Details */}
+                                <div className="border-t border-gray-700 pt-4 mt-4">
+                                    <h4 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
+                                        <Globe className="w-4 h-4" />
+                                        MikroTik PPP Secret
+                                    </h4>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div>
+                                            <label className="text-xs text-gray-500 uppercase">Username</label>
+                                            <p className="text-white font-mono text-sm">{pppForm.name}</p>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500 uppercase">Profile</label>
+                                            <p className="text-white font-medium">{pppForm.profile}</p>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500 uppercase">Service</label>
+                                            <p className="text-white font-medium">{pppForm.service}</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
