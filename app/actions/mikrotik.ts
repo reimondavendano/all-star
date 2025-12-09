@@ -351,6 +351,7 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
         const { error: updateError } = await supabase
             .from('mikrotik_ppp_secrets')
             .update({
+                enabled: isActive,
                 disabled: !isActive,
                 last_synced_at: new Date().toISOString()
             })
