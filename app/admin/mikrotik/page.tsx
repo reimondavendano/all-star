@@ -12,13 +12,19 @@ import {
     Network,
     AlertCircle,
     RefreshCw,
-    Smartphone
+    Smartphone,
+    Users,
+    Zap,
+    Globe
 } from 'lucide-react';
 
 interface MikrotikData {
     resources: any;
     interfaces: any[];
     leases: any[];
+    hotspotUsers: any[];
+    activeUsers: any[];
+    pppInterfaces: any[];
 }
 
 export default function MikrotikPage() {
@@ -231,6 +237,94 @@ export default function MikrotikPage() {
                                 ))}
                                 {data.leases.length === 0 && (
                                     <p className="text-gray-500 text-center py-4">No active leases found</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Hotspot Users */}
+                        <div className="tech-card p-6 rounded-xl">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Users className="w-5 h-5 text-red-500" />
+                                Hotspot Users ({data.hotspotUsers.length})
+                            </h3>
+                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {data.hotspotUsers.map((user: any) => (
+                                    <div key={user['.id']} className="p-3 bg-white/5 rounded-lg border border-white/5 hover:border-red-500/30 transition-colors">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="font-medium text-white">
+                                                {user.name}
+                                            </span>
+                                            <span className="text-xs text-gray-500 font-mono">
+                                                {user.profile}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-xs text-gray-500 font-mono">
+                                            <span>Up/Down: {formatBytes(parseInt(user['bytes-in'] || 0))}/{formatBytes(parseInt(user['bytes-out'] || 0))}</span>
+                                            <span>Limit: {user['limit-uptime'] || 'Unl'}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {data.hotspotUsers.length === 0 && (
+                                    <p className="text-gray-500 text-center py-4">No hotspot users found</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Active Sessions */}
+                        <div className="tech-card p-6 rounded-xl">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Zap className="w-5 h-5 text-red-500" />
+                                Active Sessions ({data.activeUsers.length})
+                            </h3>
+                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {data.activeUsers.map((active: any) => (
+                                    <div key={active['.id']} className="p-3 bg-white/5 rounded-lg border border-white/5 hover:border-red-500/30 transition-colors">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="font-medium text-white">
+                                                {active.user}
+                                            </span>
+                                            <span className="text-xs text-green-400 px-2 py-0.5 bg-green-900/20 rounded">
+                                                Active
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-xs text-gray-500 font-mono">
+                                            <span>IP: {active.address}</span>
+                                            <span>Time Left: {active['session-time-left'] || 'Unlimited'}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {data.activeUsers.length === 0 && (
+                                    <p className="text-gray-500 text-center py-4">No active sessions</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* PPP Interfaces */}
+                        <div className="tech-card p-6 rounded-xl lg:col-span-2">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Globe className="w-5 h-5 text-red-500" />
+                                PPP Interfaces (Active Clients: {data.pppInterfaces.length})
+                            </h3>
+                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {data.pppInterfaces.map((ppp: any) => (
+                                    <div key={ppp['.id']} className="p-3 bg-white/5 rounded-lg border border-white/5 hover:border-red-500/30 transition-colors">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="font-medium text-white flex items-center gap-2">
+                                                <span className={`w-2 h-2 rounded-full ${ppp.running === 'true' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                                                {ppp.name.replace('<pppoe-', '').replace('>', '')}
+                                            </span>
+                                            <span className="text-xs text-gray-400 font-mono">PPPoE</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs text-gray-500 font-mono">
+                                            <span>TX: {formatBytes(parseInt(ppp['tx-byte'] || 0))}</span>
+                                            <span>RX: {formatBytes(parseInt(ppp['rx-byte'] || 0))}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {data.pppInterfaces.length === 0 && (
+                                    <div className="col-span-full text-center">
+                                        <p className="text-gray-500 py-4">No PPP interfaces found</p>
+                                    </div>
                                 )}
                             </div>
                         </div>

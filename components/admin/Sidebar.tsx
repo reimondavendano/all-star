@@ -32,7 +32,7 @@ const navigation = [
     { name: 'Business Units', href: '/admin/business-units', icon: Briefcase },
     { name: 'Plans', href: '/admin/plans', icon: Package },
     { name: 'Locations', href: '/admin/locations', icon: MapPin },
-    // { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router }, // Requires VPN or firewall rule - contact network admin
+    { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router },
 ];
 
 interface SidebarProps {
