@@ -1,0 +1,7 @@
+# Ngrok Service Configuration
+version: "2"
+tunnels:
+  mikrotik:
+    proto: http
+    addr: 192.168.1.211:80
+    domain: tiffanie-ungraced-rebuffably.ngrok-free.dev

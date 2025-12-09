@@ -17,7 +17,7 @@ export async function getMikrotikData() {
         };
     }
 
-    // --- REST API HELPER (For Cloudflare Tunnel) ---
+    // --- REST API HELPER (For Cloudflare Tunnel & Ngrok) ---
     async function fetchRestData(hostUrl: string, path: string) {
         return new Promise((resolve, reject) => {
             const cleanHost = hostUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -26,6 +26,9 @@ export async function getMikrotikData() {
                 port: 443,
                 path: `/rest/${path}`,
                 method: 'GET',
+                headers: {
+                    'ngrok-skip-browser-warning': 'true'
+                },
                 auth: `${user}:${password}`,
                 rejectUnauthorized: false
             };
@@ -52,7 +55,8 @@ export async function getMikrotikData() {
     }
 
     // --- STRATEGY 1: REST API via Tunnel (Priority) ---
-    if (host && host.includes('trycloudflare.com')) {
+    // Works for both Cloudflare (trycloudflare.com) and ngrok (ngrok-free.app/dev)
+    if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
         try {
             console.log(`[Mikrotik] Attempting REST connection via Tunnel: ${host}...`);
 
@@ -154,7 +158,7 @@ export async function getMikrotikData() {
 
     try {
         // Only try configured host if it wasn't the tunnel we just tried
-        if (host && !host.includes('trycloudflare.com')) {
+        if (host && !host.includes('trycloudflare.com') && !host.includes('ngrok-free')) {
             return await connectAndFetch(host);
         }
         // If tunnel failed, force local fallback
