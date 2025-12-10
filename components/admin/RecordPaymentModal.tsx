@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Search, Check, User, Wifi, MoreHorizontal, Calendar } from 'lucide-react';
+import { X, Search, Check, User, Wifi, MoreHorizontal, Calendar, Info, AlertCircle, CheckCircle } from 'lucide-react';
 import SubscriberSelectModal from './SubscriberSelectModal';
+import { formatBalanceDisplay, determinePaymentStatus } from '@/lib/billing';
 
 interface RecordPaymentModalProps {
     isOpen: boolean;
@@ -25,7 +26,6 @@ interface Subscriber {
     };
     balance?: number;
     referral_credit_applied?: boolean;
-
 }
 
 interface AvailableInvoice {
@@ -34,6 +34,8 @@ interface AvailableInvoice {
     amount_due: number;
     payment_status: string;
     month_label: string;
+    is_prorated?: boolean;
+    prorated_days?: number;
 }
 
 export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: RecordPaymentModalProps) {
@@ -47,10 +49,18 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
     const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
     const [isLoading, setIsLoading] = useState(false);
     const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
+    const [sendSms, setSendSms] = useState(true);
     const [suggestedAmount, setSuggestedAmount] = useState<{
         amount: number;
         invoiceAmount: number;
         balance: number;
+        isAdvancePayment: boolean;
+    } | null>(null);
+    const [paymentResult, setPaymentResult] = useState<{
+        success: boolean;
+        newBalance: number;
+        previousBalance: number;
+        status: string;
     } | null>(null);
 
     useEffect(() => {
@@ -70,7 +80,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         } else {
             setSuggestedAmount(null);
         }
-    }, [selectedInvoiceId, subscriberDetails]);
+    }, [selectedInvoiceId, subscriberDetails, amount]);
 
     // Reset form when modal is closed
     useEffect(() => {
@@ -84,12 +94,12 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             setNotes('');
             setSettlementDate(new Date().toISOString().split('T')[0]);
             setSuggestedAmount(null);
+            setPaymentResult(null);
         }
     }, [isOpen]);
 
     const fetchSubscriberDetails = async () => {
         try {
-            console.log('Fetching details for subscription:', selectedSubscriber);
             const { data, error } = await supabase
                 .from('subscriptions')
                 .select(`
@@ -97,8 +107,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                     subscriber_id,
                     balance,
                     referral_credit_applied,
-
-                    customers (
+                    customers!subscriptions_subscriber_id_fkey (
                         name,
                         mobile_number
                     ),
@@ -113,12 +122,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                 .eq('id', selectedSubscriber)
                 .single();
 
-            if (error) {
-                console.error('Supabase error:', error);
-                throw error;
-            }
-
-            console.log('Fetched subscriber data:', data);
+            if (error) throw error;
             setSubscriberDetails(data as any);
         } catch (error) {
             console.error('Error fetching subscriber details:', error);
@@ -130,7 +134,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         try {
             const { data, error } = await supabase
                 .from('invoices')
-                .select('id, due_date, amount_due, payment_status')
+                .select('id, due_date, amount_due, payment_status, is_prorated, prorated_days')
                 .eq('subscription_id', selectedSubscriber)
                 .order('due_date', { ascending: false });
 
@@ -164,15 +168,20 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             const invoiceAmount = selectedInvoice.amount_due;
             const currentBalance = Number(subscriberDetails.balance) || 0;
 
-            // Logic: Payable = Invoice Amount + Balance
-            // If Balance is negative (credit), it reduces the payable amount.
-            // If Balance is positive (debt), it increases the payable amount.
-            const totalAmount = Math.max(0, invoiceAmount + currentBalance);
+            // Calculate total payable
+            // If balance is positive (debt), add it
+            // If balance is negative (credit), it's already applied to invoices
+            const totalAmount = Math.max(0, invoiceAmount);
+
+            // Check if entered amount exceeds invoice (advance payment)
+            const enteredAmount = parseFloat(amount) || 0;
+            const isAdvancePayment = enteredAmount > totalAmount;
 
             setSuggestedAmount({
                 amount: totalAmount,
                 invoiceAmount: invoiceAmount,
-                balance: currentBalance
+                balance: currentBalance,
+                isAdvancePayment,
             });
 
             // Auto-set settlement date to the invoice's due date
@@ -184,6 +193,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setPaymentResult(null);
 
         if (!selectedSubscriber || !amount || !subscriberDetails || !selectedInvoiceId) {
             alert('Please fill in all required fields');
@@ -199,105 +209,101 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         setIsLoading(true);
 
         try {
-            const monthlyFee = subscriberDetails.plans.monthly_fee;
             const currentBalance = Number(subscriberDetails.balance) || 0;
 
-            // Insert payment record
-            const { error: paymentError } = await supabase
+            // 1. Insert payment record
+            const { data: payment, error: paymentError } = await supabase
                 .from('payments')
                 .insert({
                     subscription_id: selectedSubscriber,
                     amount: paymentAmount,
                     mode: mode,
                     notes: notes || null,
-                    settlement_date: settlementDate
-                });
+                    settlement_date: settlementDate,
+                    invoice_id: selectedInvoiceId
+                })
+                .select('id')
+                .single();
 
             if (paymentError) throw paymentError;
 
-            // ============================================
-            // NEW BALANCE & INVOICE LOGIC
-            // ============================================
+            // 2. Calculate new balance
+            // New Balance = Current Balance - Payment Amount
+            const newBalance = currentBalance - paymentAmount;
 
-            // 1. Find the invoice for the settlement month
-            const [year, month] = settlementDate.split('-');
-            const startDate = new Date(parseInt(year), parseInt(month) - 1, 1).toISOString().split('T')[0];
-            const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
-
-            const { data: invoices } = await supabase
-                .from('invoices')
-                .select('*')
-                .eq('subscription_id', selectedSubscriber)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate)
-                .order('due_date', { ascending: true });
-
-            const invoice = invoices && invoices.length > 0 ? invoices[0] : null;
-            const invoiceAmount = invoice ? invoice.amount_due : 0;
-
-            // 2. Calculate Total Payments for this month/invoice
-            const { data: allPayments } = await supabase
-                .from('payments')
-                .select('amount')
-                .eq('subscription_id', selectedSubscriber)
-                .gte('settlement_date', startDate)
-                .lte('settlement_date', endDate);
-
-            const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-
-            // 3. Calculate New Balance
-            // We need to isolate "AdHoc" adjustments (like referrals) from the invoice debt.
-            // If this is the first payment (totalPaid approx equals paymentAmount), AdHoc is just the current balance.
-            // If subsequent, we reverse the previous invoice-debt effect to find AdHoc.
-
-            let adHocBalance = currentBalance;
-
-            // If we have an invoice (or treating 0 as invoice) and this is NOT the first payment
-            if (Math.abs(totalPaid - paymentAmount) > 0.01) {
-                const previousTotalPaid = totalPaid - paymentAmount;
-                const previousRemainingDebt = invoiceAmount - previousTotalPaid;
-                adHocBalance = currentBalance - previousRemainingDebt;
-            }
-
-            // New Balance = (InvoiceDebt - TotalPaid) + AdHoc
-            // If no invoice, InvoiceDebt is 0.
-            const newBalance = (invoiceAmount - totalPaid) + adHocBalance;
-
-            // Update subscription balance
+            // 3. Update subscription balance
             await supabase
                 .from('subscriptions')
                 .update({ balance: newBalance })
                 .eq('id', selectedSubscriber);
 
-            // 4. Update Invoice Status
-            if (invoice) {
-                let paymentStatus: 'Paid' | 'Unpaid' | 'Partially Paid' = 'Unpaid';
+            // 4. Get all payments for this subscription to calculate invoice status
+            const { data: allPayments } = await supabase
+                .from('payments')
+                .select('amount')
+                .eq('subscription_id', selectedSubscriber);
 
-                // We compare Total Paid against Invoice Amount
-                if (totalPaid >= invoiceAmount) {
-                    paymentStatus = 'Paid';
-                } else if (totalPaid > 0) {
-                    paymentStatus = 'Partially Paid';
-                }
+            const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
-                await supabase
-                    .from('invoices')
-                    .update({ payment_status: paymentStatus })
-                    .eq('id', invoice.id);
+            // 5. Get all invoices for this subscription
+            const { data: allInvoices } = await supabase
+                .from('invoices')
+                .select('id, amount_due')
+                .eq('subscription_id', selectedSubscriber);
+
+            const totalInvoiced = allInvoices?.reduce((sum, i) => sum + Number(i.amount_due), 0) || 0;
+
+            // 6. Update invoice status
+            let paymentStatus: 'Paid' | 'Partially Paid' | 'Unpaid';
+            if (totalPaid >= totalInvoiced) {
+                paymentStatus = 'Paid';
+            } else if (totalPaid > 0) {
+                paymentStatus = 'Partially Paid';
+            } else {
+                paymentStatus = 'Unpaid';
             }
 
-            // Reset form
-            setSelectedSubscriber('');
-            setSubscriberDetails(null);
-            setAvailableInvoices([]);
-            setSelectedInvoiceId('');
-            setAmount('');
-            setMode('Cash');
-            setNotes('');
-            setSettlementDate(new Date().toISOString().split('T')[0]);
+            await supabase
+                .from('invoices')
+                .update({ payment_status: paymentStatus })
+                .eq('id', selectedInvoiceId);
 
-            onSuccess();
-            onClose();
+            // 7. Log payment history (optional - for auditing)
+            try {
+                await supabase.from('payment_history').insert({
+                    payment_id: payment.id,
+                    subscription_id: selectedSubscriber,
+                    customer_id: subscriberDetails.subscriber_id,
+                    invoice_id: selectedInvoiceId,
+                    amount: paymentAmount,
+                    payment_mode: mode,
+                    status: 'recorded',
+                    balance_before: currentBalance,
+                    balance_after: newBalance,
+                    notes: notes || null,
+                });
+            } catch (historyError) {
+                // Payment history table may not exist yet, don't fail the whole transaction
+                console.log('Payment history logging skipped:', historyError);
+            }
+
+            // Show result
+            setPaymentResult({
+                success: true,
+                newBalance,
+                previousBalance: currentBalance,
+                status: paymentStatus,
+            });
+
+            // Refresh data
+            fetchSubscriberDetails();
+            fetchAvailableInvoices();
+
+            // If successful, wait a moment then close
+            setTimeout(() => {
+                onSuccess();
+            }, 2000);
+
         } catch (error) {
             console.error('Error recording payment:', error);
             alert('Failed to record payment. Please try again.');
@@ -311,6 +317,15 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         setIsSelectModalOpen(false);
     };
 
+    const getBalanceDisplay = () => {
+        if (!subscriberDetails) return null;
+        const balance = Number(subscriberDetails.balance) || 0;
+        const display = formatBalanceDisplay(balance);
+        return display;
+    };
+
+    const balanceDisplay = getBalanceDisplay();
+
     if (!isOpen) return null;
 
     return (
@@ -318,9 +333,9 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-                <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-2xl max-h-[90vh] flex flex-col">
-                    <div className="p-6 border-b border-red-900/30 flex justify-between items-center flex-shrink-0">
-                        <h2 className="text-2xl font-bold text-white neon-text">Record Payment</h2>
+                <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.1)] w-full max-w-2xl max-h-[90vh] flex flex-col">
+                    <div className="p-6 border-b border-green-900/30 flex justify-between items-center flex-shrink-0">
+                        <h2 className="text-2xl font-bold text-white">Record Payment</h2>
                         <button
                             onClick={onClose}
                             className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded"
@@ -330,6 +345,27 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                     </div>
 
                     <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
+                        {/* Payment Result */}
+                        {paymentResult && paymentResult.success && (
+                            <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4 flex items-start gap-3">
+                                <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                                <div>
+                                    <div className="text-green-400 font-medium">Payment Recorded Successfully!</div>
+                                    <div className="text-sm text-gray-400 mt-1">
+                                        Invoice Status: <span className="text-white">{paymentResult.status}</span>
+                                    </div>
+                                    <div className="text-sm text-gray-400">
+                                        New Balance: <span className={paymentResult.newBalance >= 0 ? 'text-white' : 'text-green-400'}>
+                                            {paymentResult.newBalance >= 0
+                                                ? `₱${paymentResult.newBalance.toLocaleString()}`
+                                                : `₱${Math.abs(paymentResult.newBalance).toLocaleString()} (Credits)`
+                                            }
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Subscriber Selection */}
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -347,13 +383,17 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                                 <Wifi className="w-3 h-3" />
                                                 <span>{subscriberDetails.plans?.name || 'N/A'} - ₱{(subscriberDetails.plans?.monthly_fee || 0).toLocaleString()}</span>
                                             </div>
-                                            <div className="mt-2 text-sm">
-                                                <span className="text-gray-500">Current Balance: </span>
-                                                <span className={`font-medium ${(subscriberDetails.balance || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                                    ₱{(subscriberDetails.balance || 0).toLocaleString()}
-                                                </span>
-                                            </div>
-
+                                            {balanceDisplay && (
+                                                <div className="mt-2 text-sm flex items-center gap-2">
+                                                    <span className="text-gray-500">Current {balanceDisplay.label}:</span>
+                                                    <span className={`font-medium ${balanceDisplay.label === 'Balance' ? 'text-red-400' : 'text-green-400'}`}>
+                                                        {balanceDisplay.display}
+                                                    </span>
+                                                    {balanceDisplay.label === 'Credits' && (
+                                                        <span className="text-xs text-green-600">(Advance Payment)</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
                                         <span className="text-gray-500">No subscriber selected</span>
@@ -374,28 +414,30 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
                                     <Calendar className="w-4 h-4 inline mr-2" />
-                                    Select Invoice Month <span className="text-red-500">*</span>
+                                    Select Invoice <span className="text-red-500">*</span>
                                 </label>
                                 <select
                                     value={selectedInvoiceId}
                                     onChange={(e) => setSelectedInvoiceId(e.target.value)}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
+                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-green-500"
                                 >
-                                    <option value="">Select an invoice month</option>
+                                    <option value="">Select an invoice</option>
                                     {availableInvoices
-                                        .filter(inv => inv.payment_status === 'Unpaid') // Only show Unpaid invoices
+                                        .filter(inv => inv.payment_status !== 'Paid')
                                         .map((inv) => (
                                             <option key={inv.id} value={inv.id}>
-                                                {inv.month_label} - {subscriberDetails?.plans?.name || 'Plan'} ({inv.payment_status})
+                                                {inv.month_label} - ₱{inv.amount_due.toLocaleString()} ({inv.payment_status})
+                                                {inv.is_prorated && ` [Pro-rated: ${inv.prorated_days} days]`}
                                             </option>
                                         ))}
                                 </select>
                             </div>
                         )}
 
-                        {selectedSubscriber && availableInvoices.length > 0 && availableInvoices.filter(inv => inv.payment_status === 'Unpaid').length === 0 && (
-                            <div className="text-center py-4 text-yellow-400 bg-yellow-900/20 border border-yellow-700/50 rounded">
-                                No unpaid invoices available for this subscriber.
+                        {selectedSubscriber && availableInvoices.length > 0 && availableInvoices.filter(inv => inv.payment_status !== 'Paid').length === 0 && (
+                            <div className="text-center py-4 text-green-400 bg-green-900/20 border border-green-700/50 rounded flex items-center justify-center gap-2">
+                                <CheckCircle className="w-4 h-4" />
+                                All invoices are fully paid!
                             </div>
                         )}
 
@@ -413,14 +455,28 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
                                         Payment Mode <span className="text-red-500">*</span>
                                     </label>
-                                    <select
-                                        value={mode}
-                                        onChange={(e) => setMode(e.target.value as any)}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
-                                    >
-                                        <option value="Cash">Cash</option>
-                                        <option value="E-Wallet">E-Wallet</option>
-                                    </select>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setMode('Cash')}
+                                            className={`p-3 rounded-lg border transition-colors ${mode === 'Cash'
+                                                ? 'border-green-500 bg-green-500/10 text-green-400'
+                                                : 'border-gray-700 bg-[#1a1a1a] text-gray-400 hover:border-gray-600'
+                                                }`}
+                                        >
+                                            💵 Cash
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setMode('E-Wallet')}
+                                            className={`p-3 rounded-lg border transition-colors ${mode === 'E-Wallet'
+                                                ? 'border-green-500 bg-green-500/10 text-green-400'
+                                                : 'border-gray-700 bg-[#1a1a1a] text-gray-400 hover:border-gray-600'
+                                                }`}
+                                        >
+                                            📱 E-Wallet
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* Amount */}
@@ -437,30 +493,47 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                             step="0.01"
                                             min="0"
                                             placeholder="0.00"
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 pl-8 text-white focus:outline-none focus:border-red-500"
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 pl-8 text-white focus:outline-none focus:border-green-500"
                                         />
                                     </div>
+
                                     {suggestedAmount && (
-                                        <div className="mt-2 text-xs text-gray-400 bg-gray-900/50 p-2 rounded border border-gray-800">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span>Amount Total:</span>
-                                                <span className="font-bold text-white">₱{suggestedAmount.amount.toLocaleString()}</span>
+                                        <div className="mt-3 text-xs bg-gray-900/50 p-3 rounded border border-gray-800">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-gray-400">Invoice Amount:</span>
+                                                <span className="font-bold text-white">₱{suggestedAmount.invoiceAmount.toLocaleString()}</span>
                                             </div>
-                                            <div className="flex justify-between items-center text-[10px] text-gray-500">
-                                                <span>Breakdown:</span>
-                                                <span>
-                                                    Invoice (₱{suggestedAmount.invoiceAmount.toLocaleString()})
-                                                    {suggestedAmount.balance >= 0 ? ' + ' : ' - '}
-                                                    {suggestedAmount.balance >= 0 ? 'Debt' : 'Credit'} (₱{Math.abs(suggestedAmount.balance).toLocaleString()})
-                                                </span>
+
+                                            {suggestedAmount.balance !== 0 && (
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="text-gray-400">
+                                                        {suggestedAmount.balance > 0 ? 'Outstanding Balance:' : 'Credits Available:'}
+                                                    </span>
+                                                    <span className={suggestedAmount.balance > 0 ? 'text-red-400' : 'text-green-400'}>
+                                                        {suggestedAmount.balance > 0 ? '+' : '-'}₱{Math.abs(suggestedAmount.balance).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            <div className="flex justify-between items-center pt-2 border-t border-gray-700">
+                                                <span className="text-gray-300">Suggested Payment:</span>
+                                                <span className="font-bold text-green-400">₱{suggestedAmount.amount.toLocaleString()}</span>
                                             </div>
+
                                             <button
                                                 type="button"
                                                 onClick={() => setAmount(suggestedAmount.amount.toString())}
-                                                className="mt-1 text-[10px] text-blue-400 hover:text-blue-300 underline"
+                                                className="mt-2 text-[10px] text-blue-400 hover:text-blue-300 underline"
                                             >
                                                 Use Suggested Amount
                                             </button>
+
+                                            {suggestedAmount.isAdvancePayment && (
+                                                <div className="mt-2 flex items-center gap-1 text-[10px] text-green-400">
+                                                    <Info className="w-3 h-3" />
+                                                    This exceeds the invoice - excess will be saved as credits
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -474,8 +547,22 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                         type="date"
                                         value={settlementDate}
                                         onChange={(e) => setSettlementDate(e.target.value)}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500"
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-green-500"
                                     />
+                                </div>
+
+                                {/* SMS Notification Option */}
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        id="sendPaymentSms"
+                                        checked={sendSms}
+                                        onChange={(e) => setSendSms(e.target.checked)}
+                                        className="w-4 h-4 rounded border-gray-700 bg-gray-800 text-green-500 focus:ring-green-500"
+                                    />
+                                    <label htmlFor="sendPaymentSms" className="text-sm text-gray-400">
+                                        Send payment confirmation SMS
+                                    </label>
                                 </div>
 
                                 {/* Notes */}
@@ -488,7 +575,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                         onChange={(e) => setNotes(e.target.value)}
                                         rows={3}
                                         placeholder="Add any additional notes..."
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-red-500 resize-none"
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-green-500 resize-none"
                                     />
                                 </div>
                             </>
@@ -505,14 +592,22 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                             </button>
                             <button
                                 type="submit"
-                                disabled={isLoading || !selectedSubscriber || !amount || !selectedInvoiceId}
-                                className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isLoading || !selectedSubscriber || !amount || !selectedInvoiceId
+                                disabled={isLoading || !selectedSubscriber || !amount || !selectedInvoiceId || paymentResult?.success}
+                                className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isLoading || !selectedSubscriber || !amount || !selectedInvoiceId || paymentResult?.success
                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     : 'bg-green-600 hover:bg-green-700 text-white'
                                     }`}
                             >
                                 {isLoading ? (
-                                    <>Processing...</>
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : paymentResult?.success ? (
+                                    <>
+                                        <CheckCircle className="w-5 h-5" />
+                                        Payment Recorded
+                                    </>
                                 ) : (
                                     <>
                                         <Check className="w-5 h-5" />

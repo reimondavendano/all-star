@@ -391,20 +391,21 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Lighter backdrop */}
-            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={onClose} />
+            {/* Dark backdrop */}
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity" onClick={onClose} />
 
-            <div className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-purple-900/50 rounded-2xl shadow-[0_0_60px_rgba(139,92,246,0.15)] max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
                 {/* Header with Stepper */}
-                <div className="bg-gray-50 border-b border-gray-200 p-6">
-                    <div className="flex items-center justify-between mb-8">
+                <div className="relative border-b border-gray-800/50 p-6">
+                    <div className="absolute inset-0 bg-gradient-to-r from-violet-600/10 via-purple-600/10 to-fuchsia-600/10" />
+                    <div className="relative flex items-center justify-between mb-8">
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-900">New Subscription</h2>
-                            <p className="text-sm text-gray-500">Complete the form to apply for service</p>
+                            <h2 className="text-2xl font-bold text-white">New Subscription</h2>
+                            <p className="text-sm text-gray-400">Complete the form to apply for service</p>
                         </div>
                         <button
                             onClick={onClose}
-                            className="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-full"
+                            className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-gray-800 rounded-full"
                         >
                             <X className="w-6 h-6" />
                         </button>
@@ -412,9 +413,9 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
 
                     {/* Stepper */}
                     <div className="relative flex items-center justify-between px-4">
-                        <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 -z-10" />
+                        <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-700 -z-10" />
                         <div
-                            className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-red-600 -z-10 transition-all duration-500 ease-in-out"
+                            className="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-gradient-to-r from-violet-600 to-purple-600 -z-10 transition-all duration-500 ease-in-out"
                             style={{ width: `${((currentStep - 1) / (STEPS.length - 1)) * 100}%` }}
                         />
 
@@ -423,20 +424,20 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                             const isCurrent = currentStep === step.id;
 
                             return (
-                                <div key={step.id} className="flex flex-col items-center bg-gray-50 px-2">
+                                <div key={step.id} className="flex flex-col items-center bg-transparent px-2">
                                     <div
                                         className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${isCompleted || isCurrent
-                                            ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-200'
-                                            : 'bg-white border-gray-300 text-gray-400'
+                                            ? 'bg-gradient-to-r from-violet-600 to-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30'
+                                            : 'bg-[#0a0a0a] border-gray-600 text-gray-500'
                                             }`}
                                     >
                                         {isCompleted ? <Check className="w-5 h-5" /> : <step.icon className="w-5 h-5" />}
                                     </div>
                                     <div className="mt-2 text-center hidden sm:block">
-                                        <p className={`text-sm font-semibold ${isCompleted || isCurrent ? 'text-gray-900' : 'text-gray-500'}`}>
+                                        <p className={`text-sm font-semibold ${isCompleted || isCurrent ? 'text-white' : 'text-gray-500'}`}>
                                             {step.name}
                                         </p>
-                                        <p className="text-xs text-gray-400">{step.description}</p>
+                                        <p className="text-xs text-gray-500">{step.description}</p>
                                     </div>
                                 </div>
                             );
@@ -445,35 +446,35 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                 </div>
 
                 {/* Form Content */}
-                <div className="flex-1 overflow-y-auto p-8 bg-white">
+                <div className="flex-1 overflow-y-auto p-8 bg-[#0a0a0a]">
                     <div className="max-w-2xl mx-auto">
                         {currentStep === 1 && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                                    <User className="w-5 h-5 mr-2 text-red-600" />
+                                <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                                    <User className="w-5 h-5 mr-2 text-purple-500" />
                                     Personal Information
                                 </h3>
                                 <div className="grid gap-6">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Full Name <span className="text-purple-500">*</span></label>
                                         <input
                                             type="text"
                                             name="name"
                                             value={formData.name}
                                             onChange={handleChange}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white placeholder-gray-500"
                                             placeholder="e.g. Juan Dela Cruz"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Mobile Number <span className="text-purple-500">*</span></label>
                                         <input
                                             type="tel"
                                             name="mobileNumber"
                                             value={formData.mobileNumber}
                                             onChange={handleChange}
                                             maxLength={11}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white placeholder-gray-500"
                                             placeholder="09xxxxxxxxx"
                                         />
                                         <p className="text-xs text-gray-500 mt-1">Must start with 09 and contain 11 digits</p>
@@ -485,19 +486,19 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                         {currentStep === 2 && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                                 <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-xl font-semibold text-gray-800 flex items-center">
-                                        <MapPin className="w-5 h-5 mr-2 text-red-600" />
+                                    <h3 className="text-xl font-semibold text-white flex items-center">
+                                        <MapPin className="w-5 h-5 mr-2 text-purple-500" />
                                         Installation Location
                                     </h3>
                                 </div>
 
                                 {locationError && (
-                                    <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
+                                    <div className="p-3 bg-red-900/30 text-red-400 text-sm rounded-xl border border-red-700/50">
                                         {locationError}
                                     </div>
                                 )}
 
-                                <div className="w-full h-64 rounded-lg overflow-hidden border border-gray-200 mb-6 relative bg-gray-100 z-0">
+                                <div className="w-full h-64 rounded-xl overflow-hidden border border-gray-700 mb-6 relative bg-gray-900 z-0">
                                     <MapPicker
                                         center={[mapCenter.lat, mapCenter.lng]}
                                         value={coordinates}
@@ -506,28 +507,26 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                                 </div>
 
                                 <div className="grid gap-6">
-                                    {/* Business Unit field removed as requested */}
-
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Location Type</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-1">Location Type</label>
                                             <input
                                                 type="text"
                                                 name="label"
                                                 value={formData.label}
                                                 onChange={handleChange}
-                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                                className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white placeholder-gray-500"
                                                 placeholder="e.g. Home, Office"
                                                 title="Type of location (e.g. Home, Office, Work)"
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Barangay <span className="text-red-500">*</span></label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-1">Barangay <span className="text-purple-500">*</span></label>
                                             <select
                                                 name="barangay"
                                                 value={formData.barangay}
                                                 onChange={handleBarangayChange}
-                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                                className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white"
                                             >
                                                 <option value="">Select Barangay</option>
                                                 {BARANGAY_OPTIONS.map(opt => (
@@ -536,25 +535,25 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Landmark <span className="text-red-500">*</span></label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-1">Landmark <span className="text-purple-500">*</span></label>
                                             <input
                                                 type="text"
                                                 name="landmark"
                                                 value={formData.landmark}
                                                 onChange={handleChange}
-                                                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                                className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white placeholder-gray-500"
                                                 placeholder="e.g. Near the Chapel"
                                             />
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Complete Address (House No/Street/Subd/Sitio) <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Complete Address (House No/Street/Subd/Sitio) <span className="text-purple-500">*</span></label>
                                         <textarea
                                             name="address"
                                             value={formData.address}
                                             onChange={handleChange}
                                             rows={2}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none resize-none text-gray-900"
+                                            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none resize-none text-white placeholder-gray-500"
                                             placeholder="House No., Street Name, Subdivision"
                                         />
                                     </div>
@@ -564,31 +563,31 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
 
                         {currentStep === 3 && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                                    <Wifi className="w-5 h-5 mr-2 text-red-600" />
+                                <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                                    <Wifi className="w-5 h-5 mr-2 text-purple-500" />
                                     Plan Selection
                                 </h3>
                                 <div className="grid gap-6">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Installation Date <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Preferred Installation Date <span className="text-purple-500">*</span></label>
                                         <input
                                             type="date"
                                             name="installationDate"
                                             value={formData.installationDate}
                                             min={minDate}
                                             onChange={handleChange}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none text-gray-900"
+                                            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none text-white"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Plan <span className="text-red-500">*</span></label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Preferred Plan <span className="text-purple-500">*</span></label>
                                         <div className="grid grid-cols-1 gap-4">
                                             {plans.map(plan => (
                                                 <label
                                                     key={plan.id}
-                                                    className={`relative flex items-center p-4 border rounded-xl cursor-pointer transition-all hover:shadow-md ${formData.planId === plan.id
-                                                        ? 'border-red-500 bg-red-50 ring-1 ring-red-500'
-                                                        : 'border-gray-200 hover:border-red-300'
+                                                    className={`relative flex items-center p-4 border rounded-xl cursor-pointer transition-all hover:border-purple-500/50 ${formData.planId === plan.id
+                                                        ? 'border-purple-500 bg-purple-900/20 ring-1 ring-purple-500'
+                                                        : 'border-gray-700 hover:bg-gray-800/50'
                                                         }`}
                                                 >
                                                     <input
@@ -597,13 +596,13 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                                                         value={plan.id}
                                                         checked={formData.planId === plan.id}
                                                         onChange={handleChange}
-                                                        className="w-4 h-4 text-red-600 border-gray-300 focus:ring-red-500"
+                                                        className="w-4 h-4 text-purple-600 border-gray-600 focus:ring-purple-500 bg-gray-800"
                                                     />
                                                     <div className="ml-4 flex-1">
-                                                        <span className="block text-sm font-medium text-gray-900">{plan.name}</span>
+                                                        <span className="block text-sm font-medium text-white">{plan.name}</span>
                                                         <span className="block text-sm text-gray-500">{plan.description}</span>
                                                     </div>
-                                                    <span className="text-lg font-bold text-gray-900">₱{plan.monthlyFee.toLocaleString()}</span>
+                                                    <span className="text-lg font-bold text-purple-400">₱{plan.monthlyFee.toLocaleString()}</span>
                                                 </label>
                                             ))}
                                             {plans.length === 0 && (
@@ -620,29 +619,29 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
 
                         {currentStep === 4 && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                                    <FileText className="w-5 h-5 mr-2 text-red-600" />
+                                <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
+                                    <FileText className="w-5 h-5 mr-2 text-purple-500" />
                                     Additional Details
                                 </h3>
                                 <div className="grid gap-6">
                                     {/* Referred By section - Only for Admin */}
                                     {isAdmin && (
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Referred By (Optional)</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-1">Referred By (Optional)</label>
                                             <div className="flex items-center gap-2">
                                                 <div
                                                     onClick={() => setIsLookupOpen(true)}
-                                                    className="flex-1 px-4 py-3 rounded-lg border border-gray-300 bg-white cursor-pointer hover:border-red-500 transition-colors flex items-center justify-between"
+                                                    className="flex-1 px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 cursor-pointer hover:border-purple-500 transition-colors flex items-center justify-between"
                                                 >
-                                                    <span className={referrerName ? 'text-gray-900' : 'text-gray-400'}>
+                                                    <span className={referrerName ? 'text-white' : 'text-gray-500'}>
                                                         {referrerName || 'Select Referrer'}
                                                     </span>
-                                                    <Search className="w-4 h-4 text-gray-400" />
+                                                    <Search className="w-4 h-4 text-gray-500" />
                                                 </div>
                                                 {referrerName && (
                                                     <button
                                                         onClick={clearReferrer}
-                                                        className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                        className="p-3 text-red-400 hover:bg-red-900/30 rounded-xl transition-colors"
                                                         title="Clear Referrer"
                                                     >
                                                         <Trash2 className="w-5 h-5" />
@@ -652,13 +651,13 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                                         </div>
                                     )}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Inquiries / Notes (Optional)</label>
+                                        <label className="block text-sm font-medium text-gray-400 mb-1">Inquiries / Notes (Optional)</label>
                                         <textarea
                                             name="details"
                                             value={formData.details}
                                             onChange={handleChange}
                                             rows={4}
-                                            className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all outline-none resize-none text-gray-900"
+                                            className="w-full px-4 py-3 rounded-xl bg-gray-900/50 border border-gray-700 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all outline-none resize-none text-white placeholder-gray-500"
                                             placeholder="Any questions or specific instructions?"
                                         />
                                     </div>
@@ -669,13 +668,13 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                 </div>
 
                 {/* Footer Buttons */}
-                <div className="bg-gray-50 p-6 border-t border-gray-200 flex justify-between items-center">
+                <div className="bg-[#080808] p-6 border-t border-gray-800 flex justify-between items-center">
                     <button
                         onClick={handleBack}
                         disabled={currentStep === 1}
                         className={`flex items-center px-6 py-2.5 rounded-lg font-medium transition-colors ${currentStep === 1
-                            ? 'text-gray-300 cursor-not-allowed'
-                            : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+                            ? 'text-gray-600 cursor-not-allowed'
+                            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                             }`}
                     >
                         <ChevronLeft className="w-4 h-4 mr-2" />
@@ -685,9 +684,9 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                     <button
                         onClick={handleNext}
                         disabled={!validateStep(currentStep) || isSubmitting}
-                        className={`flex items-center px-8 py-3 rounded-lg font-semibold shadow-lg transition-all transform ${!validateStep(currentStep) || isSubmitting
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
-                            : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200 hover:-translate-y-0.5'
+                        className={`flex items-center px-8 py-3 rounded-xl font-semibold shadow-lg transition-all transform ${!validateStep(currentStep) || isSubmitting
+                            ? 'bg-gray-700 text-gray-500 cursor-not-allowed shadow-none'
+                            : 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white shadow-purple-900/30 hover:-translate-y-0.5'
                             }`}
                     >
                         {isSubmitting ? (
@@ -764,20 +763,20 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
             {/* Success Modal */}
             {isSuccessOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-                    <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-emerald-900/50 rounded-2xl shadow-[0_0_60px_rgba(16,185,129,0.15)] w-full max-w-md p-6">
                         <div className="flex flex-col items-center text-center">
-                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                                <CheckCircle className="w-8 h-8 text-green-600" />
+                            <div className="w-16 h-16 bg-gradient-to-br from-emerald-600 to-green-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-900/30">
+                                <CheckCircle className="w-8 h-8 text-white" />
                             </div>
-                            <h3 className="text-2xl font-bold text-gray-900 mb-2">Success!</h3>
-                            <p className="text-gray-600 mb-6">
+                            <h3 className="text-2xl font-bold text-white mb-2">Success!</h3>
+                            <p className="text-gray-400 mb-6">
                                 Subscription has been successfully added. Please wait for an admin to verify your application.
                             </p>
 
                             <button
                                 onClick={handleCloseSuccess}
-                                className="w-full px-4 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                                className="w-full px-4 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-medium hover:from-emerald-500 hover:to-green-500 transition-all shadow-lg shadow-emerald-900/30"
                             >
                                 Close
                             </button>
@@ -789,20 +788,20 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
             {/* Duplicate Error Modal */}
             {isDuplicateModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDuplicateModalOpen(false)} />
-                    <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-200">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsDuplicateModalOpen(false)} />
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-red-900/50 rounded-2xl shadow-[0_0_60px_rgba(239,68,68,0.15)] w-full max-w-md p-6">
                         <div className="flex flex-col items-center text-center">
-                            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                                <AlertCircle className="w-8 h-8 text-red-600" />
+                            <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-rose-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-red-900/30">
+                                <AlertCircle className="w-8 h-8 text-white" />
                             </div>
-                            <h3 className="text-xl font-bold text-gray-900 mb-2">Duplicate Number</h3>
-                            <p className="text-gray-600 mb-6">
+                            <h3 className="text-xl font-bold text-white mb-2">Duplicate Number</h3>
+                            <p className="text-gray-400 mb-6">
                                 {duplicateMessage}
                             </p>
 
                             <button
                                 onClick={() => setIsDuplicateModalOpen(false)}
-                                className="w-full px-4 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+                                className="w-full px-4 py-3 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-xl font-medium hover:from-red-500 hover:to-rose-500 transition-all shadow-lg shadow-red-900/30"
                             >
                                 Close
                             </button>

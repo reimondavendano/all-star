@@ -199,53 +199,54 @@ export default function MikrotikPage() {
     if (isLoading && !data) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-600"></div>
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-600 to-rose-600 flex items-center justify-center shadow-lg shadow-red-900/30">
+                    <RefreshCw className="w-8 h-8 animate-spin text-white" />
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="space-y-6">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-white neon-text flex items-center gap-3">
-                        <Server className="w-8 h-8 text-red-500" />
-                        Mikrotik Router
-                    </h1>
-                    <p className="text-gray-400 text-sm mt-1 font-mono">
-                        System Status & Network Overview
-                    </p>
-                </div>
-                <div className="flex items-center gap-4">
-                    {lastUpdated && (
-                        <span className="text-xs text-gray-500 font-mono hidden md:block">
-                            Last updated: {lastUpdated.toLocaleTimeString()}
-                        </span>
-                    )}
-                    <button
-                        onClick={handleSyncToDatabase}
-                        disabled={isSyncing}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"
-                    >
-                        <ArrowRightLeft className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                        Sync to DB
-                    </button>
-                    <button
-                        onClick={() => setShowAddPppModal(true)}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-all flex items-center gap-2"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add User
-                    </button>
-                    <button
-                        onClick={fetchData}
-                        disabled={isLoading}
-                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                        Refresh
-                    </button>
+            <div className="glass-card p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                            <Server className="w-6 h-6 text-red-500" />
+                            MikroTik Router
+                        </h1>
+                        <p className="text-sm text-gray-400 mt-1">System status and network overview</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {lastUpdated && (
+                            <span className="text-xs text-gray-500 font-mono hidden md:block">
+                                Last updated: {lastUpdated.toLocaleTimeString()}
+                            </span>
+                        )}
+                        <button
+                            onClick={handleSyncToDatabase}
+                            disabled={isSyncing}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-blue-900/30 disabled:opacity-50"
+                        >
+                            <ArrowRightLeft className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                            Sync to DB
+                        </button>
+                        <button
+                            onClick={() => setShowAddPppModal(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-emerald-900/30"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add User
+                        </button>
+                        <button
+                            onClick={fetchData}
+                            disabled={isLoading}
+                            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -564,116 +565,66 @@ export default function MikrotikPage() {
 
             {/* Add PPP User Modal */}
             {showAddPppModal && (
-                <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-                    <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 w-full max-w-md relative shadow-2xl">
-                        <button
-                            onClick={() => setShowAddPppModal(false)}
-                            className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-
-                        <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                            <Plus className="w-5 h-5 text-green-500" />
-                            Add PPP Secret (User)
-                        </h2>
-
-                        <form onSubmit={handleAddPppUser} className="space-y-4">
-                            {/* Name */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Name (Username)</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={pppForm.name}
-                                    onChange={(e) => setPppForm({ ...pppForm, name: e.target.value })}
-                                    className="w-full px-4 py-2 bg-black/40 border border-white/10 rounded-lg focus:border-red-500 focus:outline-none text-white"
-                                    placeholder="Enter username"
-                                />
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowAddPppModal(false)} />
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-emerald-900/50 rounded-2xl shadow-[0_0_60px_rgba(16,185,129,0.15)] w-full max-w-md overflow-hidden">
+                        <div className="relative p-6 border-b border-gray-800/50">
+                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-600/10 via-green-600/10 to-teal-600/10" />
+                            <div className="relative flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-900/30">
+                                    <Plus className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">Add PPP Secret</h2>
+                                    <p className="text-sm text-gray-400">Create a new MikroTik user</p>
+                                </div>
                             </div>
+                        </div>
 
-                            {/* Password */}
+                        <form onSubmit={handleAddPppUser} className="p-6 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Password</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={pppForm.password}
-                                    onChange={(e) => setPppForm({ ...pppForm, password: e.target.value })}
-                                    className="w-full px-4 py-2 bg-black/40 border border-white/10 rounded-lg focus:border-red-500 focus:outline-none text-white"
-                                    placeholder="Enter password"
-                                />
+                                <label className="block text-sm text-gray-400 mb-2">Username</label>
+                                <input type="text" required value={pppForm.name} onChange={(e) => setPppForm({ ...pppForm, name: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="Enter username" />
                             </div>
-
-                            {/* Service */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Service</label>
-                                <select
-                                    value={pppForm.service}
-                                    onChange={(e) => setPppForm({ ...pppForm, service: e.target.value })}
-                                    className="w-full px-4 py-2 bg-black/40 border border-white/10 rounded-lg focus:border-red-500 focus:outline-none text-white"
-                                >
-                                    <option value="any">any</option>
-                                    <option value="pppoe">pppoe</option>
-                                    <option value="pptp">pptp</option>
-                                    <option value="l2tp">l2tp</option>
-                                    <option value="ovpn">ovpn</option>
-                                    <option value="sstp">sstp</option>
-                                </select>
+                                <label className="block text-sm text-gray-400 mb-2">Password</label>
+                                <input type="text" required value={pppForm.password} onChange={(e) => setPppForm({ ...pppForm, password: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="Enter password" />
                             </div>
-
-                            {/* Profile */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">Service</label>
+                                    <select value={pppForm.service} onChange={(e) => setPppForm({ ...pppForm, service: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500">
+                                        <option value="any">any</option>
+                                        <option value="pppoe">pppoe</option>
+                                        <option value="pptp">pptp</option>
+                                        <option value="l2tp">l2tp</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">Profile</label>
+                                    <select value={pppForm.profile} onChange={(e) => setPppForm({ ...pppForm, profile: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500">
+                                        <option value="default">default</option>
+                                        <option value="50MBPS">50MBPS</option>
+                                        <option value="100MBPS">100MBPS</option>
+                                        <option value="150MBPS">150MBPS</option>
+                                        {data?.pppProfiles?.map((p: any) => (<option key={p['.id']} value={p.name}>{p.name}</option>))}
+                                    </select>
+                                </div>
+                            </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Profile</label>
-                                <select
-                                    value={pppForm.profile}
-                                    onChange={(e) => setPppForm({ ...pppForm, profile: e.target.value })}
-                                    className="w-full px-4 py-2 bg-black/40 border border-white/10 rounded-lg focus:border-red-500 focus:outline-none text-white"
-                                >
-                                    <option value="default">default</option>
-                                    <option value="50MBPS">50MBPS</option>
-                                    <option value="100MBPS">100MBPS</option>
-                                    <option value="130MBPS">130MBPS</option>
-                                    <option value="150MBPS">150MBPS</option>
-                                    {data?.pppProfiles?.map((p: any) => (
-                                        <option key={p['.id']} value={p.name}>{p.name}</option>
-                                    ))}
-                                </select>
+                                <label className="block text-sm text-gray-400 mb-2">Comment (optional)</label>
+                                <input type="text" value={pppForm.comment} onChange={(e) => setPppForm({ ...pppForm, comment: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="Optional comment" />
                             </div>
-
-                            {/* Comment */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Comment</label>
-                                <input
-                                    type="text"
-                                    value={pppForm.comment}
-                                    onChange={(e) => setPppForm({ ...pppForm, comment: e.target.value })}
-                                    className="w-full px-4 py-2 bg-black/40 border border-white/10 rounded-lg focus:border-red-500 focus:outline-none text-white"
-                                    placeholder="Optional comment"
-                                />
-                            </div>
-
-                            {/* Error Msg */}
-                            {pppAddError && (
-                                <p className="text-red-500 text-sm mt-2">{pppAddError}</p>
-                            )}
-
-                            {/* Submit */}
-                            <button
-                                type="submit"
-                                disabled={isAddingPpp}
-                                className="w-full mt-4 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                            >
-                                {isAddingPpp ? (
-                                    <>
-                                        <RefreshCw className="w-4 h-4 animate-spin" />
-                                        Adding...
-                                    </>
-                                ) : (
-                                    'Create Secret'
-                                )}
-                            </button>
+                            {pppAddError && <p className="text-red-400 text-sm">{pppAddError}</p>}
                         </form>
+
+                        <div className="p-6 border-t border-gray-800/50 flex justify-end gap-3">
+                            <button onClick={() => setShowAddPppModal(false)} className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium">Cancel</button>
+                            <button onClick={(e) => handleAddPppUser(e as any)} disabled={isAddingPpp} className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-medium shadow-lg shadow-emerald-900/30 flex items-center gap-2 disabled:opacity-50">
+                                {isAddingPpp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                                {isAddingPpp ? 'Adding...' : 'Create Secret'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

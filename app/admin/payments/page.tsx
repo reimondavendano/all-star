@@ -96,7 +96,7 @@ export default function PaymentsPage() {
                         address,
                         label,
                         balance,
-                        customers (
+                    customers!subscriptions_subscriber_id_fkey (
                             id,
                             name
                         ),

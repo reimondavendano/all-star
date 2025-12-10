@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Search, Filter, ChevronLeft, ChevronRight, Edit, Trash2, Plus } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Edit, Trash2, Plus, RefreshCw, Package, DollarSign, ChevronDown } from 'lucide-react';
 import EditPlanModal from '@/components/admin/EditPlanModal';
 import AddPlanModal from '@/components/admin/AddPlanModal';
 
@@ -20,32 +20,24 @@ export default function PlansPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+    const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-    // Edit Modal State
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-
-    // Add Modal State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     const itemsPerPage = 10;
 
-    useEffect(() => {
-        fetchPlans();
-    }, []);
+    useEffect(() => { fetchPlans(); }, []);
 
     const fetchPlans = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('plans')
-                .select('*')
-                .order('created_at', { ascending: false });
-
+            const { data, error } = await supabase.from('plans').select('*').order('monthly_fee', { ascending: true });
             if (error) throw error;
             setPlans(data || []);
         } catch (error) {
-            console.error('Error fetching plans:', error);
+            console.error('Error:', error);
         } finally {
             setIsLoading(false);
         }
@@ -53,202 +45,140 @@ export default function PlansPage() {
 
     const handleDelete = async (id: string) => {
         try {
-            const { error } = await supabase
-                .from('plans')
-                .delete()
-                .eq('id', id);
-
-            if (error) throw error;
-
+            await supabase.from('plans').delete().eq('id', id);
             fetchPlans();
             setDeleteConfirm(null);
         } catch (error) {
-            console.error('Error deleting plan:', error);
-            alert('Failed to delete plan');
+            console.error('Error:', error);
         }
     };
 
-    const handleEdit = (plan: Plan) => {
-        setSelectedPlan(plan);
-        setIsEditModalOpen(true);
+    const toggleRow = (id: string) => {
+        const newSet = new Set(expandedRows);
+        newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+        setExpandedRows(newSet);
     };
 
-    const formatDate = (dateString: string) => {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    };
-
-    const filteredPlans = plans.filter(plan =>
-        plan.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        plan.details?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
+    const filteredPlans = plans.filter(p => p.name?.toLowerCase().includes(searchQuery.toLowerCase()));
     const totalPages = Math.ceil(filteredPlans.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const currentPlans = filteredPlans.slice(startIndex, endIndex);
+    const currentPlans = filteredPlans.slice(startIndex, startIndex + itemsPerPage);
 
     return (
-        <div className="bg-[#0a0a0a] rounded-lg overflow-hidden border-2 border-red-900/50">
-            <div className="p-6 flex justify-between items-center border-b border-gray-900">
-                <h1 className="text-2xl font-bold text-white">Plans</h1>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium"
-                    >
-                        <Plus className="w-4 h-4" />
-                        Add Plan
-                    </button>
-                    <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                        <input
-                            type="text"
-                            placeholder="Search..."
-                            value={searchQuery}
-                            onChange={(e) => {
-                                setSearchQuery(e.target.value);
-                                setCurrentPage(1);
-                            }}
-                            className="bg-[#1a1a1a] border border-gray-800 rounded pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-gray-700 w-64"
-                        />
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="glass-card p-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                            <Package className="w-6 h-6 text-teal-500" />
+                            Plans
+                        </h1>
+                        <p className="text-sm text-gray-400 mt-1">Manage internet service plans and pricing</p>
                     </div>
-                    <button className="p-2 bg-[#1a1a1a] border border-gray-800 rounded text-gray-400 hover:text-white transition-colors">
-                        <Filter className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <div className="relative">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                            <input
+                                type="text"
+                                placeholder="Search plans..."
+                                value={searchQuery}
+                                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-teal-500 w-64"
+                            />
+                        </div>
+                        <button onClick={fetchPlans} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-teal-900/30"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add Plan
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <table className="w-full">
-                <thead>
-                    <tr className="border-b border-gray-900">
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Name</th>
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Monthly Fee</th>
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Details</th>
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Created Date</th>
-                        <th className="text-left p-4 text-xs font-medium text-gray-500 uppercase">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {isLoading ? (
-                        <tr>
-                            <td colSpan={5} className="text-center p-8 text-gray-500">
-                                Loading...
-                            </td>
-                        </tr>
-                    ) : currentPlans.length === 0 ? (
-                        <tr>
-                            <td colSpan={5} className="text-center p-8 text-gray-500">
-                                No plans found
-                            </td>
-                        </tr>
-                    ) : (
-                        currentPlans.map((plan) => (
-                            <tr
-                                key={plan.id}
-                                className="border-b border-gray-900 hover:bg-[#1a1a1a] transition-colors"
-                            >
-                                <td className="p-4 text-white font-medium">{plan.name}</td>
-                                <td className="p-4 text-green-400 font-semibold">₱{plan.monthly_fee.toLocaleString()}</td>
-                                <td className="p-4 text-gray-400 max-w-xs truncate">{plan.details || '-'}</td>
-                                <td className="p-4 text-gray-400">{formatDate(plan.created_at)}</td>
-                                <td className="p-4">
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => handleEdit(plan)}
-                                            className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded transition-colors"
-                                            title="Edit plan"
-                                        >
+            {/* List */}
+            <div className="glass-card overflow-hidden">
+                {isLoading ? (
+                    <div className="p-12 text-center text-gray-500">
+                        <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
+                        Loading...
+                    </div>
+                ) : currentPlans.length === 0 ? (
+                    <div className="p-12 text-center text-gray-500">
+                        <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>{searchQuery ? `No plans found matching "${searchQuery}"` : 'No plans found'}</p>
+                    </div>
+                ) : (
+                    <div className="divide-y divide-gray-800">
+                        {currentPlans.map((plan) => (
+                            <div key={plan.id}>
+                                <div className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-3 transition-colors" onClick={() => toggleRow(plan.id)}>
+                                    {expandedRows.has(plan.id) ? <ChevronDown className="w-5 h-5 text-gray-500" /> : <ChevronRight className="w-5 h-5 text-gray-500" />}
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-600 to-cyan-600 flex items-center justify-center shadow-lg shadow-teal-900/30">
+                                        <Package className="w-5 h-5 text-white" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="font-semibold text-white">{plan.name}</div>
+                                        <div className="text-xs text-gray-500">Created {new Date(plan.created_at).toLocaleDateString()}</div>
+                                    </div>
+                                    <span className="px-4 py-2 rounded-xl text-lg font-bold bg-gradient-to-r from-emerald-900/40 to-teal-900/40 text-emerald-400 border border-emerald-700/50 flex items-center gap-1">
+                                        <DollarSign className="w-4 h-4" />₱{plan.monthly_fee.toLocaleString()}<span className="text-xs font-normal text-gray-500">/mo</span>
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan); setIsEditModalOpen(true); }} className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors">
                                             <Edit className="w-4 h-4" />
                                         </button>
-                                        <button
-                                            onClick={() => setDeleteConfirm(plan.id)}
-                                            className="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
-                                            title="Delete plan"
-                                        >
+                                        <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(plan.id); }} className="p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors">
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
-                                </td>
-                            </tr>
-                        ))
-                    )}
-                </tbody>
-            </table>
+                                </div>
 
-            <div className="flex items-center justify-between p-4 border-t border-gray-900">
-                <div className="text-sm text-gray-500">
-                    Showing {startIndex + 1} to {Math.min(endIndex, filteredPlans.length)} of {filteredPlans.length} entries
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <span className="text-sm text-gray-400">
-                        Page {currentPage} of {totalPages || 1}
-                    </span>
-                    <button
-                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                        disabled={currentPage === totalPages || totalPages === 0}
-                        className="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
-                </div>
+                                {expandedRows.has(plan.id) && (
+                                    <div className="bg-[#080808] border-t border-gray-800/50 p-4 pl-16">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">Plan Details</div>
+                                        <p className="text-gray-300 text-sm">{plan.details || 'No details provided'}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {filteredPlans.length > itemsPerPage && (
+                    <div className="flex items-center justify-between p-4 border-t border-gray-800">
+                        <div className="text-sm text-gray-500">Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredPlans.length)} of {filteredPlans.length}</div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 text-gray-400 hover:text-white disabled:opacity-50"><ChevronLeft className="w-4 h-4" /></button>
+                            <span className="text-sm text-gray-400">Page {currentPage} of {totalPages}</span>
+                            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 text-gray-400 hover:text-white disabled:opacity-50"><ChevronRight className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                )}
             </div>
 
+            {/* Delete Modal */}
             {deleteConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)} />
-                    <div className="relative bg-[#0a0a0a] border border-red-500/30 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-md p-6">
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-red-900/50 rounded-2xl shadow-[0_0_60px_rgba(239,68,68,0.15)] w-full max-w-md p-6">
                         <h3 className="text-xl font-bold text-white mb-2">Confirm Delete</h3>
-                        <p className="text-gray-400 mb-6">
-                            Are you sure you want to delete this plan? This action cannot be undone.
-                        </p>
+                        <p className="text-gray-400 mb-6">Are you sure you want to delete this plan?</p>
                         <div className="flex gap-3">
-                            <button
-                                onClick={() => setDeleteConfirm(null)}
-                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={() => handleDelete(deleteConfirm)}
-                                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                            >
-                                Delete
-                            </button>
+                            <button onClick={() => setDeleteConfirm(null)} className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium">Cancel</button>
+                            <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-xl font-medium">Delete</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {selectedPlan && (
-                <EditPlanModal
-                    isOpen={isEditModalOpen}
-                    onClose={() => {
-                        setIsEditModalOpen(false);
-                        setSelectedPlan(null);
-                    }}
-                    plan={selectedPlan}
-                    onUpdate={fetchPlans}
-                />
-            )}
-
-            <AddPlanModal
-                isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                onSuccess={fetchPlans}
-            />
+            {selectedPlan && <EditPlanModal isOpen={isEditModalOpen} onClose={() => { setIsEditModalOpen(false); setSelectedPlan(null); }} plan={selectedPlan} onUpdate={fetchPlans} />}
+            <AddPlanModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onSuccess={fetchPlans} />
         </div>
     );
 }

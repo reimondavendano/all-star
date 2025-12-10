@@ -9,6 +9,7 @@ export const mockInvoices: Invoice[] = [
         dueDate: '2024-04-19',
         amountDue: 1500,
         paid: true,
+        paymentStatus: 'Paid',
     },
     {
         id: 'inv-2',
@@ -18,5 +19,6 @@ export const mockInvoices: Invoice[] = [
         dueDate: '2024-05-04',
         amountDue: 2000,
         paid: false,
+        paymentStatus: 'Unpaid',
     },
 ];
