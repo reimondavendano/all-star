@@ -368,11 +368,23 @@ export default function CustomersSubscriptionsPage() {
                                             )}
                                         </div>
                                         <div className="flex items-center gap-1">
-                                            <button onClick={(e) => handleCopyLink(customer.id, e)} className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors" title="Copy Portal Link">
+                                            <button
+                                                onClick={(e) => handleCopyLink(customer.id, e)}
+                                                className="group relative p-2 text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg transition-colors"
+                                            >
                                                 {copiedId === customer.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                    {copiedId === customer.id ? 'Copied!' : 'Copy Portal Link'}
+                                                </span>
                                             </button>
-                                            <button onClick={(e) => openEditModal(customer, undefined, e)} className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors" title="Edit Customer">
+                                            <button
+                                                onClick={(e) => openEditModal(customer, undefined, e)}
+                                                className="group relative p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors"
+                                            >
                                                 <Edit className="w-4 h-4" />
+                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                    Edit Customer
+                                                </span>
                                             </button>
                                         </div>
                                     </div>
@@ -408,13 +420,22 @@ export default function CustomersSubscriptionsPage() {
                                                             <div className="flex items-center gap-2">
                                                                 <button
                                                                     onClick={(e) => handleToggleActive(sub, e)}
-                                                                    className="relative w-10 h-5 rounded-full transition-colors"
+                                                                    className="group relative w-10 h-5 rounded-full transition-colors"
                                                                     style={{ background: sub.active ? '#059669' : '#374151' }}
                                                                 >
                                                                     <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
+                                                                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                                        {sub.active ? 'Deactivate' : 'Activate'} Subscription
+                                                                    </span>
                                                                 </button>
-                                                                <button onClick={(e) => openEditModal(customer, sub, e)} className="p-1.5 text-blue-400 hover:text-blue-300 rounded transition-colors">
+                                                                <button
+                                                                    onClick={(e) => openEditModal(customer, sub, e)}
+                                                                    className="group relative p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors"
+                                                                >
                                                                     <Edit className="w-3.5 h-3.5" />
+                                                                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                                        Edit Subscription
+                                                                    </span>
                                                                 </button>
                                                             </div>
                                                         </div>

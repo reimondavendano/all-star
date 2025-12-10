@@ -541,28 +541,33 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-                <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-purple-900/50 rounded-2xl shadow-[0_0_60px_rgba(139,92,246,0.15)] w-full max-w-4xl max-h-[90vh] overflow-y-auto">
                     {/* Header */}
-                    <div className="sticky top-0 bg-[#0a0a0a] border-b border-red-900/30 p-6 flex justify-between items-center">
-                        <div>
-                            <h2 className="text-2xl font-bold text-white neon-text flex items-center gap-2">
-                                <ClipboardCheck className="w-6 h-6" />
-                                Verify Prospect
-                            </h2>
-                            <p className="text-gray-400 text-sm mt-1">Review and verify prospect information</p>
+                    <div className="sticky top-0 bg-gradient-to-r from-[#0f0f0f] to-[#0a0a0a] border-b border-gray-800/50 p-6 flex justify-between items-center">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-gradient-to-r from-purple-600/10 via-violet-600/10 to-fuchsia-600/10 rounded-xl blur-xl" />
+                            <div className="relative flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-600 to-violet-600 flex items-center justify-center shadow-lg">
+                                    <ClipboardCheck className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">Verify Prospect</h2>
+                                    <p className="text-gray-400 text-sm">Review and verify prospect information</p>
+                                </div>
+                            </div>
                         </div>
                         <button
                             onClick={onClose}
-                            className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded"
+                            className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg"
                         >
-                            <X className="w-6 h-6" />
+                            <X className="w-5 h-5" />
                         </button>
                     </div>
 
                     {/* Content */}
                     <div className="p-6 space-y-6">
                         {/* Editable Fields - Status First */}
-                        <div className="grid grid-cols-1 gap-4 p-4 bg-[#0f0f0f] border border-red-900/20 rounded-lg">
+                        <div className="grid grid-cols-1 gap-4 p-4 bg-gray-900/50 border border-gray-800 rounded-xl">
                             {/* Status Field - Always First */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -876,18 +881,18 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     </div>
 
                     {/* Footer */}
-                    <div className="sticky bottom-0 bg-[#0a0a0a] border-t border-red-900/30 p-6 flex justify-end gap-3">
+                    <div className="sticky bottom-0 bg-gradient-to-r from-[#0f0f0f] to-[#0a0a0a] border-t border-gray-800/50 p-6 flex justify-end gap-3">
                         <button
                             onClick={onClose}
-                            className="px-6 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                            className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={handleApproveClick}
                             disabled={!isFormValid() || isLoading}
-                            className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${isFormValid() && !isLoading
-                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                            className={`px-6 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 ${isFormValid() && !isLoading
+                                ? 'bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-lg shadow-purple-900/30'
                                 : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                 }`}
                         >
@@ -911,7 +916,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             {showReasonModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowReasonModal(false)} />
-                    <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-md p-6">
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-amber-900/50 rounded-2xl shadow-[0_0_60px_rgba(245,158,11,0.15)] w-full max-w-md p-6">
                         <h3 className="text-xl font-bold text-white mb-4">Reason for Closed Lost</h3>
                         <p className="text-gray-400 text-sm mb-4">Please provide a reason why this prospect is marked as Closed Lost:</p>
                         <textarea
@@ -919,20 +924,20 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             onChange={(e) => setReason(e.target.value)}
                             rows={4}
                             placeholder="Enter reason..."
-                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-red-500 resize-none"
+                            className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 resize-none"
                         />
                         <div className="flex gap-3 mt-6">
                             <button
                                 onClick={() => setShowReasonModal(false)}
-                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                                className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={handleReasonSubmit}
                                 disabled={!reason.trim() || isLoading}
-                                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${reason.trim() && !isLoading
-                                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                                className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all ${reason.trim() && !isLoading
+                                    ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg'
                                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     }`}
                             >
@@ -1078,7 +1083,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                         <div className="flex gap-3 mt-6">
                             <button
                                 onClick={() => setShowPppModal(false)}
-                                className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                                className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors"
                             >
                                 Cancel
                             </button>
@@ -1092,8 +1097,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     setShowConfirmation(true);
                                 }}
                                 disabled={!pppForm.name || !pppForm.password}
-                                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${pppForm.name && pppForm.password
-                                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                className={`flex-1 px-4 py-2.5 rounded-xl font-medium transition-all ${pppForm.name && pppForm.password
+                                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg'
                                     : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                     }`}
                             >
@@ -1109,7 +1114,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             {showConfirmation && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowConfirmation(false)} />
-                    <div className="relative bg-[#0a0a0a] border-2 border-green-900/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.2)] w-full max-w-2xl p-6">
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-emerald-900/50 rounded-2xl shadow-[0_0_60px_rgba(16,185,129,0.15)] w-full max-w-2xl p-6">
                         <div className="flex flex-col">
                             <div className="flex items-center justify-center mb-4">
                                 <div className="w-12 h-12 bg-green-900/20 rounded-full flex items-center justify-center">
@@ -1184,13 +1189,13 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowConfirmation(false)}
-                                    className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                                    className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={handleConfirmApprove}
-                                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all shadow-lg"
                                 >
                                     Yes, Approve
                                 </button>
