@@ -8,6 +8,7 @@ import {
     ArrowUpRight, ArrowDownRight, Building2, Loader2,
     Send, Download, Clock, CheckCircle, XCircle, Zap
 } from 'lucide-react';
+import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface DashboardData {
     totalCustomers: number;
@@ -83,6 +84,16 @@ export default function DashboardPage() {
     const [selectedPeriod, setSelectedPeriod] = useState('This Month');
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('all');
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
+
+    // Real-time subscriptions for dashboard data
+    useMultipleRealtimeSubscriptions(
+        ['customers', 'subscriptions', 'invoices', 'payments', 'expenses'],
+        (table, payload) => {
+            console.log(`[Dashboard Realtime] ${table} changed:`, payload.eventType);
+            // Debounce the refresh to avoid too many calls
+            fetchDashboardData();
+        }
+    );
 
     const fetchDashboardData = useCallback(async () => {
         setIsLoading(true);

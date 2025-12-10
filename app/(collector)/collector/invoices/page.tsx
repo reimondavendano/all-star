@@ -24,6 +24,7 @@ import {
     Smartphone
 } from 'lucide-react';
 import { BalanceInline } from '@/components/BalanceDisplay';
+import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
     id: string;
@@ -114,6 +115,15 @@ export default function CollectorInvoicesPage() {
     useEffect(() => {
         fetchData();
     }, [selectedBusinessUnit, selectedMonth, statusFilter]);
+
+    // Real-time subscription for invoices and payments
+    useMultipleRealtimeSubscriptions(
+        ['invoices', 'payments'],
+        (table, payload) => {
+            console.log(`[Collector Realtime] ${table} changed:`, payload.eventType);
+            fetchData();
+        }
+    );
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase.from('business_units').select('id, name').order('name');

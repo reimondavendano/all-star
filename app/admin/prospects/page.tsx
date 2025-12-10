@@ -9,6 +9,7 @@ import {
     User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar,
     UserCheck, FileText, Plus, RefreshCw, UserPlus
 } from 'lucide-react';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface Prospect {
     id: string;
@@ -50,6 +51,12 @@ export default function ProspectsPage() {
         fetchProspects();
         fetchPlans();
     }, []);
+
+    // Real-time subscription for prospects
+    useRealtimeSubscription({
+        table: 'prospects',
+        onAny: () => fetchProspects()
+    });
 
     const fetchProspects = async () => {
         setIsLoading(true);
@@ -140,8 +147,8 @@ export default function ProspectsPage() {
                             <button
                                 onClick={() => { setActiveTab('Open'); setCurrentPage(1); }}
                                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Open'
-                                        ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg'
-                                        : 'text-gray-400 hover:text-white'
+                                    ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg'
+                                    : 'text-gray-400 hover:text-white'
                                     }`}
                             >
                                 Open
@@ -149,8 +156,8 @@ export default function ProspectsPage() {
                             <button
                                 onClick={() => { setActiveTab('Closed Lost'); setCurrentPage(1); }}
                                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Closed Lost'
-                                        ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg'
-                                        : 'text-gray-400 hover:text-white'
+                                    ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg'
+                                    : 'text-gray-400 hover:text-white'
                                     }`}
                             >
                                 Closed Lost
@@ -224,8 +231,8 @@ export default function ProspectsPage() {
                                         <div className="text-gray-500">{formatDate(prospect.installation_date)}</div>
                                     </div>
                                     <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${prospect.status === 'Open'
-                                            ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50'
-                                            : 'bg-red-900/40 text-red-400 border border-red-700/50'
+                                        ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50'
+                                        : 'bg-red-900/40 text-red-400 border border-red-700/50'
                                         }`}>
                                         {prospect.status}
                                     </span>

@@ -19,6 +19,7 @@ import {
     XCircle
 } from 'lucide-react';
 import { BalanceInline } from '@/components/BalanceDisplay';
+import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
     id: string;
@@ -56,6 +57,15 @@ export default function CollectorCustomersPage() {
         fetchBusinessUnits();
         fetchCustomers();
     }, [selectedBusinessUnit]);
+
+    // Real-time subscriptions for customer data
+    useMultipleRealtimeSubscriptions(
+        ['customers', 'subscriptions'],
+        (table, payload) => {
+            console.log(`[Collector Customers Realtime] ${table} changed:`, payload.eventType);
+            fetchCustomers();
+        }
+    );
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase.from('business_units').select('id, name').order('name');

@@ -23,6 +23,7 @@ import {
     Smartphone
 } from 'lucide-react';
 import GenerateInvoiceModal from '@/components/admin/GenerateInvoiceModal';
+import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
     id: string;
@@ -123,6 +124,16 @@ export default function InvoicesPaymentsPage() {
     useEffect(() => {
         fetchData();
     }, [selectedBusinessUnit, selectedMonth, statusFilter]);
+
+    // Real-time subscription for invoices and payments
+    useMultipleRealtimeSubscriptions(
+        ['invoices', 'payments', 'subscriptions'],
+        (table, payload) => {
+            console.log(`[Realtime] ${table} changed:`, payload.eventType);
+            // Refetch data on any change
+            fetchData();
+        }
+    );
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase

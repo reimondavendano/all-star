@@ -8,6 +8,7 @@ import {
     Building2, DollarSign, Hash, ExternalLink, Plus, Shield
 } from 'lucide-react';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
+import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface MikrotikPPP {
     id: string;
@@ -100,6 +101,15 @@ export default function CustomersSubscriptionsPage() {
     useEffect(() => {
         fetchData();
     }, []);
+
+    // Real-time subscriptions for customers data
+    useMultipleRealtimeSubscriptions(
+        ['customers', 'subscriptions', 'mikrotik_ppp_secrets'],
+        (table, payload) => {
+            console.log(`[Customers Realtime] ${table} changed:`, payload.eventType);
+            fetchData();
+        }
+    );
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -521,8 +531,8 @@ export default function CustomersSubscriptionsPage() {
                                         key={tab.id}
                                         onClick={() => setActiveTab(tab.id as any)}
                                         className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
-                                                ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg shadow-purple-900/30'
-                                                : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                                            ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-lg shadow-purple-900/30'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
                                             }`}
                                     >
                                         <tab.icon className="w-4 h-4" />

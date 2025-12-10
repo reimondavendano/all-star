@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, ChevronLeft, ChevronRight, Edit, Trash2, Plus, RefreshCw, ChevronDown, Calendar, FileText, Receipt, User, Wifi, X, Building2 } from 'lucide-react';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
     id: string;
@@ -70,6 +71,12 @@ export default function ExpensesPage() {
         fetchExpenses();
         fetchCustomers();
     }, []);
+
+    // Real-time subscription for expenses
+    useRealtimeSubscription({
+        table: 'expenses',
+        onAny: () => fetchExpenses()
+    });
 
     const fetchExpenses = async () => {
         setIsLoading(true);
@@ -503,8 +510,8 @@ export default function ExpensesPage() {
                                                 <label
                                                     key={sub.id}
                                                     className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${formData.subscription_id === sub.id
-                                                            ? 'bg-purple-900/30 border-purple-700/50'
-                                                            : 'bg-gray-900/50 border-gray-700 hover:border-gray-600'
+                                                        ? 'bg-purple-900/30 border-purple-700/50'
+                                                        : 'bg-gray-900/50 border-gray-700 hover:border-gray-600'
                                                         }`}
                                                 >
                                                     <input

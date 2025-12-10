@@ -10,6 +10,7 @@ import {
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface Subscription {
     id: string;
@@ -63,6 +64,12 @@ export default function SubscriptionsPage() {
     useEffect(() => {
         fetchSubscriptions();
     }, []);
+
+    // Real-time subscription for subscriptions table
+    useRealtimeSubscription({
+        table: 'subscriptions',
+        onAny: () => fetchSubscriptions()
+    });
 
     const fetchSubscriptions = async () => {
         setIsLoading(true);

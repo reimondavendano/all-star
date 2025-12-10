@@ -27,6 +27,7 @@ import {
     ChevronLeft,
     ChevronRight
 } from 'lucide-react';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface MikrotikData {
     resources: any;
@@ -138,6 +139,15 @@ export default function MikrotikPage() {
     useEffect(() => {
         fetchData();
     }, []);
+
+    // Real-time subscription for mikrotik PPP secrets
+    useRealtimeSubscription({
+        table: 'mikrotik_ppp_secrets',
+        onAny: () => {
+            console.log('[MikroTik Realtime] PPP secrets changed, refetching...');
+            fetchData();
+        }
+    });
 
     const formatUptime = (uptime: string) => {
         // Mikrotik uptime format can vary, usually like "2w3d4h5m6s"
