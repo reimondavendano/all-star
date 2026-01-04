@@ -11,12 +11,13 @@ interface Customer {
 }
 
 interface Subscription {
-    id: string;
+    id: string; // Restored id
     subscriber_id: string;
     address: string;
     barangay: string;
     plan_name: string;
     business_unit_name: string;
+    business_unit_id: string;
 }
 
 interface Expense {
@@ -37,7 +38,30 @@ interface Expense {
     };
 }
 
+// Add useRef for click outside handling
+import { useRef } from 'react';
+
 export default function ExpensesPage() {
+    // ... existing state ...
+
+    // Add ref for dropdown
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Click outside handler
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowCustomerDropdown(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    // ... rest of component ...
+
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -56,7 +80,8 @@ export default function ExpensesPage() {
         reason: '',
         amount: '',
         notes: '',
-        subscription_id: ''
+        subscription_id: '',
+        business_unit_id: ''  // Added for expenses not linked to customer
     });
 
     // Customer search for modal
@@ -64,12 +89,14 @@ export default function ExpensesPage() {
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [customerSubscriptions, setCustomerSubscriptions] = useState<Subscription[]>([]);
     const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+    const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
 
     const itemsPerPage = 10;
 
     useEffect(() => {
         fetchExpenses();
         fetchCustomers();
+        fetchBusinessUnits();
     }, []);
 
     // Real-time subscription for expenses
@@ -112,6 +139,15 @@ export default function ExpensesPage() {
         }
     };
 
+    const fetchBusinessUnits = async () => {
+        try {
+            const { data } = await supabase.from('business_units').select('id, name').order('name');
+            setBusinessUnits(data || []);
+        } catch (error) {
+            console.error('Error fetching business units:', error);
+        }
+    };
+
     const fetchCustomerSubscriptions = async (customerId: string) => {
         try {
             const { data } = await supabase
@@ -130,7 +166,8 @@ export default function ExpensesPage() {
                 address: s.address || '',
                 barangay: s.barangay || '',
                 plan_name: Array.isArray(s.plans) ? s.plans[0]?.name : s.plans?.name || 'No Plan',
-                business_unit_name: Array.isArray(s.business_units) ? s.business_units[0]?.name : s.business_units?.name || 'Unknown'
+                business_unit_name: Array.isArray(s.business_units) ? s.business_units[0]?.name : s.business_units?.name || 'Unknown',
+                business_unit_id: Array.isArray(s.business_units) ? s.business_units[0]?.id : s.business_units?.id
             }));
             setCustomerSubscriptions(subs);
         } catch (error) {
@@ -155,7 +192,8 @@ export default function ExpensesPage() {
                 reason: formData.reason,
                 amount: parseFloat(formData.amount) || 0,
                 notes: formData.notes,
-                subscription_id: formData.subscription_id || null
+                subscription_id: formData.subscription_id || null,
+                business_unit_id: formData.business_unit_id || null
             };
 
             // Add date if the column exists
@@ -180,7 +218,7 @@ export default function ExpensesPage() {
         setIsAddModalOpen(false);
         setIsEditModalOpen(false);
         setSelectedExpense(null);
-        setFormData({ date: '', reason: '', amount: '', notes: '', subscription_id: '' });
+        setFormData({ date: '', reason: '', amount: '', notes: '', subscription_id: '', business_unit_id: '' });
         setSelectedCustomer(null);
         setCustomerSubscriptions([]);
         setCustomerSearch('');
@@ -194,7 +232,8 @@ export default function ExpensesPage() {
             reason: expense.reason,
             amount: expense.amount.toString(),
             notes: expense.notes || '',
-            subscription_id: expense.subscription_id || ''
+            subscription_id: expense.subscription_id || '',
+            business_unit_id: ''  // Will be set via subscription if linked
         });
 
         // If expense has subscription, set the customer
@@ -223,7 +262,8 @@ export default function ExpensesPage() {
             reason: '',
             amount: '',
             notes: '',
-            subscription_id: ''
+            subscription_id: '',
+            business_unit_id: ''
         });
         setSelectedCustomer(null);
         setCustomerSubscriptions([]);
@@ -479,7 +519,7 @@ export default function ExpensesPage() {
 
                                     {/* Customer Dropdown */}
                                     {showCustomerDropdown && !selectedCustomer && (
-                                        <div className="absolute z-10 w-full mt-1 bg-[#1a1a1a] border border-gray-700 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                        <div ref={dropdownRef} className="absolute z-10 w-full mt-1 bg-[#1a1a1a] border border-gray-700 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                                             {filteredCustomers.length > 0 ? (
                                                 filteredCustomers.map(customer => (
                                                     <button
@@ -519,7 +559,13 @@ export default function ExpensesPage() {
                                                         name="subscription"
                                                         value={sub.id}
                                                         checked={formData.subscription_id === sub.id}
-                                                        onChange={(e) => setFormData({ ...formData, subscription_id: e.target.value })}
+                                                        onChange={(e) => {
+                                                            setFormData({
+                                                                ...formData,
+                                                                subscription_id: e.target.value,
+                                                                business_unit_id: sub.business_unit_id // Auto-select BU
+                                                            });
+                                                        }}
                                                         className="sr-only"
                                                     />
                                                     <Wifi className={`w-5 h-5 ${formData.subscription_id === sub.id ? 'text-purple-400' : 'text-gray-500'}`} />
@@ -536,6 +582,31 @@ export default function ExpensesPage() {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Business Unit Select - Required if no customer/subscription selected */}
+                            <div>
+                                <label className="block text-sm text-gray-400 mb-2">
+                                    Business Unit
+                                    {!selectedCustomer && <span className="text-red-500 ml-1">*</span>}
+                                </label>
+                                <div className="relative">
+                                    <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <select
+                                        value={formData.business_unit_id}
+                                        onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
+                                        disabled={!!formData.subscription_id} // Disable if subscription selected (it determines BU)
+                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <option value="">Select Business Unit...</option>
+                                        {businessUnits.map(unit => (
+                                            <option key={unit.id} value={unit.id}>{unit.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {formData.subscription_id && (
+                                    <p className="text-xs text-gray-500 mt-1">Automatically set based on selected subscription</p>
+                                )}
+                            </div>
 
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Date</label>
@@ -588,7 +659,11 @@ export default function ExpensesPage() {
                             <button onClick={closeModal} className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium">Cancel</button>
                             <button
                                 onClick={handleSave}
-                                disabled={!formData.reason || !formData.amount}
+                                disabled={
+                                    !formData.reason ||
+                                    !formData.amount ||
+                                    (!selectedCustomer && !formData.business_unit_id) // Required if no customer
+                                }
                                 className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Save Expense

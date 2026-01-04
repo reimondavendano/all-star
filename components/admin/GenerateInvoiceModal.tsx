@@ -33,6 +33,8 @@ interface SubscriptionPreview {
     referralDiscount: number;
     hasReferrer: boolean;
     referralCreditApplied: boolean;
+    periodStart: string;
+    periodEnd: string;
 }
 
 export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: GenerateInvoiceModalProps) {
@@ -267,6 +269,28 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 const amountAfterCredits = Math.max(0, amountAfterDiscount - creditsApplied);
                 const finalAmount = amountAfterCredits + outstandingBalance;
 
+                // Filter: Only eligible if installed on or before the 15th of the billing month
+                // Only applies if installed in the same month we are billing for
+                if (dateInstalled) {
+                    const installMonth = dateInstalled.getMonth() + 1;
+                    const installYear = dateInstalled.getFullYear();
+                    const installDay = dateInstalled.getDate();
+
+                    if (installYear === yearInt && installMonth === monthInt) {
+                        if (installDay > 15) {
+                            continue; // Skip this subscription for this billing period
+                        }
+                    }
+                }
+
+                // Determine accurate Invoice Period
+                // Start date is the later of: Billing Cycle Start OR Installation Date
+                let periodStart = dates.fromDate;
+                if (dateInstalled && dateInstalled > dates.fromDate) {
+                    periodStart = dateInstalled;
+                }
+                const periodEnd = dates.toDate;
+
                 eligible.push({
                     id: sub.id,
                     customerName: customer?.name || 'Unknown',
@@ -282,6 +306,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     referralDiscount,
                     hasReferrer: hasReferrer || false,
                     referralCreditApplied: sub.referral_credit_applied || false,
+                    periodStart: toISODateString(periodStart),
+                    periodEnd: toISODateString(periodEnd)
                 });
             }
 
@@ -318,8 +344,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 invoices.push({
                     subscription_id: sub.id,
                     due_date: toISODateString(dates.dueDate),
-                    from_date: toISODateString(dates.fromDate),
-                    to_date: toISODateString(dates.toDate),
+                    from_date: sub.periodStart,
+                    to_date: sub.periodEnd,
                     amount_due: sub.finalAmount,
                     original_amount: sub.calculatedAmount,
                     discount_applied: sub.referralDiscount,

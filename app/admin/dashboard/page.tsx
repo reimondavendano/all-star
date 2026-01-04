@@ -6,9 +6,12 @@ import {
     Users, DollarSign, AlertCircle, TrendingUp, RefreshCw, Wifi,
     CreditCard, Activity, FileText, Calendar, ChevronRight,
     ArrowUpRight, ArrowDownRight, Building2, Loader2,
-    Send, Download, Clock, CheckCircle, XCircle, Zap
+    Send, Download, Clock, CheckCircle, XCircle, Zap, Shield
 } from 'lucide-react';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
+import { getMikrotikData } from '@/app/actions/mikrotik';
+import { toggleTunnel } from '@/app/actions/system';
+import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
 interface DashboardData {
     totalCustomers: number;
@@ -81,9 +84,21 @@ interface SubscriptionStats {
 export default function DashboardPage() {
     const [data, setData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedPeriod, setSelectedPeriod] = useState('This Month');
+    const [mikrotikStatus, setMikrotikStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+    // Tunnel Control State
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [confirmAction, setConfirmAction] = useState<'start' | 'stop' | null>(null);
+    const [isLoadingTunnel, setIsLoadingTunnel] = useState(false);
+
+    const [selectedPeriod, setSelectedPeriod] = useState(() => {
+        // Default to current month in format "Month Year"
+        const now = new Date();
+        return `${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+    });
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('all');
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
+    const [periodOptions, setPeriodOptions] = useState<string[]>([]);
 
     // Real-time subscriptions for dashboard data
     useMultipleRealtimeSubscriptions(
@@ -95,14 +110,109 @@ export default function DashboardPage() {
         }
     );
 
+    useEffect(() => {
+        // Check Mikrotik Status
+        const checkStatus = async () => {
+            try {
+                // Just fetch resources to check connectivity
+                const result = await getMikrotikData();
+                if (result.success) {
+                    setMikrotikStatus('online');
+                } else {
+                    setMikrotikStatus('offline');
+                }
+            } catch (error) {
+                // console.error('Failed to check Mikrotik status:', error);
+                setMikrotikStatus('offline');
+            }
+        };
+
+        checkStatus();
+
+        // Poll every 30 seconds
+        const interval = setInterval(checkStatus, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const handleStatusClick = () => {
+        if (mikrotikStatus === 'online') {
+            // It's ON, ask to turn OFF
+            setConfirmAction('stop');
+            setIsConfirmOpen(true);
+        } else {
+            // It's OFF (or checking), ask to turn ON
+            setConfirmAction('start');
+            setIsConfirmOpen(true);
+        }
+    };
+
+    const handleConfirmToggle = async () => {
+        if (!confirmAction) return;
+
+        setIsLoadingTunnel(true);
+        try {
+            const result = await toggleTunnel(confirmAction);
+            if (!result.success) {
+                alert(`Failed to ${confirmAction} tunnel: ${result.message}`);
+            } else {
+                if (confirmAction === 'start') {
+                    // Start polling/checking after a delay
+                    setTimeout(() => {
+                        getMikrotikData().then(res => setMikrotikStatus(res.success ? 'online' : 'offline'));
+                    }, 5000);
+                } else {
+                    setMikrotikStatus('offline');
+                }
+            }
+        } catch (error) {
+            console.error('Tunnel toggle error:', error);
+            alert('An unexpected error occurred.');
+        } finally {
+            setIsLoadingTunnel(false);
+            setIsConfirmOpen(false);
+            setConfirmAction(null);
+        }
+    };
+
     const fetchDashboardData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const now = new Date();
-            const currentMonth = now.toISOString().slice(0, 7); // YYYY-MM
-            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 7);
-            const startOfMonth = `${currentMonth}-01`;
-            const startOfPrevMonth = `${prevMonth}-01`;
+            // Determine date range based on selectedPeriod
+            let targetDate = new Date();
+            let isSpecificMonth = false;
+
+            if (selectedPeriod && !['This Week', 'This Month', 'This Quarter', 'This Year'].includes(selectedPeriod)) {
+                // Parse "Month Year" string
+                const parsedDate = new Date(Date.parse(`1 ${selectedPeriod}`));
+                if (!isNaN(parsedDate.getTime())) {
+                    targetDate = parsedDate;
+                    isSpecificMonth = true;
+                }
+            }
+            // Note: For "This Week"/"Quarter"/"Year", we fundamentally currently only support monthly views in the detailed stats
+            // Ideally we'd rewrite the whole logic for flexible ranges, but for now we default to Current Month for those
+            // or we could implement them. Given the user asked for "Specific Months" to work, we verify that first.
+
+            const currentMonthISO = targetDate.toISOString().slice(0, 7); // YYYY-MM
+            const prevMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() - 1, 1);
+            const prevMonthISO = prevMonthDate.toISOString().slice(0, 7);
+
+            const startOfMonth = `${currentMonthISO}-01`;
+            // Calculate end of month for upper bound if specific month selected (though queries usually use >= startOfMonth)
+            // But if we are viewing a past month, we want explicitly that month's data, not "everything since then".
+            // The original code used `.gte('due_date', startOfMonth)`. 
+            // If I look at "April 2025" and we are in "Dec 2025", `gte` would show all months since April.
+            // We need an upper bound!
+
+            const nextMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 1);
+            const startOfNextMonth = nextMonthDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+            const startOfPrevMonth = `${prevMonthISO}-01`;
+
+            // Helper to add date filters
+            const applyDateFilter = (query: any, column: string, start: string, end: string) => {
+                return query.gte(column, start).lt(column, end);
+            };
 
             // Fetch all business units
             const { data: buData } = await supabase.from('business_units').select('id, name');
@@ -137,7 +247,9 @@ export default function DashboardPage() {
             }
             const { count: inactiveSubs } = await inactiveQuery;
 
-            let newThisMonthQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true }).gte('created_at', startOfMonth);
+            let newThisMonthQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true });
+            newThisMonthQuery = applyDateFilter(newThisMonthQuery, 'created_at', startOfMonth, startOfNextMonth);
+
             if (selectedBusinessUnit !== 'all') {
                 newThisMonthQuery = newThisMonthQuery.eq('business_unit_id', selectedBusinessUnit);
             }
@@ -155,27 +267,38 @@ export default function DashboardPage() {
             }
 
             // Fetch invoices with subscription info to filter
-            const { data: currentInvoicesRaw } = await supabase
+            // Fetch invoices with subscription info to filter
+            let currentInvoicesQuery = supabase
                 .from('invoices')
-                .select('amount_due, payment_status, subscription_id')
-                .gte('due_date', startOfMonth);
+                .select('amount_due, payment_status, subscription_id');
+
+            currentInvoicesQuery = applyDateFilter(currentInvoicesQuery, 'due_date', startOfMonth, startOfNextMonth);
+
+            const { data: currentInvoicesRaw } = await currentInvoicesQuery;
 
             // Filter invoices by business unit if needed
             const currentInvoices = selectedBusinessUnit === 'all'
                 ? (currentInvoicesRaw || [])
                 : (currentInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
 
-            const monthlyRevenue = currentInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
+            // Monthly revenue = PAID invoices only (not billed)
+            const monthlyRevenue = currentInvoices.filter(inv => inv.payment_status === 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
             const outstandingAmount = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const paidAmount = currentInvoices.filter(inv => inv.payment_status === 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const collectionRate = monthlyRevenue > 0 ? (paidAmount / monthlyRevenue) * 100 : 0;
+            const paidAmount = monthlyRevenue; // Same as monthly revenue now
+            const totalBilled = currentInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
+            const collectionRate = totalBilled > 0 ? (paidAmount / totalBilled) * 100 : 0;
 
             // 5. Previous month revenue for comparison (filtered by BU)
-            const { data: prevInvoicesRaw } = await supabase
+            // 5. Previous month revenue for comparison (filtered by BU)
+            // The original logic filtered implicitly by only getting those >= startOfPrevMonth AND < startOfMonth
+            // which matches our helper
+            let prevInvoicesQuery = supabase
                 .from('invoices')
-                .select('amount_due, subscription_id')
-                .gte('due_date', startOfPrevMonth)
-                .lt('due_date', startOfMonth);
+                .select('amount_due, subscription_id');
+
+            prevInvoicesQuery = applyDateFilter(prevInvoicesQuery, 'due_date', startOfPrevMonth, startOfMonth);
+
+            const { data: prevInvoicesRaw } = await prevInvoicesQuery;
 
             const prevInvoices = selectedBusinessUnit === 'all'
                 ? (prevInvoicesRaw || [])
@@ -237,28 +360,32 @@ export default function DashboardPage() {
             const monthlyData = selectedBusinessUnit === 'all'
                 ? (monthlyDataRaw || [])
                 : (monthlyDataRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
-            const monthlyMap: { [key: string]: MonthlyRevenue } = {};
+
+            // Calculate revenue periods relative to targetDate
+            const monthlyMapCorrected: { [key: string]: MonthlyRevenue } = {};
             for (let i = 5; i >= 0; i--) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const d = new Date(targetDate.getFullYear(), targetDate.getMonth() - i, 1);
                 const key = d.toLocaleDateString('en-US', { month: 'short' });
-                monthlyMap[key] = { month: key, billed: 0, collected: 0, outstanding: 0 };
+                monthlyMapCorrected[key] = { month: key, billed: 0, collected: 0, outstanding: 0 };
             }
+
             (monthlyData || []).forEach((inv: any) => {
                 const invDate = new Date(inv.due_date);
-                const monthsDiff = (now.getFullYear() - invDate.getFullYear()) * 12 + (now.getMonth() - invDate.getMonth());
+                // Difference in months from targetDate
+                const monthsDiff = (targetDate.getFullYear() - invDate.getFullYear()) * 12 + (targetDate.getMonth() - invDate.getMonth());
                 if (monthsDiff >= 0 && monthsDiff < 6) {
                     const key = invDate.toLocaleDateString('en-US', { month: 'short' });
-                    if (monthlyMap[key]) {
-                        monthlyMap[key].billed += inv.amount_due || 0;
+                    if (monthlyMapCorrected[key]) {
+                        monthlyMapCorrected[key].billed += inv.amount_due || 0;
                         if (inv.payment_status === 'Paid') {
-                            monthlyMap[key].collected += inv.amount_due || 0;
+                            monthlyMapCorrected[key].collected += inv.amount_due || 0;
                         } else {
-                            monthlyMap[key].outstanding += inv.amount_due || 0;
+                            monthlyMapCorrected[key].outstanding += inv.amount_due || 0;
                         }
                     }
                 }
             });
-            const revenueByMonth = Object.values(monthlyMap);
+            const revenueByMonthFinal = Object.values(monthlyMapCorrected);
 
             // 10. Plan distribution (filtered by BU)
             let planQuery = supabase.from('subscriptions').select('plans(name, monthly_fee)').eq('active', true);
@@ -355,10 +482,14 @@ export default function DashboardPage() {
             }).filter((d) => d.balance > 0);
 
             // 13. Expenses Summary (filtered by BU via subscription)
-            const { data: expensesDataRaw } = await supabase
+            // 13. Expenses Summary (filtered by BU via subscription)
+            let expensesQuery = supabase
                 .from('expenses')
-                .select('amount, reason, subscription_id')
-                .gte('created_at', startOfMonth);
+                .select('amount, reason, subscription_id');
+
+            expensesQuery = applyDateFilter(expensesQuery, 'created_at', startOfMonth, startOfNextMonth);
+
+            const { data: expensesDataRaw } = await expensesQuery;
 
             // Filter expenses by business unit if selected
             const expensesData = selectedBusinessUnit === 'all'
@@ -384,6 +515,8 @@ export default function DashboardPage() {
             };
 
             // Customer Growth (vs last month)
+            // Customer Growth (vs last month)
+            // Need count of customers created BEFORE startOfMonth
             const { count: prevMonthCustomers } = await supabase
                 .from('customers')
                 .select('*', { count: 'exact', head: true })
@@ -402,7 +535,7 @@ export default function DashboardPage() {
                 previousMonthRevenue,
                 customerGrowth,
                 businessUnitPerformance,
-                revenueByMonth,
+                revenueByMonth: revenueByMonthFinal,
                 paymentStatusCounts,
                 planDistribution,
                 recentActivities: recentActivities.slice(0, 10),
@@ -419,13 +552,13 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBusinessUnit]);
+    }, [selectedBusinessUnit, selectedPeriod]);
 
     useEffect(() => {
         fetchDashboardData();
     }, [fetchDashboardData]);
 
-    const formatCurrency = (amount: number) => `₱${amount.toLocaleString()}`;
+    const formatCurrency = (amount: number) => `₱${Math.round(amount).toLocaleString()}`;
     const formatPercent = (value: number) => `${value.toFixed(1)}%`;
     const getTimeAgo = (timestamp: string) => {
         const diff = Date.now() - new Date(timestamp).getTime();
@@ -466,15 +599,43 @@ export default function DashboardPage() {
                         <p className="text-sm text-gray-400 mt-1">Real-time metrics and insights for your ISP business</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            onClick={handleStatusClick}
+                            className={`hidden md:inline-flex items-center px-3 py-1 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${mikrotikStatus === 'online'
+                                ? 'border-green-500/30 bg-green-900/10 text-green-400'
+                                : mikrotikStatus === 'offline' ? 'border-red-500/30 bg-red-900/10 text-red-500'
+                                    : 'border-yellow-500/30 bg-yellow-900/10 text-yellow-500'
+                                } text-xs font-mono animate-pulse-slow mr-2`}
+                        >
+                            <span className={`w-2 h-2 rounded-full mr-2 animate-pulse ${mikrotikStatus === 'online' ? 'bg-green-500' :
+                                mikrotikStatus === 'offline' ? 'bg-red-500' :
+                                    'bg-yellow-500'
+                                }`}></span>
+                            MIKROTIK: {mikrotikStatus.toUpperCase()}
+                        </button>
                         <select
                             value={selectedPeriod}
                             onChange={(e) => setSelectedPeriod(e.target.value)}
                             className="bg-gray-900/50 border border-gray-700 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-purple-500"
                         >
-                            <option>This Week</option>
-                            <option>This Month</option>
-                            <option>This Quarter</option>
-                            <option>This Year</option>
+                            <optgroup label="Quick Select">
+                                <option>This Week</option>
+                                <option>This Month</option>
+                                <option>This Quarter</option>
+                                <option>This Year</option>
+                            </optgroup>
+                            <optgroup label="Specific Months">
+                                {(() => {
+                                    const options = [];
+                                    const now = new Date();
+                                    for (let i = 0; i < 12; i++) {
+                                        const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                                        const label = `${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;
+                                        options.push(<option key={label} value={label}>{label}</option>);
+                                    }
+                                    return options;
+                                })()}
+                            </optgroup>
                         </select>
                         <select
                             value={selectedBusinessUnit}
@@ -522,7 +683,7 @@ export default function DashboardPage() {
                         <div>
                             <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Monthly Revenue</p>
                             <p className="text-3xl font-bold text-white">{formatCurrency(data.monthlyRevenue)}</p>
-                            <p className="text-sm text-gray-500 mt-1">Total billed this month</p>
+                            <p className="text-sm text-gray-500 mt-1">Total paid this month</p>
                         </div>
                         <div className="p-3 bg-emerald-900/30 rounded-xl">
                             <DollarSign className="w-6 h-6 text-emerald-400" />
@@ -851,6 +1012,19 @@ export default function DashboardPage() {
                     </div>
                 </div>
             )}
+
+            <ConfirmationDialog
+                isOpen={isConfirmOpen}
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={handleConfirmToggle}
+                title={confirmAction === 'start' ? 'Start Remote Connection?' : 'Stop Remote Connection?'}
+                message={confirmAction === 'start'
+                    ? 'Are you sure you want to open the MikroTik remote connection tunnel? A separate window will open to handle the connection process. This window is normal and necessary for the tunnel to function.'
+                    : 'Are you sure you want to close the MikroTik remote connection tunnel? Use this only if you are done managing the router.'}
+                confirmText={confirmAction === 'start' ? 'Start Connection' : 'Stop Connection'}
+                type={confirmAction === 'start' ? 'info' : 'warning'}
+                isLoading={isLoadingTunnel}
+            />
         </div>
     );
 }

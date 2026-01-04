@@ -58,7 +58,7 @@ interface Invoice {
     to_date: string;
     due_date: string;
     amount_due: number;
-    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid';
+    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification';
     is_prorated?: boolean;
     prorated_days?: number;
 }
@@ -357,6 +357,8 @@ export default function InvoicesPaymentsPage() {
                 return <CheckCircle className="w-4 h-4 text-emerald-400" />;
             case 'Partially Paid':
                 return <Clock className="w-4 h-4 text-amber-400" />;
+            case 'Pending Verification':
+                return <Clock className="w-4 h-4 text-violet-400" />;
             default:
                 return <AlertCircle className="w-4 h-4 text-red-400" />;
         }
@@ -368,6 +370,8 @@ export default function InvoicesPaymentsPage() {
                 return 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50';
             case 'Partially Paid':
                 return 'bg-amber-900/30 text-amber-400 border-amber-700/50';
+            case 'Pending Verification':
+                return 'bg-violet-900/30 text-violet-400 border-violet-700/50';
             default:
                 return 'bg-red-900/30 text-red-400 border-red-700/50';
         }
@@ -415,11 +419,11 @@ export default function InvoicesPaymentsPage() {
                         {/* Stats */}
                         <div className="px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
                             <div className="text-xs text-purple-400">Total Billed</div>
-                            <div className="text-lg font-bold text-purple-300">₱{totalDue.toLocaleString()}</div>
+                            <div className="text-lg font-bold text-purple-300">₱{Math.round(totalDue).toLocaleString()}</div>
                         </div>
                         <div className="px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
                             <div className="text-xs text-emerald-400">Collected</div>
-                            <div className="text-lg font-bold text-emerald-300">₱{totalPaid.toLocaleString()}</div>
+                            <div className="text-lg font-bold text-emerald-300">₱{Math.round(totalPaid).toLocaleString()}</div>
                         </div>
                         <div className="px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
                             <div className="text-xs text-red-400">Unpaid</div>
@@ -590,7 +594,7 @@ export default function InvoicesPaymentsPage() {
                                     <div className="text-right">
                                         <div className="text-sm text-gray-400">
                                             Total Due: <span className="text-white font-medium">
-                                                ₱{group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0).toLocaleString()}
+                                                ₱{Math.round(group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0)).toLocaleString()}
                                             </span>
                                         </div>
                                     </div>
@@ -604,6 +608,7 @@ export default function InvoicesPaymentsPage() {
                                             const hasInvoices = invoices.length > 0;
                                             const paidInvoices = invoices.filter(i => i.payment_status === 'Paid').length;
                                             const unpaidInvoices = invoices.filter(i => i.payment_status === 'Unpaid').length;
+                                            const pendingInvoices = invoices.filter(i => i.payment_status === 'Pending Verification').length;
 
                                             // Determine overall status
                                             let statusText = 'No Invoice';
@@ -615,6 +620,9 @@ export default function InvoicesPaymentsPage() {
                                                 } else if (unpaidInvoices === invoices.length) {
                                                     statusText = 'Unpaid';
                                                     statusClass = 'bg-red-900/30 text-red-400 border-red-700/50';
+                                                } else if (pendingInvoices > 0) {
+                                                    statusText = 'Pending';
+                                                    statusClass = 'bg-violet-900/30 text-violet-400 border-violet-700/50';
                                                 } else {
                                                     statusText = 'Partial';
                                                     statusClass = 'bg-amber-900/30 text-amber-400 border-amber-700/50';
@@ -653,7 +661,7 @@ export default function InvoicesPaymentsPage() {
                                                             {hasInvoices ? (
                                                                 <>
                                                                     <div className="text-right">
-                                                                        <div className="text-sm font-medium text-white">₱{totalDue.toLocaleString()}</div>
+                                                                        <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
                                                                         <div className="text-xs text-gray-500">{invoices.length} invoice(s)</div>
                                                                     </div>
                                                                     <span className={`px-2 py-1 rounded text-xs font-medium border ${statusClass}`}>
@@ -701,7 +709,7 @@ export default function InvoicesPaymentsPage() {
                                                                                     )}
                                                                                 </td>
                                                                                 <td className="p-3 text-right text-white font-medium">
-                                                                                    ₱{invoice.amount_due.toLocaleString()}
+                                                                                    ₱{Math.round(invoice.amount_due).toLocaleString()}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
                                                                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(invoice.payment_status)}`}>
@@ -741,7 +749,7 @@ export default function InvoicesPaymentsPage() {
                                                                                 <span className="text-gray-400">
                                                                                     {new Date(payment.settlement_date).toLocaleDateString()} • {payment.mode}
                                                                                 </span>
-                                                                                <span className="text-emerald-400">+₱{payment.amount.toLocaleString()}</span>
+                                                                                <span className="text-emerald-400">+₱{Math.round(payment.amount).toLocaleString()}</span>
                                                                             </div>
                                                                         ))}
                                                                     </div>

@@ -14,7 +14,8 @@ import {
     LogOut,
     MapPin,
     X,
-    Router
+    Router,
+    CheckCircle
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,6 +25,7 @@ const navigation = [
     { name: 'Prospects', href: '/admin/prospects', icon: UserPlus },
     { name: 'Customers & Subscriptions', href: '/admin/customers', icon: Users },
     { name: 'Invoices & Payments', href: '/admin/invoices', icon: FileText },
+    { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle },
     { name: 'Expenses', href: '/admin/expenses', icon: DollarSign },
     { name: 'Business Units', href: '/admin/business-units', icon: Briefcase },
     { name: 'Plans', href: '/admin/plans', icon: Package },

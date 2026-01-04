@@ -229,6 +229,14 @@ export default function MikrotikPage() {
                         <p className="text-sm text-gray-400 mt-1">System status and network overview</p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <div className={`hidden md:inline-flex items-center px-3 py-1 rounded-full border ${!error
+                            ? 'border-green-500/30 bg-green-900/10 text-green-400'
+                            : 'border-red-500/30 bg-red-900/10 text-red-500'
+                            } text-xs font-mono animate-pulse-slow mr-2`}>
+                            <span className={`w-2 h-2 rounded-full mr-2 animate-pulse ${!error ? 'bg-green-500' : 'bg-red-500'
+                                }`}></span>
+                            {error ? 'OFFLINE' : 'ONLINE'}
+                        </div>
                         {lastUpdated && (
                             <span className="text-xs text-gray-500 font-mono hidden md:block">
                                 Last updated: {lastUpdated.toLocaleTimeString()}

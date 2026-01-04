@@ -21,6 +21,8 @@ function checkCredentials() {
 async function fetchRestData(hostUrl: string, path: string, method: string = 'GET', body: any = null) {
     return new Promise((resolve, reject) => {
         const cleanHost = hostUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const bodyString = body ? JSON.stringify(body) : null;
+
         const options: https.RequestOptions = {
             hostname: cleanHost,
             port: 443,
@@ -28,7 +30,8 @@ async function fetchRestData(hostUrl: string, path: string, method: string = 'GE
             method: method,
             headers: {
                 'ngrok-skip-browser-warning': 'true',
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...(bodyString ? { 'Content-Length': Buffer.byteLength(bodyString) } : {})
             },
             auth: `${user}:${password}`,
             rejectUnauthorized: false
@@ -51,10 +54,16 @@ async function fetchRestData(hostUrl: string, path: string, method: string = 'GE
             });
         });
 
+        // Add timeout to prevent long hangs
+        req.setTimeout(3000, () => {
+            req.destroy();
+            reject(new Error('Connection timed out'));
+        });
+
         req.on('error', (e) => reject(e));
 
-        if (body) {
-            req.write(JSON.stringify(body));
+        if (bodyString) {
+            req.write(bodyString);
         }
         req.end();
     });
@@ -225,7 +234,11 @@ export async function addPppSecret(secretData: { name: string, password: string,
 
 
 // --- TOGGLE PPP CONNECTION (Enable/Disable) ---
-export async function togglePppConnection(username: string, enable: boolean) {
+export async function togglePppConnection(
+    username: string,
+    enable: boolean,
+    createData?: { password: string, service: string, profile: string, comment?: string }
+) {
     try {
         checkCredentials();
 
@@ -239,6 +252,10 @@ export async function togglePppConnection(username: string, enable: boolean) {
                 const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
 
                 if (!secret) {
+                    if (enable && createData) {
+                        console.log(`[PPP] Secret "${username}" not found, creating it now...`);
+                        return await addPppSecret({ name: username, ...createData });
+                    }
                     return { success: false, error: `PPP secret "${username}" not found` };
                 }
 
@@ -261,6 +278,10 @@ export async function togglePppConnection(username: string, enable: boolean) {
                 return { success: true };
             } catch (error: any) {
                 console.error(`[PPP] REST toggle failed: ${error.message}`);
+                // Fallback to binary handled below? No, usually return or throw. 
+                // But existing code dropped through? 
+                // Existing code caught error and logged, then went to Binary. 
+                // We will keep that behavior.
             }
         }
 
@@ -271,6 +292,14 @@ export async function togglePppConnection(username: string, enable: boolean) {
             // Find the secret
             const secrets = await client.write('/ppp/secret/print', ['?name=' + username]);
             if (!secrets || secrets.length === 0) {
+                if (enable && createData) {
+                    console.log(`[PPP] Secret "${username}" not found (Binary), creating it now...`);
+                    // We can call addPppSecret, but it might cycle. 
+                    // Better to use addViaBinary directly if we know target.
+                    // But addPppSecret handles credentials.
+                    // Let's call addPppSecret to be safe and consistent.
+                    return await addPppSecret({ name: username, ...createData });
+                }
                 return { success: false, error: `PPP secret "${username}" not found` };
             }
 
@@ -302,6 +331,86 @@ export async function togglePppConnection(username: string, enable: boolean) {
 }
 
 
+// --- UPDATE PPP SECRET ---
+export async function updatePppSecret(username: string, updates: any) {
+    try {
+        checkCredentials();
+
+        console.log(`[PPP] Updating PPP secret ${username}:`, updates);
+
+        // 1. Try REST API (Tunnel)
+        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+            try {
+                // First, find the secret by name
+                const secrets = await fetchRestData(host, 'ppp/secret');
+                const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
+
+                if (!secret) {
+                    return { success: false, error: `PPP secret "${username}" not found` };
+                }
+
+                // Update the secret
+                await fetchRestData(host, `ppp/secret/${secret['.id']}`, 'PATCH', updates);
+
+                // If profile changed, remove active connection to enforce new profile immediately (optional, or let it apply on reconnect)
+                // Often better to kick the user so they reconnect with new profile
+                if (updates.profile) {
+                    const activeConnections = await fetchRestData(host, 'ppp/active');
+                    const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => a.name === username) : null;
+                    if (activeConn) {
+                        console.log(`[PPP] Removing active connection for ${username} to apply profile change`);
+                        await fetchRestData(host, `ppp/active/${activeConn['.id']}`, 'DELETE');
+                    }
+                }
+
+                console.log(`[PPP] Successfully updated ${username}`);
+                return { success: true };
+            } catch (error: any) {
+                console.error(`[PPP] REST update failed: ${error.message}`);
+            }
+        }
+
+        // 2. Fallback to Binary API
+        const target = host && !host.includes('trycloudflare.com') && !host.includes('ngrok-free') ? host : LOCAL_FALLBACK_IP;
+
+        return await withBinaryConnection(async (client) => {
+            // Find the secret
+            const secrets = await client.write('/ppp/secret/print', ['?name=' + username]);
+            if (!secrets || secrets.length === 0) {
+                return { success: false, error: `PPP secret "${username}" not found` };
+            }
+
+            const secretId = secrets[0]['.id'];
+
+            // Prepare updates
+            const updateParams = [`=.id=${secretId}`];
+            Object.keys(updates).forEach(key => {
+                updateParams.push(`=${key}=${updates[key]}`);
+            });
+
+            // Update
+            await client.write('/ppp/secret/set', updateParams);
+
+            // If profile changed, remove active connection
+            if (updates.profile) {
+                const activeConns = await client.write('/ppp/active/print', ['?name=' + username]);
+                if (activeConns && activeConns.length > 0) {
+                    console.log(`[PPP] Removing active connection for ${username} to apply profile change`);
+                    await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
+                }
+            }
+
+            console.log(`[PPP] Successfully updated ${username}`);
+            return { success: true };
+        }, target);
+
+    } catch (error: any) {
+        console.error(`[PPP] Update error: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
+
 // --- SYNC SUBSCRIPTION ACTIVE STATUS TO MIKROTIK ---
 /**
  * Sync subscription active status to MikroTik.
@@ -327,7 +436,7 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
         // 1. Get the PPP secret linked to this subscription
         const { data: pppSecret, error: fetchError } = await supabase
             .from('mikrotik_ppp_secrets')
-            .select('id, name, mikrotik_id, disabled')
+            .select('*') // Get all fields including password
             .eq('subscription_id', subscriptionId)
             .single();
 
@@ -340,7 +449,17 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
         console.log(`[SYNC] Found PPP secret: ${mikrotikUsername}`);
 
         // 2. Toggle the PPP connection on MikroTik
-        const toggleResult = await togglePppConnection(mikrotikUsername, isActive);
+        // We pass the full secret details so it can be auto-created if missing
+        const toggleResult = await togglePppConnection(
+            mikrotikUsername,
+            isActive,
+            {
+                password: pppSecret.password,
+                service: pppSecret.service,
+                profile: pppSecret.profile,
+                comment: pppSecret.comment
+            }
+        );
 
         if (!toggleResult.success) {
             console.error(`[SYNC] Failed to toggle PPP on MikroTik: ${toggleResult.error}`);

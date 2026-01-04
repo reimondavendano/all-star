@@ -5,6 +5,7 @@ import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, Aler
 import { supabase } from '@/lib/supabase';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import dynamic from 'next/dynamic';
+import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
 // Dynamically import MapPicker
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -63,6 +64,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const [isLoading, setIsLoading] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [showStatusConfirm, setShowStatusConfirm] = useState(false);
+    const [pendingActiveStatus, setPendingActiveStatus] = useState<boolean | null>(null);
 
     const [formData, setFormData] = useState({
         active: subscription.active,
@@ -282,7 +285,11 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                             type="checkbox"
                                             className="sr-only peer"
                                             checked={formData.active}
-                                            onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                                            onChange={(e) => {
+                                                // Show confirmation dialog before changing status
+                                                setPendingActiveStatus(e.target.checked);
+                                                setShowStatusConfirm(true);
+                                            }}
                                         />
                                         <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                                         <span className={`ml-3 text-sm font-medium ${formData.active ? 'text-green-500' : 'text-red-500'}`}>
@@ -614,6 +621,29 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     </div>
                 )
             }
+
+            {/* Status Change Confirmation Dialog */}
+            <ConfirmationDialog
+                isOpen={showStatusConfirm}
+                onClose={() => {
+                    setShowStatusConfirm(false);
+                    setPendingActiveStatus(null);
+                }}
+                onConfirm={() => {
+                    if (pendingActiveStatus !== null) {
+                        setFormData({ ...formData, active: pendingActiveStatus });
+                    }
+                    setShowStatusConfirm(false);
+                    setPendingActiveStatus(null);
+                }}
+                title={pendingActiveStatus ? 'Enable Subscription?' : 'Disable Subscription?'}
+                message={pendingActiveStatus
+                    ? 'Are you sure you want to enable this subscription? The customer will regain internet access.'
+                    : 'Are you sure you want to disable this subscription? The customer will lose internet access.'
+                }
+                confirmText={pendingActiveStatus ? 'Enable' : 'Disable'}
+                type={pendingActiveStatus ? 'info' : 'warning'}
+            />
         </>
     );
 }

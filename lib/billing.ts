@@ -250,22 +250,26 @@ export function calculateNewBalance(
 
 /**
  * Format balance for display
+ * All balances are displayed as whole numbers (rounded up for positive, floor for negative/credits)
  */
 export function formatBalanceDisplay(balance: number): {
     label: 'Balance' | 'Credits';
     amount: number;
     display: string;
 } {
-    if (balance >= 0) {
+    // Round to nearest whole number as per requirements (e.g. 233.1 -> 233)
+    const roundedBalance = Math.round(balance);
+
+    if (roundedBalance >= 0) {
         return {
             label: 'Balance',
-            amount: balance,
-            display: `₱${balance.toLocaleString()}`,
+            amount: roundedBalance,
+            display: `₱${roundedBalance.toLocaleString()}`,
         };
     }
     return {
         label: 'Credits',
-        amount: Math.abs(balance),
-        display: `₱${Math.abs(balance).toLocaleString()}`,
+        amount: Math.abs(roundedBalance),
+        display: `₱${Math.abs(roundedBalance).toLocaleString()}`,
     };
 }

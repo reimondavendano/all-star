@@ -44,7 +44,6 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
     const [availableInvoices, setAvailableInvoices] = useState<AvailableInvoice[]>([]);
     const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>('');
     const [amount, setAmount] = useState('');
-    const [mode, setMode] = useState<'Cash' | 'E-Wallet'>('Cash');
     const [notes, setNotes] = useState('');
     const [settlementDate, setSettlementDate] = useState(new Date().toISOString().split('T')[0]);
     const [isLoading, setIsLoading] = useState(false);
@@ -90,7 +89,6 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             setAvailableInvoices([]);
             setSelectedInvoiceId('');
             setAmount('');
-            setMode('Cash');
             setNotes('');
             setSettlementDate(new Date().toISOString().split('T')[0]);
             setSuggestedAmount(null);
@@ -178,9 +176,9 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
             const isAdvancePayment = enteredAmount > totalAmount;
 
             setSuggestedAmount({
-                amount: totalAmount,
-                invoiceAmount: invoiceAmount,
-                balance: currentBalance,
+                amount: Math.round(totalAmount),
+                invoiceAmount: Math.round(invoiceAmount),
+                balance: Math.round(currentBalance),
                 isAdvancePayment,
             });
 
@@ -189,6 +187,11 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
         } catch (error) {
             console.error('Error calculating suggested amount:', error);
         }
+    };
+
+    const handleProceed = (e: React.FormEvent) => {
+        e.preventDefault();
+        handleSubmit(e);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -217,7 +220,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                 .insert({
                     subscription_id: selectedSubscriber,
                     amount: paymentAmount,
-                    mode: mode,
+                    mode: 'Cash',
                     notes: notes || null,
                     settlement_date: settlementDate,
                     invoice_id: selectedInvoiceId
@@ -276,7 +279,7 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                     customer_id: subscriberDetails.subscriber_id,
                     invoice_id: selectedInvoiceId,
                     amount: paymentAmount,
-                    payment_mode: mode,
+                    payment_mode: 'Cash',
                     status: 'recorded',
                     balance_before: currentBalance,
                     balance_after: newBalance,
@@ -344,7 +347,8 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                         </button>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto flex-1">
+                    <form onSubmit={(e) => e.preventDefault()} className="p-6 space-y-6 overflow-y-auto flex-1">
+
                         {/* Payment Result */}
                         {paymentResult && paymentResult.success && (
                             <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4 flex items-start gap-3">
@@ -450,35 +454,6 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                         {/* Payment Fields - Only show when invoice is selected */}
                         {selectedInvoiceId && (
                             <>
-                                {/* Payment Mode */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        Payment Mode <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => setMode('Cash')}
-                                            className={`p-3 rounded-lg border transition-colors ${mode === 'Cash'
-                                                ? 'border-green-500 bg-green-500/10 text-green-400'
-                                                : 'border-gray-700 bg-[#1a1a1a] text-gray-400 hover:border-gray-600'
-                                                }`}
-                                        >
-                                            💵 Cash
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setMode('E-Wallet')}
-                                            className={`p-3 rounded-lg border transition-colors ${mode === 'E-Wallet'
-                                                ? 'border-green-500 bg-green-500/10 text-green-400'
-                                                : 'border-gray-700 bg-[#1a1a1a] text-gray-400 hover:border-gray-600'
-                                                }`}
-                                        >
-                                            📱 E-Wallet
-                                        </button>
-                                    </div>
-                                </div>
-
                                 {/* Amount */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -590,8 +565,10 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                             >
                                 Cancel
                             </button>
+
                             <button
-                                type="submit"
+                                type="button"
+                                onClick={handleProceed}
                                 disabled={isLoading || !selectedSubscriber || !amount || !selectedInvoiceId || paymentResult?.success}
                                 className={`flex-1 px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isLoading || !selectedSubscriber || !amount || !selectedInvoiceId || paymentResult?.success
                                     ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
@@ -611,14 +588,14 @@ export default function RecordPaymentModal({ isOpen, onClose, onSuccess }: Recor
                                 ) : (
                                     <>
                                         <Check className="w-5 h-5" />
-                                        Record Payment
+                                        Confirm Payment
                                     </>
                                 )}
                             </button>
                         </div>
                     </form>
-                </div>
-            </div>
+                </div >
+            </div >
 
             <SubscriberSelectModal
                 isOpen={isSelectModalOpen}

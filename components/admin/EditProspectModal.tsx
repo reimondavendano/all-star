@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Save, Loader2, ClipboardCheck, Hash, UserCheck, Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { addPppSecret } from '@/app/actions/mikrotik';
+import { validatePhilippineMobileNumber } from '@/lib/validation';
 import dynamic from 'next/dynamic';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -231,8 +232,26 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         return `${month}/${day}/${year}`;
     };
 
-    // Check if all required fields are filled
+    // Check if all required fields are filled and valid
     const isFormValid = () => {
+        // Validation for Installation Date
+        if (formData.installation_date) {
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            if (formData.status === 'Open') {
+                // Open: Date must be TOMORROW or later (Future)
+                if (formData.installation_date <= todayStr) {
+                    return false;
+                }
+            } else if (formData.status === 'Closed Won') {
+                // Closed Won: Date must be TODAY or FUTURE (Not Past)
+                if (formData.installation_date < todayStr) {
+                    return false;
+                }
+            }
+        }
+
         // For Open status, always valid (just editing prospect)
         if (formData.status === 'Open') {
             return true;
@@ -257,15 +276,38 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     };
 
     const handleApproveClick = async () => {
+        // Validation for Mobile Number
+        const currentMobile = formData.status === 'Open' ? prospectData.mobile_number : prospect.mobile_number;
+        const mobileValidation = validatePhilippineMobileNumber(currentMobile);
+        if (!mobileValidation.isValid) {
+            alert(mobileValidation.error + (formData.status !== 'Open' ? " Please switch to 'Open' status to correct it." : ""));
+            return;
+        }
+
         // For Open status, just update the prospect
         if (formData.status === 'Open') {
             await handleOpenUpdate();
             return;
         }
 
+        // Specific validation messages
+        if (formData.installation_date) {
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            if (formData.status === 'Open' && formData.installation_date <= todayStr) {
+                alert('For "Open" status, Installation Date must be in the future (Tomorrow or later).');
+                return;
+            }
+            if (formData.status === 'Closed Won' && formData.installation_date < todayStr) {
+                alert('For "Closed Won" status, Installation Date cannot be in the past. Please select Today or a Future date.');
+                return;
+            }
+        }
+
         // For Closed Won, validate required fields
         if (formData.status === 'Closed Won' && !isFormValid()) {
-            alert('Please fill in all required fields: Business Unit, Status, Installation Date, Router Serial, and Billing Period');
+            alert('Please fill in all required fields. Ensure Installation Date is not in the future.');
             return;
         }
 
@@ -648,9 +690,12 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     <input
                                         type="date"
                                         value={formData.installation_date}
-                                        min={minDate}
                                         onChange={(e) => setFormData({ ...formData, installation_date: e.target.value })}
                                         disabled={formData.status === 'Closed Lost'}
+                                        min={formData.status === 'Closed Won' ? (() => {
+                                            const today = new Date();
+                                            return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                                        })() : minDate}
                                         className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                 </div>

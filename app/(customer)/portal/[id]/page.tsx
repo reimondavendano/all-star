@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { useParams } from 'next/navigation';
 import { CreditCard, Calendar, Wifi, AlertCircle, Loader2, Share2, MapPin, Router, Phone, Download, ChevronDown, FileText, Clock, CheckCircle, XCircle, TrendingUp, Zap, DollarSign } from 'lucide-react';
 import axios from 'axios';
+import { changeSubscriptionPlan, submitManualPayment } from '@/app/actions/subscription';
+import ManualPaymentModal from '@/components/customer/ManualPaymentModal';
 
 interface Subscription {
     id: string;
@@ -35,6 +37,7 @@ interface Subscription {
         mode: string;
         settlement_date: string;
         created_at: string;
+        notes: string;
     }[];
 }
 
@@ -54,14 +57,18 @@ export default function CustomerPortalPage() {
     const [data, setData] = useState<PortalData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
-    const [showPayModal, setShowPayModal] = useState(false);
+    // showPayModal removed
     const [showShareModal, setShowShareModal] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+    const [showChangePlanModal, setShowChangePlanModal] = useState(false); // Add this
+    const [availablePlans, setAvailablePlans] = useState<any[]>([]); // Add this
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
     const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
     const [paymentType, setPaymentType] = useState<'all' | 'single'>('all');
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+    const [showManualPayModal, setShowManualPayModal] = useState(false);
+    const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
     useEffect(() => {
         if (params.id) {
@@ -243,12 +250,43 @@ export default function CustomerPortalPage() {
             setSelectedSubscription(null);
             setPaymentType('all');
         }
-        setShowPayModal(true);
+        setShowManualPayModal(true);
     };
 
     const handleDownloadInvoice = (subscription: Subscription) => {
         setSelectedSubscription(subscription);
         setShowInvoiceModal(true);
+    };
+
+    const handleOpenChangePlan = async (subscription: Subscription) => {
+        setSelectedSubscription(subscription);
+        // Fetch plans if not loaded
+        if (availablePlans.length === 0) {
+            const { data } = await supabase.from('plans').select('*').order('monthly_fee');
+            if (data) setAvailablePlans(data);
+        }
+        setShowChangePlanModal(true);
+    };
+
+    const handleChangePlan = async (planId: string) => {
+        if (!selectedSubscription) return;
+        setIsProcessingPayment(true); // Reuse loading state or create new one
+
+        try {
+            const result = await changeSubscriptionPlan(selectedSubscription.id, planId);
+            if (result.success) {
+                alert('Plan updated successfully! Your internet speed will be adjusted shortly.');
+                setShowChangePlanModal(false);
+                fetchPortalData(); // Refresh data
+            } else {
+                alert('Failed to update plan: ' + result.error);
+            }
+        } catch (error: any) {
+            console.error('Plan update error:', error);
+            alert('An error occurred while updating the plan.');
+        } finally {
+            setIsProcessingPayment(false);
+        }
     };
 
     const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
@@ -322,48 +360,8 @@ export default function CustomerPortalPage() {
         }
     };
 
-    const handlePayment = async (method: 'gcash' | 'grab_pay' | 'paymaya' | 'dob' | 'dob_ubp') => {
-        if (!data) return;
-        setIsProcessingPayment(true);
-
-        try {
-            const amount = paymentType === 'single' && selectedSubscription
-                ? Math.max(0, selectedSubscription.balance)
-                : data.totalBalance;
-
-            const subscriptionId = paymentType === 'single' && selectedSubscription
-                ? selectedSubscription.id
-                : data.subscriptions[0]?.id;
-
-            if (!subscriptionId || amount <= 0) {
-                alert('No balance to pay.');
-                setIsProcessingPayment(false);
-                return;
-            }
-
-            const response = await axios.post('/api/paymongo/create-source', {
-                amount: amount,
-                type: method,
-                redirect_success: `${window.location.origin}/payment/success`,
-                redirect_failed: `${window.location.origin}/portal/${data.customer.id}`
-            });
-
-            const { data: sourceData } = response.data;
-            const checkoutUrl = sourceData.attributes.redirect.checkout_url;
-
-            sessionStorage.setItem('pending_payment_source_id', sourceData.id);
-            sessionStorage.setItem('pending_payment_amount', amount.toString());
-            sessionStorage.setItem('pending_payment_sub_id', subscriptionId);
-            sessionStorage.setItem('pending_payment_customer_id', data.customer.id);
-
-            window.location.href = checkoutUrl;
-
-        } catch (error: any) {
-            console.error('Payment Error:', error);
-            alert(error.response?.data?.error || 'Payment initialization failed. Please check your connection.');
-            setIsProcessingPayment(false);
-        }
-    };
+    // Old online payment handler removed in favor of manual payment flow
+    // ...
 
     const months = [
         { value: '01', label: 'January' }, { value: '02', label: 'February' },
@@ -376,6 +374,51 @@ export default function CustomerPortalPage() {
 
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 3 }, (_, i) => currentYear - 1 + i);
+
+    const handleManualPaymentSubmit = async ({ wallet, referenceNumber, proofImage }: { wallet: string, referenceNumber: string, proofImage?: File }) => {
+        setIsSubmittingPayment(true);
+        try {
+            const amount = paymentType === 'single' && selectedSubscription
+                ? Math.max(0, selectedSubscription.balance)
+                : data?.totalBalance || 0;
+
+            const subscriptionId = paymentType === 'single' && selectedSubscription
+                ? selectedSubscription.id
+                : data?.subscriptions[0]?.id;
+
+            if (!subscriptionId || amount <= 0) {
+                alert('Invalid amount or subscription.');
+                return;
+            }
+
+            // Convert proof image to base64 if provided
+            let proofImageBase64: string | undefined;
+            if (proofImage) {
+                proofImageBase64 = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(proofImage);
+                });
+            }
+
+            const result = await submitManualPayment(subscriptionId, amount, wallet, referenceNumber, proofImageBase64);
+
+            if (result.success) {
+                // Success handled by modal UI
+                fetchPortalData();
+                return;
+            } else {
+                alert('Failed to submit payment: ' + result.error);
+                throw new Error(result.error);
+            }
+        } catch (e: any) {
+            console.error(e);
+            throw e; // Rethrow to let modal handle error state if needed
+        } finally {
+            setIsSubmittingPayment(false);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -513,7 +556,7 @@ export default function CustomerPortalPage() {
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-3 mb-1">
-                                                <h3 className="text-xl font-bold text-white">{sub.plan.name}</h3>
+                                                <h3 className="text-xl font-bold text-white max-w-[200px] truncate">{sub.plan.name}</h3>
                                                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sub.active
                                                     ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50'
                                                     : 'bg-red-900/40 text-red-400 border border-red-700/50'
@@ -521,7 +564,15 @@ export default function CustomerPortalPage() {
                                                     {sub.active ? 'ACTIVE' : 'INACTIVE'}
                                                 </span>
                                             </div>
-                                            <p className="text-sm text-gray-500">{sub.plan.details || `₱${sub.plan.monthly_fee.toLocaleString()}/month`}</p>
+                                            <div className="flex items-center gap-3">
+                                                <p className="text-sm text-gray-500">{sub.plan.details || `₱${sub.plan.monthly_fee.toLocaleString()}/month`}</p>
+                                                <button
+                                                    onClick={() => handleOpenChangePlan(sub)}
+                                                    className="text-xs text-violet-400 hover:text-violet-300 underline"
+                                                >
+                                                    Change Plan
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -609,9 +660,11 @@ export default function CustomerPortalPage() {
                                                         ₱{invoice.amount_due.toLocaleString()}
                                                     </span>
                                                     <span className={`px-2 py-0.5 rounded-full text-xs ${invoice.payment_status === 'Paid'
-                                                            ? 'bg-emerald-900/40 text-emerald-400'
-                                                            : invoice.payment_status === 'Partially Paid'
-                                                                ? 'bg-amber-900/40 text-amber-400'
+                                                        ? 'bg-emerald-900/40 text-emerald-400'
+                                                        : invoice.payment_status === 'Partially Paid'
+                                                            ? 'bg-amber-900/40 text-amber-400'
+                                                            : invoice.payment_status === 'Pending Verification'
+                                                                ? 'bg-violet-900/40 text-violet-400'
                                                                 : 'bg-red-900/40 text-red-400'
                                                         }`}>
                                                         {invoice.payment_status || 'Unpaid'}
@@ -630,22 +683,32 @@ export default function CustomerPortalPage() {
                                     <div className="mt-4 bg-[#0a0a0a] border border-gray-800 rounded-xl p-4">
                                         <h4 className="text-sm text-gray-400 uppercase mb-3">Recent Payments</h4>
                                         <div className="space-y-2">
-                                            {sub.payments.slice(0, 3).map((payment) => (
-                                                <div key={payment.id} className="flex items-center justify-between text-xs p-2 bg-gray-900/50 rounded-lg">
-                                                    <div className="flex items-center gap-2">
-                                                        <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-                                                        <span className="text-gray-400">
-                                                            {formatShortDate(payment.settlement_date || payment.created_at)}
+                                            {sub.payments.slice(0, 3).map((payment) => {
+                                                const isPending = payment.notes?.toLowerCase().includes('pending verification');
+                                                return (
+                                                    <div key={payment.id} className="flex items-center justify-between text-xs p-2 bg-gray-900/50 rounded-lg">
+                                                        <div className="flex items-center gap-2">
+                                                            {isPending ? (
+                                                                <div className="relative group">
+                                                                    <Clock className="w-3.5 h-3.5 text-violet-400" />
+                                                                    <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-1 bg-gray-800 text-xs text-white rounded whitespace-nowrap">Pending Verification</div>
+                                                                </div>
+                                                            ) : (
+                                                                <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                                                            )}
+                                                            <span className="text-gray-400">
+                                                                {formatShortDate(payment.settlement_date || payment.created_at)}
+                                                            </span>
+                                                        </div>
+                                                        <span className={`${isPending ? 'text-violet-400' : 'text-emerald-400'} font-medium`}>
+                                                            +₱{payment.amount.toLocaleString()}
+                                                        </span>
+                                                        <span className="text-gray-500 uppercase text-xs">
+                                                            {isPending ? 'PENDING' : (payment.mode || 'Cash')}
                                                         </span>
                                                     </div>
-                                                    <span className="text-emerald-400 font-medium">
-                                                        +₱{payment.amount.toLocaleString()}
-                                                    </span>
-                                                    <span className="text-gray-500 uppercase text-xs">
-                                                        {payment.mode || 'Cash'}
-                                                    </span>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -663,119 +726,52 @@ export default function CustomerPortalPage() {
                 )}
             </div>
 
-            {/* Payment Modal */}
-            {showPayModal && (
+
+
+            {/* Change Plan Modal */}
+            {showChangePlanModal && selectedSubscription && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowPayModal(false)} />
-                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-purple-900/50 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-[0_0_60px_rgba(139,92,246,0.15)]">
-                        <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-purple-900/30">
-                            <CreditCard className="w-7 h-7 text-white" />
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowChangePlanModal(false)} />
+                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-violet-900/50 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-[0_0_60px_rgba(139,92,246,0.15)]">
+                        <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-violet-900/30">
+                            <Zap className="w-7 h-7 text-white" />
                         </div>
-                        <h3 className="text-xl font-bold text-white mb-2 text-center">Payment Options</h3>
+                        <h3 className="text-xl font-bold text-white mb-2 text-center">Change Subscription Plan</h3>
                         <p className="text-gray-400 text-center text-sm mb-6">
-                            {paymentType === 'all'
-                                ? `Total Amount: ₱${data.totalBalance.toLocaleString()}`
-                                : `Amount: ₱${Math.max(0, selectedSubscription?.balance || 0).toLocaleString()}`
-                            }
+                            Choose a new plan for your subscription. Changes apply immediately.
                         </p>
 
                         <div className="space-y-3 mb-6">
-                            <p className="text-xs font-medium text-gray-500 uppercase mb-2">E-Wallets</p>
-
-                            <button
-                                onClick={() => handlePayment('gcash')}
-                                disabled={isProcessingPayment}
-                                className="w-full p-4 bg-[#007DFE]/10 border border-[#007DFE]/30 hover:bg-[#007DFE]/20 text-white rounded-xl transition-all flex items-center justify-between group disabled:opacity-50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-[#007DFE] rounded-lg flex items-center justify-center text-white font-bold text-xs">
-                                        GC
-                                    </div>
+                            {availablePlans.map(plan => (
+                                <button
+                                    key={plan.id}
+                                    onClick={() => handleChangePlan(plan.id)}
+                                    disabled={isProcessingPayment || plan.name === selectedSubscription?.plan.name}
+                                    className={`w-full p-4 rounded-xl transition-all flex items-center justify-between group border ${plan.name === selectedSubscription?.plan.name
+                                        ? 'bg-violet-900/20 border-violet-500/50 cursor-default opacity-70'
+                                        : 'bg-gray-900/50 border-gray-700 hover:border-violet-500 hover:bg-gray-800'
+                                        }`}
+                                >
                                     <div className="text-left">
-                                        <p className="font-bold">GCash</p>
-                                        <p className="text-xs text-gray-400">Pay via GCash App</p>
+                                        <div className="font-bold text-white flex items-center gap-2">
+                                            {plan.name}
+                                            {plan.name === selectedSubscription?.plan.name && (
+                                                <span className="text-[10px] bg-violet-600 px-2 py-0.5 rounded-full">CURRENT</span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">{plan.details || `${plan.speed_mbps} Mbps`}</div>
                                     </div>
-                                </div>
-                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
-                            </button>
-
-                            <button
-                                onClick={() => handlePayment('paymaya')}
-                                disabled={isProcessingPayment}
-                                className="w-full p-4 bg-white/5 border border-white/20 hover:bg-white/10 text-white rounded-xl transition-all flex items-center justify-between group disabled:opacity-50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                                        <span className="text-black font-bold text-xs">Maya</span>
+                                    <div className="text-right">
+                                        <div className="font-bold text-violet-400">₱{plan.monthly_fee.toLocaleString()}</div>
+                                        <div className="text-[10px] text-gray-500">/month</div>
                                     </div>
-                                    <div className="text-left">
-                                        <p className="font-bold">Maya</p>
-                                        <p className="text-xs text-gray-400">Pay via Maya App</p>
-                                    </div>
-                                </div>
-                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
-                            </button>
-
-                            <button
-                                onClick={() => handlePayment('grab_pay')}
-                                disabled={isProcessingPayment}
-                                className="w-full p-4 bg-[#00B14F]/10 border border-[#00B14F]/30 hover:bg-[#00B14F]/20 text-white rounded-xl transition-all flex items-center justify-between group disabled:opacity-50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-[#00B14F] rounded-lg flex items-center justify-center text-white font-bold text-xs">
-                                        GP
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-bold">GrabPay</p>
-                                        <p className="text-xs text-gray-400">Pay via GrabPay</p>
-                                    </div>
-                                </div>
-                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
-                            </button>
-
-                            <p className="text-xs font-medium text-gray-500 uppercase mt-4 mb-2">Online Banking</p>
-
-                            <button
-                                onClick={() => handlePayment('dob')}
-                                disabled={isProcessingPayment}
-                                className="w-full p-4 bg-[#B10025]/10 border border-[#B10025]/30 hover:bg-[#B10025]/20 text-white rounded-xl transition-all flex items-center justify-between group disabled:opacity-50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-[#B10025] rounded-lg flex items-center justify-center text-white font-bold text-xs">
-                                        BPI
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-bold">BPI Online</p>
-                                        <p className="text-xs text-gray-400">Direct Online Banking</p>
-                                    </div>
-                                </div>
-                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
-                            </button>
-
-                            <button
-                                onClick={() => handlePayment('dob_ubp')}
-                                disabled={isProcessingPayment}
-                                className="w-full p-4 bg-[#F68E1E]/10 border border-[#F68E1E]/30 hover:bg-[#F68E1E]/20 text-white rounded-xl transition-all flex items-center justify-between group disabled:opacity-50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-[#F68E1E] rounded-lg flex items-center justify-center text-white font-bold text-xs">
-                                        UBP
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-bold">UnionBank</p>
-                                        <p className="text-xs text-gray-400">Direct Online Banking</p>
-                                    </div>
-                                </div>
-                                {isProcessingPayment && <Loader2 className="w-4 h-4 animate-spin" />}
-                            </button>
+                                    {isProcessingPayment && plan.name === selectedSubscription?.plan.name && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                                </button>
+                            ))}
                         </div>
 
-                        <p className="text-gray-500 text-xs text-center mb-4">
-                            Secure payment processing via PayMongo
-                        </p>
-
                         <button
-                            onClick={() => setShowPayModal(false)}
+                            onClick={() => setShowChangePlanModal(false)}
                             className="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
                         >
                             Cancel
@@ -859,6 +855,19 @@ export default function CustomerPortalPage() {
                     </div>
                 </div>
             )}
+
+            {/* Manual Payment Modal */}
+            <ManualPaymentModal
+                isOpen={showManualPayModal}
+                onClose={() => setShowManualPayModal(false)}
+                amount={paymentType === 'single' && selectedSubscription ? Math.max(0, selectedSubscription.balance) : data?.totalBalance || 0}
+                businessUnit={(paymentType === 'single' && selectedSubscription
+                    ? `${selectedSubscription.address} ${selectedSubscription.barangay}`
+                    : (data?.subscriptions[0] ? `${data.subscriptions[0].address} ${data.subscriptions[0].barangay}` : 'General')
+                )}
+                onSubmit={handleManualPaymentSubmit}
+                isSubmitting={isSubmittingPayment}
+            />
 
             {/* Share Modal */}
             {showShareModal && (

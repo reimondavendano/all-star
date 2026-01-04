@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
+import { validatePhilippineMobileNumber } from '@/lib/validation';
+import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
 interface MikrotikPPP {
     id: string;
@@ -95,6 +97,11 @@ export default function CustomersSubscriptionsPage() {
         comment: '',
         enabled: true
     });
+
+    const [confirmationParams, setConfirmationParams] = useState<{
+        sub: Subscription;
+        isActive: boolean;
+    } | null>(null);
 
     const itemsPerPage = 10;
 
@@ -198,23 +205,47 @@ export default function CustomersSubscriptionsPage() {
         setIsModalOpen(true);
     };
 
-    const handleToggleActive = async (subscription: Subscription, e: React.MouseEvent) => {
+    const handleToggleActive = (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
+        console.log('Handle toggle active clicked', subscription.id);
+        setConfirmationParams({
+            sub: subscription,
+            isActive: !subscription.active
+        });
+    };
+
+    const handleConfirmToggle = async () => {
+        if (!confirmationParams) return;
+        const { sub, isActive } = confirmationParams;
+
         try {
+            console.log('Confirming toggle', sub.id, isActive);
             const { error } = await supabase
                 .from('subscriptions')
-                .update({ active: !subscription.active })
-                .eq('id', subscription.id);
+                .update({ active: isActive })
+                .eq('id', sub.id);
             if (error) throw error;
-            await syncSubscriptionToMikrotik(subscription.id, !subscription.active);
+            await syncSubscriptionToMikrotik(sub.id, isActive);
             fetchData();
         } catch (error) {
             console.error('Error toggling status:', error);
+            alert('Failed to toggle status');
+        } finally {
+            setConfirmationParams(null);
         }
     };
 
     const saveChanges = async () => {
         if (!selectedCustomer) return;
+
+        if (activeTab === 'customer' && customerForm.mobile_number) {
+            const validation = validatePhilippineMobileNumber(customerForm.mobile_number);
+            if (!validation.isValid) {
+                alert(validation.error);
+                return;
+            }
+        }
+
         setIsSaving(true);
 
         try {
@@ -425,7 +456,7 @@ export default function CustomersSubscriptionsPage() {
                                                                 >
                                                                     <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
                                                                     <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                                                                        {sub.active ? 'Deactivate' : 'Activate'} Subscription
+                                                                        {sub.active ? 'Disable' : 'Enable'} Subscription
                                                                     </span>
                                                                 </button>
                                                                 <button
@@ -457,7 +488,7 @@ export default function CustomersSubscriptionsPage() {
                                                                         <div>
                                                                             <div className="text-xs text-gray-500">Balance</div>
                                                                             <div className={`font-medium ${(sub.balance || 0) > 0 ? 'text-red-400' : (sub.balance || 0) < 0 ? 'text-green-400' : 'text-gray-300'}`}>
-                                                                                ₱{Math.abs(sub.balance || 0).toLocaleString()}{(sub.balance || 0) < 0 && ' (Credit)'}
+                                                                                ₱{Math.round(Math.abs(sub.balance || 0)).toLocaleString()}{(sub.balance || 0) < 0 && ' (Credit)'}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -775,6 +806,16 @@ export default function CustomersSubscriptionsPage() {
                     </div>
                 </div>
             )}
+
+            <ConfirmationDialog
+                isOpen={!!confirmationParams}
+                onClose={() => setConfirmationParams(null)}
+                onConfirm={handleConfirmToggle}
+                title={confirmationParams?.isActive ? "Enable Subscription?" : "Disable Subscription?"}
+                message={`Are you sure you want to ${confirmationParams?.isActive ? "enable" : "disable"} this subscription? This will update the MikroTik status as well.`}
+                confirmText={confirmationParams?.isActive ? "Enable" : "Disable"}
+                type={confirmationParams?.isActive ? "info" : "danger"}
+            />
         </div>
     );
 }

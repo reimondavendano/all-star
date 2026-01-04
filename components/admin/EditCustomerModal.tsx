@@ -18,6 +18,8 @@ interface EditCustomerModalProps {
     onUpdate: () => void;
 }
 
+import { validatePhilippineMobileNumber } from '@/lib/validation';
+
 export default function EditCustomerModal({ isOpen, onClose, customer, onUpdate }: EditCustomerModalProps) {
     const [formData, setFormData] = useState({
         name: '',
@@ -38,7 +40,14 @@ export default function EditCustomerModal({ isOpen, onClose, customer, onUpdate 
 
     if (!isOpen) return null;
 
+    // ... (in component)
+
     const handleUpdateClick = () => {
+        const validation = validatePhilippineMobileNumber(formData.mobile_number);
+        if (!validation.isValid) {
+            alert(validation.error);
+            return;
+        }
         setShowConfirmation(true);
     };
 

@@ -55,7 +55,7 @@ interface Invoice {
     to_date: string;
     due_date: string;
     amount_due: number;
-    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid';
+    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification';
 }
 
 interface Payment {
@@ -84,7 +84,7 @@ export default function CollectorInvoicesPage() {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-    const [statusFilter, setStatusFilter] = useState<'all' | 'Paid' | 'Unpaid' | 'Partially Paid'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification'>('all');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -292,6 +292,7 @@ export default function CollectorInvoicesPage() {
         switch (status) {
             case 'Paid': return <CheckCircle className="w-4 h-4 text-emerald-400" />;
             case 'Partially Paid': return <Clock className="w-4 h-4 text-amber-400" />;
+            case 'Pending Verification': return <Clock className="w-4 h-4 text-violet-400" />;
             default: return <AlertCircle className="w-4 h-4 text-red-400" />;
         }
     };
@@ -300,6 +301,7 @@ export default function CollectorInvoicesPage() {
         switch (status) {
             case 'Paid': return 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50';
             case 'Partially Paid': return 'bg-amber-900/30 text-amber-400 border-amber-700/50';
+            case 'Pending Verification': return 'bg-violet-900/30 text-violet-400 border-violet-700/50';
             default: return 'bg-red-900/30 text-red-400 border-red-700/50';
         }
     };
@@ -384,6 +386,7 @@ export default function CollectorInvoicesPage() {
                         <option value="Paid">Paid</option>
                         <option value="Unpaid">Unpaid</option>
                         <option value="Partially Paid">Partially Paid</option>
+                        <option value="Pending Verification">Pending Verification</option>
                     </select>
                     <button onClick={fetchData} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                         <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />

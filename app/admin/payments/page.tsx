@@ -12,7 +12,7 @@ interface Invoice {
     from_date: string;
     to_date: string;
     amount_due: number;
-    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid';
+    payment_status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification';
     total_paid?: number;
     remaining_balance?: number;
     is_virtual?: boolean; // For ad-hoc payments
@@ -379,10 +379,10 @@ export default function PaymentsPage() {
                                                                                             // Only apply balance adjustment if invoice is Unpaid
                                                                                             if (invoice.payment_status === 'Unpaid') {
                                                                                                 const balance = Number(sub.balance) || 0;
-                                                                                                return Math.max(0, baseAmount + balance).toLocaleString();
+                                                                                                return Math.round(Math.max(0, baseAmount + balance)).toLocaleString();
                                                                                             }
                                                                                             // For Paid or Partially Paid, show original amount
-                                                                                            return baseAmount.toLocaleString();
+                                                                                            return Math.round(baseAmount).toLocaleString();
                                                                                         })()}
                                                                                     </div>
                                                                                 </div>
@@ -391,14 +391,15 @@ export default function PaymentsPage() {
                                                                         <div className="text-right">
                                                                             <div className="text-xs text-gray-400">Amount Paid</div>
                                                                             <div className="text-sm text-green-400">
-                                                                                ₱{(invoice.total_paid || 0).toLocaleString()}
+                                                                                ₱{Math.round(invoice.total_paid || 0).toLocaleString()}
                                                                             </div>
                                                                         </div>
 
                                                                         <div>
                                                                             <span className={`px-2 py-1 rounded-full text-xs ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400' :
                                                                                 invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400' :
-                                                                                    'bg-red-900/30 text-red-400'
+                                                                                    invoice.payment_status === 'Pending Verification' ? 'bg-violet-900/30 text-violet-400' :
+                                                                                        'bg-red-900/30 text-red-400'
                                                                                 }`}>
                                                                                 {invoice.payment_status}
                                                                             </span>
