@@ -11,6 +11,7 @@ import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import { validatePhilippineMobileNumber } from '@/lib/validation';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 
 interface MikrotikPPP {
     id: string;
@@ -43,6 +44,7 @@ interface Subscription {
     customer_portal?: string;
     invoice_date?: string;
     referral_credit_applied: boolean;
+    customer_name?: string;
     balance?: number;
     router_serial_number?: string;
     'x-coordinates'?: number;
@@ -71,6 +73,7 @@ export default function CustomersSubscriptionsPage() {
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'customer' | 'subscription' | 'mikrotik'>('customer');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
@@ -166,42 +169,19 @@ export default function CustomersSubscriptionsPage() {
     const openEditModal = (customer: Customer, subscription?: Subscription, e?: React.MouseEvent) => {
         e?.stopPropagation();
         setSelectedCustomer(customer);
-        setSelectedSubscription(subscription || null);
 
+        if (subscription) {
+            setSelectedSubscription({ ...subscription, customer_name: customer.name });
+            setIsSubscriptionModalOpen(true);
+            return;
+        }
+
+        setSelectedSubscription(null);
         setCustomerForm({
             name: customer.name || '',
             mobile_number: customer.mobile_number || ''
         });
-
-        if (subscription) {
-            setSubscriptionForm({
-                label: subscription.label || '',
-                contact_person: subscription.contact_person || '',
-                address: subscription.address || '',
-                barangay: subscription.barangay || '',
-                landmark: subscription.landmark || '',
-                invoice_date: subscription.invoice_date || '',
-                router_serial_number: subscription.router_serial_number || '',
-                active: subscription.active
-            });
-
-            const ppp = subscription.mikrotik_ppp_secrets?.[0];
-            if (ppp) {
-                setMikrotikForm({
-                    name: ppp.name || '',
-                    password: ppp.password || '',
-                    profile: ppp.profile || 'default',
-                    service: ppp.service || 'any',
-                    caller_id: ppp.caller_id || '',
-                    comment: ppp.comment || '',
-                    enabled: ppp.enabled
-                });
-            }
-            setActiveTab('subscription');
-        } else {
-            setActiveTab('customer');
-        }
-
+        setActiveTab('customer');
         setIsModalOpen(true);
     };
 
@@ -816,6 +796,18 @@ export default function CustomersSubscriptionsPage() {
                 confirmText={confirmationParams?.isActive ? "Enable" : "Disable"}
                 type={confirmationParams?.isActive ? "info" : "danger"}
             />
+            {/* Edit Subscription Modal Component */}
+            {isSubscriptionModalOpen && selectedSubscription && (
+                <EditSubscriptionModal
+                    isOpen={isSubscriptionModalOpen}
+                    onClose={() => setIsSubscriptionModalOpen(false)}
+                    subscription={selectedSubscription as any}
+                    onUpdate={() => {
+                        setIsSubscriptionModalOpen(false);
+                        fetchData();
+                    }}
+                />
+            )}
         </div>
     );
 }

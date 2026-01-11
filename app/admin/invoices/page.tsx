@@ -20,9 +20,11 @@ import {
     RefreshCw,
     Plus,
     Banknote,
-    Smartphone
+    Smartphone,
+    Zap
 } from 'lucide-react';
 import GenerateInvoiceModal from '@/components/admin/GenerateInvoiceModal';
+import QuickCollectModal from '@/components/admin/QuickCollectModal';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
@@ -97,10 +99,11 @@ export default function InvoicesPaymentsPage() {
     // Search and Pagination
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 10;
+    const itemsPerPage = 20; // Optimized for 500+ records
 
     // Modals
     const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+    const [isQuickCollectOpen, setIsQuickCollectOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<{
         invoice: Invoice;
@@ -429,6 +432,14 @@ export default function InvoicesPaymentsPage() {
                             <div className="text-xs text-red-400">Unpaid</div>
                             <div className="text-lg font-bold text-red-300">{unpaidCount}</div>
                         </div>
+
+                        <button
+                            onClick={() => setIsQuickCollectOpen(true)}
+                            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium shadow-lg shadow-amber-900/20"
+                        >
+                            <Zap className="w-4 h-4" />
+                            Quick Collect
+                        </button>
 
                         <button
                             onClick={() => setIsGenerateModalOpen(true)}
@@ -774,21 +785,92 @@ export default function InvoicesPaymentsPage() {
                             Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredData.length)} of {filteredData.length} customers
                         </div>
                         <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                disabled={currentPage === 1}
-                                className="p-2 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
-                            >
-                                <ChevronLeft className="w-4 h-4" />
-                            </button>
-                            <span className="text-sm text-gray-400">Page {currentPage} of {totalPages}</span>
-                            <button
-                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                disabled={currentPage === totalPages}
-                                className="p-2 text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
-                            >
-                                <ChevronRight className="w-4 h-4" />
-                            </button>
+                            {/* First Page */}
+                            {currentPage > 3 && (
+                                <button
+                                    onClick={() => setCurrentPage(1)}
+                                    className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                                >
+                                    1
+                                </button>
+                            )}
+                            {currentPage > 4 && (
+                                <span className="text-gray-600">...</span>
+                            )}
+
+                            {/* Page Numbers */}
+                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                .filter(page => {
+                                    if (totalPages <= 7) return true;
+                                    if (page === 1 || page === totalPages) return false;
+                                    return Math.abs(page - currentPage) <= 2;
+                                })
+                                .map(page => (
+                                    <button
+                                        key={page}
+                                        onClick={() => setCurrentPage(page)}
+                                        className={`w-8 h-8 text-sm rounded transition-colors ${currentPage === page
+                                                ? 'bg-purple-600 text-white font-bold'
+                                                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                                            }`}
+                                    >
+                                        {page}
+                                    </button>
+                                ))}
+
+                            {currentPage < totalPages - 3 && (
+                                <span className="text-gray-600">...</span>
+                            )}
+                            {/* Last Page */}
+                            {currentPage < totalPages - 2 && totalPages > 5 && (
+                                <button
+                                    onClick={() => setCurrentPage(totalPages)}
+                                    className="px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                                >
+                                    {totalPages}
+                                </button>
+                            )}
+
+                            {/* Prev/Next Buttons */}
+                            <div className="flex items-center gap-1 ml-2 border-l border-gray-800 pl-2">
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            {/* Jump to Page */}
+                            {totalPages > 10 && (
+                                <div className="flex items-center gap-1 ml-2 border-l border-gray-800 pl-2">
+                                    <span className="text-xs text-gray-500">Go to</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={totalPages}
+                                        placeholder="#"
+                                        className="w-12 bg-[#1a1a1a] border border-gray-700 rounded px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-purple-500"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                const val = parseInt((e.target as HTMLInputElement).value);
+                                                if (val >= 1 && val <= totalPages) {
+                                                    setCurrentPage(val);
+                                                    (e.target as HTMLInputElement).value = '';
+                                                }
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -800,6 +882,16 @@ export default function InvoicesPaymentsPage() {
                 onClose={() => setIsGenerateModalOpen(false)}
                 onSuccess={() => {
                     setIsGenerateModalOpen(false);
+                    fetchData();
+                }}
+            />
+
+            {/* Quick Collect Modal */}
+            <QuickCollectModal
+                isOpen={isQuickCollectOpen}
+                onClose={() => setIsQuickCollectOpen(false)}
+                onSuccess={() => {
+                    setIsQuickCollectOpen(false);
                     fetchData();
                 }}
             />

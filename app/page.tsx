@@ -99,15 +99,20 @@ export default function Home() {
           <button
             onClick={handleStatusClick}
             className={`inline-flex items-center px-3 py-1 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${mikrotikStatus === 'online' ? 'border-green-500/30 bg-green-900/10 text-green-400' :
-              mikrotikStatus === 'offline' ? 'border-red-500/30 bg-red-900/10 text-red-500' :
+              mikrotikStatus === 'offline' ? 'border-red-500/30 bg-red-900/10 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]' :
                 'border-yellow-500/30 bg-yellow-900/10 text-yellow-500'
               } text-xs font-mono animate-pulse-slow`}
+            title={mikrotikStatus === 'offline' ? 'MikroTik is disconnected. Click to start the tunnel connection on your desktop/server.' :
+              mikrotikStatus === 'online' ? 'MikroTik is connected. Click to manage.' : 'Checking MikroTik status...'}
           >
             <span className={`w-2 h-2 rounded-full mr-2 animate-pulse ${mikrotikStatus === 'online' ? 'bg-green-500' :
               mikrotikStatus === 'offline' ? 'bg-red-500' :
                 'bg-yellow-500'
               }`}></span>
             MIKROTIK: {mikrotikStatus.toUpperCase()}
+            {mikrotikStatus === 'offline' && (
+              <span className="ml-2 text-[10px] opacity-75">(Click to Connect)</span>
+            )}
           </button>
         </div>
 

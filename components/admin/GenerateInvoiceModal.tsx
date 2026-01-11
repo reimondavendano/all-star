@@ -112,7 +112,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             const monthInt = parseInt(month);
 
             // Calculate billing dates
-            const dates = calculateBillingDates(unit.name, yearInt, monthInt);
+            const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
 
             // Fetch all subscriptions for the selected business unit
             const { data: subs, error } = await supabase
@@ -334,7 +334,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             const monthInt = parseInt(month);
 
             // Calculate dates based on business unit
-            const dates = calculateBillingDates(unit.name, yearInt, monthInt);
+            const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
 
             const invoices = [];
             const subscriptionUpdates: Array<{ id: string; balance: number; referral_credit_applied?: boolean }> = [];
@@ -465,7 +465,11 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         const unit = businessUnits.find(u => u.id === selectedUnit);
         if (!unit) return null;
         const unitName = unit.name.toLowerCase();
-        if (unitName.includes('bulihan') || unitName.includes('extension')) {
+
+        // Extension is explicitly UNLOCKED (can be 15th or 30th)
+        if (unitName.includes('extension')) return null;
+
+        if (unitName.includes('bulihan')) {
             return '15th';
         }
         if (unitName.includes('malanggam')) {
@@ -482,7 +486,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         if (!unit) return '';
 
         const [year, month] = billingMonth.split('-');
-        const dates = calculateBillingDates(unit.name, parseInt(year), parseInt(month));
+        const dates = calculateBillingDates(unit.name, parseInt(year), parseInt(month), cycleDate);
 
         return `${formatDatePH(dates.fromDate)} - ${formatDatePH(dates.toDate)}`;
     };

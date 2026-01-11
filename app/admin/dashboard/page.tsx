@@ -283,7 +283,7 @@ export default function DashboardPage() {
 
             // Monthly revenue = PAID invoices only (not billed)
             const monthlyRevenue = currentInvoices.filter(inv => inv.payment_status === 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const outstandingAmount = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
+            const currentMonthOutstanding = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
             const paidAmount = monthlyRevenue; // Same as monthly revenue now
             const totalBilled = currentInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
             const collectionRate = totalBilled > 0 ? (paidAmount / totalBilled) * 100 : 0;
@@ -305,15 +305,17 @@ export default function DashboardPage() {
                 : (prevInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
             const previousMonthRevenue = prevInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
 
-            // 6. Unpaid invoices count (filtered by BU)
+            // 6. Unpaid invoices count and TOTAL outstanding amount (ALL unpaid invoices, not just current month)
             const { data: unpaidInvoicesRaw } = await supabase
                 .from('invoices')
-                .select('id, subscription_id')
-                .eq('payment_status', 'Unpaid');
+                .select('id, subscription_id, amount_due')
+                .neq('payment_status', 'Paid');
             const unpaidInvoicesFiltered = selectedBusinessUnit === 'all'
                 ? (unpaidInvoicesRaw || [])
                 : (unpaidInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
             const unpaidInvoicesCount = unpaidInvoicesFiltered.length;
+            // Total outstanding = sum of ALL unpaid invoices (not just current month)
+            const outstandingAmount = unpaidInvoicesFiltered.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
 
             // 7. Payment status distribution (filtered by BU)
             const { data: allInvoicesRaw } = await supabase.from('invoices').select('payment_status, subscription_id');

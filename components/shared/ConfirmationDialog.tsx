@@ -77,7 +77,12 @@ export default function ConfirmationDialog({
                         {cancelText}
                     </button>
                     <button
-                        onClick={onConfirm}
+                        onClick={() => {
+                            onConfirm();
+                            if (!isLoading) {
+                                onClose();
+                            }
+                        }}
                         disabled={isLoading}
                         className={`flex-1 px-4 py-2 ${styles.buttonBg} text-white rounded-lg transition-colors disabled:opacity-50`}
                     >

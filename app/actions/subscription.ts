@@ -2,6 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { updatePppSecret } from './mikrotik';
+import { processPlanChange, previewPlanChange } from '@/lib/planChangeService';
 
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -15,35 +16,42 @@ const PLAN_TO_PROFILE: Record<string, string> = {
     'Plan 1499': '150MBPS'
 };
 
+/**
+ * Change a subscription's plan with automatic prorated invoicing
+ * 
+ * When a customer upgrades or downgrades:
+ * 1. Creates a prorated invoice for days used on OLD plan
+ * 2. Updates the subscription to the new plan
+ * 3. Updates MikroTik profile if applicable
+ * 4. Records the plan change for future invoice generation
+ */
 export async function changeSubscriptionPlan(subscriptionId: string, newPlanId: string) {
     try {
-        // 1. Get new plan details
+        // 1. Process plan change with prorated invoicing
+        const result = await processPlanChange(subscriptionId, newPlanId);
+
+        if (!result.success) {
+            return { success: false, error: result.error };
+        }
+
+        // 2. Get new plan details for MikroTik update
         const { data: newPlan, error: planError } = await supabase
             .from('plans')
             .select('name, monthly_fee')
             .eq('id', newPlanId)
             .single();
 
-        if (planError || !newPlan) throw new Error('Plan not found');
+        if (planError || !newPlan) {
+            // Plan change succeeded but we couldn't get plan details for MikroTik
+            console.warn('Plan updated but could not fetch plan details for MikroTik');
+            return {
+                success: true,
+                proratedInvoice: result.proratedInvoice,
+                warning: 'MikroTik profile not updated - plan details not found'
+            };
+        }
 
-        // 2. Get Subscription
-        const { data: sub, error: subError } = await supabase
-            .from('subscriptions')
-            .select('id')
-            .eq('id', subscriptionId)
-            .single();
-
-        if (subError || !sub) throw new Error('Subscription not found');
-
-        // 3. Update Subscription in DB
-        const { error: updateError } = await supabase
-            .from('subscriptions')
-            .update({ plan_id: newPlanId })
-            .eq('id', subscriptionId);
-
-        if (updateError) throw updateError;
-
-        // 4. Update MikroTik (if linked)
+        // 3. Update MikroTik profile if linked
         const { data: secrets } = await supabase
             .from('mikrotik_ppp_secrets')
             .select('name, id')
@@ -54,25 +62,88 @@ export async function changeSubscriptionPlan(subscriptionId: string, newPlanId: 
             const newProfile = PLAN_TO_PROFILE[newPlan.name];
 
             if (newProfile) {
-                const result = await updatePppSecret(secretName, { profile: newProfile });
+                const mtResult = await updatePppSecret(secretName, { profile: newProfile });
 
-                if (result.success) {
+                if (mtResult.success) {
                     await supabase
                         .from('mikrotik_ppp_secrets')
                         .update({ profile: newProfile })
                         .eq('subscription_id', subscriptionId);
                 } else {
-                    console.warn(`Failed to update MikroTik profile for ${secretName}: ${result.error}`);
+                    console.warn(`Failed to update MikroTik profile for ${secretName}: ${mtResult.error}`);
+                    return {
+                        success: true,
+                        proratedInvoice: result.proratedInvoice,
+                        warning: `Plan updated but MikroTik sync failed: ${mtResult.error}`
+                    };
                 }
             } else {
                 console.warn(`No MikroTik profile mapped for plan ${newPlan.name}`);
             }
         }
 
-        return { success: true };
+        return {
+            success: true,
+            proratedInvoice: result.proratedInvoice,
+            message: result.proratedInvoice
+                ? `Plan changed successfully. Prorated invoice of ₱${result.proratedInvoice.amount.toLocaleString()} created for ${result.proratedInvoice.description}.`
+                : 'Plan changed successfully.'
+        };
 
     } catch (error: any) {
         console.error('Change Plan Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Preview what invoices would be created for a plan change
+ * (Does not make any changes - for UI display only)
+ */
+export async function previewPlanChangeInvoices(
+    subscriptionId: string,
+    newPlanId: string
+) {
+    try {
+        // Get current subscription details
+        const { data: subscription, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                invoice_date,
+                plans!subscriptions_plan_id_fkey (monthly_fee)
+            `)
+            .eq('id', subscriptionId)
+            .single();
+
+        if (subError || !subscription) {
+            return { success: false, error: 'Subscription not found' };
+        }
+
+        // Get new plan details
+        const { data: newPlan, error: planError } = await supabase
+            .from('plans')
+            .select('monthly_fee')
+            .eq('id', newPlanId)
+            .single();
+
+        if (planError || !newPlan) {
+            return { success: false, error: 'Plan not found' };
+        }
+
+        const currentPlan = Array.isArray(subscription.plans)
+            ? subscription.plans[0]
+            : subscription.plans;
+
+        const preview = previewPlanChange(
+            currentPlan?.monthly_fee || 0,
+            newPlan.monthly_fee,
+            subscription.invoice_date || '15th'
+        );
+
+        return { success: true, preview };
+
+    } catch (error: any) {
+        console.error('Preview Plan Change Error:', error);
         return { success: false, error: error.message };
     }
 }

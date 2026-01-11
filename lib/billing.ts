@@ -65,7 +65,8 @@ export function getLastDayOfMonth(year: number, month: number): number {
 export function calculateBillingDates(
     businessUnitName: string,
     year: number,
-    month: number // 1-12
+    month: number, // 1-12
+    cycleDateOverride?: '15th' | '30th'
 ): {
     fromDate: Date;
     toDate: Date;
@@ -73,7 +74,19 @@ export function calculateBillingDates(
     disconnectionDate: Date;
     generationDate: Date;
 } {
-    const schedule = getBillingSchedule(businessUnitName);
+    let schedule = getBillingSchedule(businessUnitName);
+
+    // Apply override if provided
+    if (cycleDateOverride) {
+        if (cycleDateOverride === '30th') {
+            // Use 30th schedule (based on Malanggam template)
+            schedule = BILLING_SCHEDULES['malanggam'];
+        } else if (cycleDateOverride === '15th') {
+            // Use 15th schedule (based on Bulihan template)
+            schedule = BILLING_SCHEDULES['bulihan'];
+        }
+    }
+
     const lastDay = getLastDayOfMonth(year, month);
 
     let fromDate: Date;

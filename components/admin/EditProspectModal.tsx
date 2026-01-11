@@ -12,6 +12,8 @@ const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     loading: () => <div className="h-full w-full flex items-center justify-center bg-gray-900/50 rounded-lg"><Loader2 className="w-8 h-8 animate-spin text-red-600" /></div>
 });
 
+const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
+
 interface Prospect {
     id: string;
     name: string;
@@ -245,8 +247,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     return false;
                 }
             } else if (formData.status === 'Closed Won') {
-                // Closed Won: Date must be TODAY or FUTURE (Not Past)
-                if (formData.installation_date < todayStr) {
+                // Closed Won: Date must be TODAY or PAST (Not Future) - service was installed already
+                if (formData.installation_date > todayStr) {
                     return false;
                 }
             }
@@ -299,8 +301,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 alert('For "Open" status, Installation Date must be in the future (Tomorrow or later).');
                 return;
             }
-            if (formData.status === 'Closed Won' && formData.installation_date < todayStr) {
-                alert('For "Closed Won" status, Installation Date cannot be in the past. Please select Today or a Future date.');
+            if (formData.status === 'Closed Won' && formData.installation_date > todayStr) {
+                alert('For "Closed Won" status, Installation Date cannot be in the future. Please select Today or a Past date.');
                 return;
             }
         }
@@ -662,22 +664,33 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                             onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
                                             className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
                                         >
-                                            <option
-                                                value="15th"
-                                                disabled={businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase().includes('malanggam')}
-                                            >
-                                                15th of the Month
-                                            </option>
-                                            <option
-                                                value="30th"
-                                                disabled={(() => {
-                                                    const unitName = businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase() || '';
-                                                    return unitName.includes('bulihan') || unitName.includes('extension');
-                                                })()}
-                                            >
-                                                30th of the Month
-                                            </option>
+                                            {(() => {
+                                                const unitName = businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase() || '';
+                                                const isExtension = unitName.includes('extension');
+                                                const isMalanggam = unitName.includes('malanggam');
+                                                const isBulihan = unitName.includes('bulihan');
+
+                                                // Extension allows both options for edge cases
+                                                const disable15th = isMalanggam && !isExtension;
+                                                const disable30th = isBulihan && !isExtension;
+
+                                                return (
+                                                    <>
+                                                        <option value="15th" disabled={disable15th}>
+                                                            15th of the Month
+                                                        </option>
+                                                        <option value="30th" disabled={disable30th}>
+                                                            30th of the Month
+                                                        </option>
+                                                    </>
+                                                );
+                                            })()}
                                         </select>
+                                        {businessUnits.find(u => u.id === formData.business_unit_id)?.name.toLowerCase().includes('extension') && (
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Extensions can use either billing period.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -692,10 +705,11 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         value={formData.installation_date}
                                         onChange={(e) => setFormData({ ...formData, installation_date: e.target.value })}
                                         disabled={formData.status === 'Closed Lost'}
-                                        min={formData.status === 'Closed Won' ? (() => {
+                                        max={formData.status === 'Closed Won' ? (() => {
                                             const today = new Date();
                                             return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                                        })() : minDate}
+                                        })() : undefined}
+                                        min={formData.status === 'Open' ? minDate : undefined}
                                         className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                 </div>
@@ -774,12 +788,16 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                         <div className="flex-1">
                                             <label className="text-xs text-gray-500">Barangay</label>
                                             {formData.status === 'Open' ? (
-                                                <input
-                                                    type="text"
+                                                <select
                                                     value={prospectData.barangay}
                                                     onChange={(e) => setProspectData({ ...prospectData, barangay: e.target.value })}
                                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500 mt-1"
-                                                />
+                                                >
+                                                    <option value="">Select Barangay</option>
+                                                    {BARANGAY_OPTIONS.map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
                                             ) : (
                                                 <p className="text-sm text-gray-300">{prospect.barangay || '-'}</p>
                                             )}

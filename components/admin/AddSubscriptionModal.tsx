@@ -400,13 +400,21 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
 
                         {/* Invoice Date */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Invoice Date (Day of Month)</label>
-                            <input
-                                type="text"
+                            <label className="block text-sm font-medium text-gray-400 mb-2">Billing Period (Day of Month)</label>
+                            <select
                                 value={formData.invoice_date}
-                                disabled
-                                className="w-full bg-[#0f0f0f] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                            />
+                                onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                            >
+                                <option value="">Select Billing Period</option>
+                                <option value="15th">15th of the Month</option>
+                                <option value="30th">30th of the Month</option>
+                            </select>
+                            {formData.business_unit_id && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Default based on Business Unit. Can be changed for edge cases (e.g., extensions).
+                                </p>
+                            )}
                         </div>
                     </div>
 

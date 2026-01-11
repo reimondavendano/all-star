@@ -387,7 +387,7 @@ export default function SubscriptionsPage() {
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex items-start gap-2">
-                                                                    <DollarSign className="w-4 h-4 text-green-500 mt-0.5" />
+                                                                    <span className="w-4 h-4 text-green-500 mt-0.5 text-center font-bold">₱</span>
                                                                     <div>
                                                                         <div className="text-xs text-gray-500">Balance</div>
                                                                         <div className={`font-medium ${(subscription.balance || 0) > 0 ? 'text-red-400' : (subscription.balance || 0) < 0 ? 'text-green-400' : 'text-gray-300'}`}>

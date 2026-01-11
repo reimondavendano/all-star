@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy } from 'lucide-react';
+import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy, Globe, Hash, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import dynamic from 'next/dynamic';
@@ -33,6 +33,7 @@ interface Subscription {
     invoice_date: string;
     referral_credit_applied: boolean;
     customer_name?: string;
+    router_serial_number?: string;
     'x-coordinates'?: number;
     'y-coordinates'?: number;
 }
@@ -58,6 +59,7 @@ interface EditSubscriptionModalProps {
 const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
 
 export default function EditSubscriptionModal({ isOpen, onClose, subscription, onUpdate }: EditSubscriptionModalProps) {
+    const [activeTab, setActiveTab] = useState<'customer' | 'subscription' | 'mikrotik'>('subscription');
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
@@ -66,6 +68,10 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const [showSuccess, setShowSuccess] = useState(false);
     const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [pendingActiveStatus, setPendingActiveStatus] = useState<boolean | null>(null);
+
+    // MikroTik PPP Secret State
+    const [pppSecret, setPppSecret] = useState<any>(null);
+    const [loadingPpp, setLoadingPpp] = useState(false);
 
     const [formData, setFormData] = useState({
         active: subscription.active,
@@ -78,7 +84,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         landmark: subscription.landmark,
         label: subscription.label || '',
         contact_person: subscription.contact_person, // referrer ID
-        referral_credit_applied: subscription.referral_credit_applied
+        referral_credit_applied: subscription.referral_credit_applied,
+        router_serial_number: subscription.router_serial_number || ''
     });
 
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
@@ -88,6 +95,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             fetchBusinessUnits();
             fetchPlans();
             fetchCustomers();
+            fetchPppSecret();
+
             // Initialize form data when modal opens or subscription changes
             setFormData({
                 active: subscription.active,
@@ -99,9 +108,11 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 barangay: subscription.barangay,
                 landmark: subscription.landmark,
                 label: subscription.label || '',
-                contact_person: subscription.contact_person,
-                referral_credit_applied: subscription.referral_credit_applied
+                contact_person: subscription.contact_person || '',
+                referral_credit_applied: subscription.referral_credit_applied,
+                router_serial_number: subscription.router_serial_number || ''
             });
+
             // Initialize coordinates
             if (subscription['x-coordinates'] && subscription['y-coordinates']) {
                 setCoordinates({
@@ -114,20 +125,59 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         }
     }, [isOpen, subscription]);
 
-    // Auto-set invoice date based on business unit
+    // Auto-set and Lock Invoice Date logic
     useEffect(() => {
         if (formData.business_unit_id) {
             const unit = businessUnits.find(u => u.id === formData.business_unit_id);
             if (unit) {
                 const unitName = unit.name.toLowerCase();
+                // Logic:
+                // Bulihan -> Locked to 15th
+                // Malanggam -> Locked to 30th
+                // Extension -> Unlocked (User can choose 15th or 30th)
                 if (unitName.includes('malanggam')) {
                     setFormData(prev => ({ ...prev, invoice_date: '30th' }));
-                } else if (unitName.includes('bulihan') || unitName.includes('extension')) {
+                } else if (unitName.includes('bulihan') && !unitName.includes('extension')) {
                     setFormData(prev => ({ ...prev, invoice_date: '15th' }));
                 }
+                // Extension does not force set, keeps current or default
             }
         }
     }, [formData.business_unit_id, businessUnits]);
+
+    const isInvoiceDateDisabled = () => {
+        if (!formData.business_unit_id) return false;
+        const unit = businessUnits.find(u => u.id === formData.business_unit_id);
+        if (!unit) return false;
+        const name = unit.name.toLowerCase();
+
+        // Extension is explicitly enabled
+        if (name.includes('extension')) return false;
+
+        // Bulihan and Malanggam are locked
+        if (name.includes('bulihan') || name.includes('malanggam')) return true;
+
+        return false;
+    };
+
+    // ... existing fetch functions ...
+
+    const fetchPppSecret = async () => {
+        setLoadingPpp(true);
+        try {
+            const { data, error } = await supabase
+                .from('mikrotik_ppp_secrets')
+                .select('*')
+                .eq('subscription_id', subscription.id)
+                .single();
+
+            if (data) setPppSecret(data);
+        } catch (error) {
+            console.error('Error fetching PPP secret:', error);
+        } finally {
+            setLoadingPpp(false);
+        }
+    };
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase.from('business_units').select('id, name').order('name');
@@ -153,7 +203,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             const data = await response.json();
 
             if (data && data.address) {
-                // Don't auto-set barangay here to respect dropdown
                 const street = data.address.road || '';
                 const houseNumber = data.address.house_number || '';
                 const city = data.address.city || data.address.town || '';
@@ -177,8 +226,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         const selectedBarangay = e.target.value;
         setFormData(prev => ({ ...prev, barangay: selectedBarangay }));
 
-        // Always focus on Malolos when changing barangay
-        setCoordinates({ lat: 14.8437, lng: 120.8113 });
+        // Optional: Center map on Barangay
+        if (selectedBarangay === 'Bulihan') handleLocationSelect(14.8437, 120.8113); // Approximate coords
     };
 
     const handleUpdateClick = () => {
@@ -190,7 +239,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         setShowConfirmation(false);
 
         try {
-            // 1. Update subscription in database
             const { error } = await supabase
                 .from('subscriptions')
                 .update({
@@ -205,6 +253,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     label: formData.label,
                     contact_person: formData.contact_person || null,
                     referral_credit_applied: formData.referral_credit_applied,
+                    router_serial_number: formData.router_serial_number || null,
                     'x-coordinates': coordinates?.lng || null,
                     'y-coordinates': coordinates?.lat || null
                 })
@@ -212,17 +261,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
 
             if (error) throw error;
 
-            // 2. If active status changed, sync with MikroTik
             if (formData.active !== subscription.active) {
-                console.log(`[Subscription] Active status changed, syncing to MikroTik (active: ${formData.active})`);
-                const syncResult = await syncSubscriptionToMikrotik(subscription.id, formData.active);
-
-                if (!syncResult.success) {
-                    console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
-                    // Don't throw - the database update was successful
-                } else {
-                    console.log(`[Subscription] MikroTik sync success: ${syncResult.message}`);
-                }
+                await syncSubscriptionToMikrotik(subscription.id, formData.active);
             }
 
             setShowSuccess(true);
@@ -234,7 +274,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         }
     };
 
-
     const handleSuccessClose = () => {
         setShowSuccess(false);
         onUpdate();
@@ -243,7 +282,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
 
     if (!isOpen) return null;
 
-    // Calculate min date for installation (tomorrow)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const minDate = tomorrow.toISOString().split('T')[0];
@@ -253,395 +291,391 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-                <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="relative bg-[#0a0a0a] border-2 border-purple-900/50 rounded-xl shadow-[0_0_50px_rgba(139,92,246,0.15)] w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col">
                     {/* Header */}
-                    <div className="sticky top-0 bg-[#0a0a0a] border-b border-red-900/30 p-6 flex justify-between items-center z-10">
+                    <div className="bg-[#0a0a0a] border-b border-gray-800 p-6 flex justify-between items-center z-10 sticky top-0">
                         <div>
-                            <h2 className="text-2xl font-bold text-white neon-text">Edit Subscription</h2>
-                            <p className="text-gray-400 text-sm mt-1">Update subscription details</p>
+                            <h2 className="text-xl font-bold text-white">{subscription.customer_name}</h2>
+                            <p className="text-gray-400 text-xs mt-1">Edit Subscription Details</p>
                         </div>
                         <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded">
-                            <X className="w-6 h-6" />
+                            <X className="w-5 h-5" />
                         </button>
                     </div>
 
+                    {/* Tabs */}
+                    <div className="flex border-b border-gray-800 px-6 bg-[#0a0a0a] sticky top-[80px] z-10 gap-8">
+                        {['customer', 'subscription', 'mikrotik'].map((tab) => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab as any)}
+                                className={`py-4 text-sm font-medium transition-all border-b-2 flex items-center gap-2 relative ${activeTab === tab ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                {tab === 'customer' && <User className="w-4 h-4" />}
+                                {tab === 'subscription' && <Wifi className="w-4 h-4" />}
+                                {tab === 'mikrotik' && <Globe className="w-4 h-4" />}
+                                <span className="capitalize">{tab === 'mikrotik' ? 'MikroTik PPP' : tab}</span>
+                                {activeTab === tab && (
+                                    <div className="absolute inset-0 bg-purple-500/5 -z-10 rounded-t-lg" />
+                                )}
+                            </button>
+                        ))}
+                    </div>
+
                     {/* Content */}
-                    <div className="p-6 space-y-8">
-                        {/* Top Section: Customer & Status */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-400">Customer Name</label>
-                                <div className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed flex items-center gap-2">
-                                    <User className="w-4 h-4" />
-                                    {subscription.customer_name}
-                                </div>
-                            </div>
+                    <div className="p-6 flex-1 overflow-y-auto">
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-400">Connection Status</label>
-                                <div className="flex items-center gap-3 p-2 bg-[#1a1a1a] border border-gray-800 rounded">
-                                    <label className="relative inline-flex items-center cursor-pointer">
+                        {/* CUSTOMER TAB */}
+                        {activeTab === 'customer' && (
+                            <div className="space-y-6 max-w-2xl mx-auto">
+                                <div className="p-4 rounded-xl bg-gray-900/50 border border-gray-800 space-y-4">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <div className="w-10 h-10 rounded-full bg-purple-900/30 flex items-center justify-center">
+                                            <User className="w-5 h-5 text-purple-400" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Customer Name</label>
+                                            <div className="text-lg font-medium text-white">{subscription.customer_name || 'Unknown'}</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-gray-500 bg-gray-900 p-3 rounded border border-gray-800">
+                                        Note: To edit core customer details like Name or Mobile Number, please use the "Edit Customer" option from the main list.
+                                    </div>
+                                </div>
+
+                                {/* Customer Portal Link */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-400">Customer Portal Link</label>
+                                    <div className="flex gap-2">
                                         <input
-                                            type="checkbox"
-                                            className="sr-only peer"
-                                            checked={formData.active}
-                                            onChange={(e) => {
-                                                // Show confirmation dialog before changing status
-                                                setPendingActiveStatus(e.target.checked);
-                                                setShowStatusConfirm(true);
-                                            }}
+                                            type="text"
+                                            readOnly
+                                            value={subscription.customer_portal ? `${typeof window !== 'undefined' ? window.location.origin : ''}${subscription.customer_portal}` : 'Not generated'}
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 font-mono text-sm"
                                         />
-                                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                        <span className={`ml-3 text-sm font-medium ${formData.active ? 'text-green-500' : 'text-red-500'}`}>
-                                            {formData.active ? 'Active' : 'Disconnected'}
-                                        </span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-
-                        {/* Customer Portal Link */}
-                        <div>
-                            <label className="text-sm font-medium text-gray-400 mb-2 block">Customer Portal Link</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={subscription.customer_portal ? `${typeof window !== 'undefined' ? window.location.origin : ''}${subscription.customer_portal}` : 'Not generated'}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed font-mono text-sm"
-                                />
-                                <button
-                                    onClick={() => {
-                                        if (subscription.customer_portal) {
-                                            const url = `${window.location.origin}${subscription.customer_portal}`;
-                                            navigator.clipboard.writeText(url);
-                                            // Optional: Add a toast notification here
-                                        }
-                                    }}
-                                    disabled={!subscription.customer_portal}
-                                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded border border-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="Copy Link"
-                                >
-                                    <Copy className="w-4 h-4" />
-                                </button>
-                                <a
-                                    href={subscription.customer_portal ? `${typeof window !== 'undefined' ? window.location.origin : ''}${subscription.customer_portal}` : '#'}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={`px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded border border-gray-700 transition-colors flex items-center justify-center ${!subscription.customer_portal ? 'opacity-50 pointer-events-none' : ''}`}
-                                    title="Open Link"
-                                >
-                                    <ExternalLink className="w-4 h-4" />
-                                </a>
-                            </div>
-                        </div>
-
-                        {/* Billing & Plan Details */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">Billing & Plan Details</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        <CreditCard className="w-4 h-4 inline mr-2" />
-                                        Invoice Date
-                                    </label>
-                                    <select
-                                        value={formData.invoice_date}
-                                        onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                    >
-                                        <option value="">Select Date</option>
-                                        <option value="15th">15th of the Month</option>
-                                        <option value="30th">30th of the Month</option>
-                                    </select>
+                                        <button
+                                            onClick={() => {
+                                                if (subscription.customer_portal) {
+                                                    navigator.clipboard.writeText(`${window.location.origin}${subscription.customer_portal}`);
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-gray-800 text-white rounded border border-gray-700 hover:bg-gray-700"
+                                            disabled={!subscription.customer_portal}
+                                            title="Copy"
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        <Wifi className="w-4 h-4 inline mr-2" />
-                                        Plan
-                                    </label>
-                                    <select
-                                        value={formData.plan_id}
-                                        onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                    >
-                                        {plans.map(plan => (
-                                            <option key={plan.id} value={plan.id}>
-                                                {plan.name} - ₱{plan.monthly_fee}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        <Building2 className="w-4 h-4 inline mr-2" />
-                                        Business Unit
-                                    </label>
-                                    <select
-                                        value={formData.business_unit_id}
-                                        onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                    >
-                                        {businessUnits.map(unit => (
-                                            <option key={unit.id} value={unit.id}>
-                                                {unit.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Installation & Referral */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-2">
-                                    <Calendar className="w-4 h-4 inline mr-2" />
-                                    Installation Date
-                                </label>
-                                <input
-                                    type="date"
-                                    value={formData.date_installed}
-                                    min={minDate}
-                                    onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                />
-                            </div>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-400 mb-2">
-                                        <User className="w-4 h-4 inline mr-2" />
-                                        Referrer (Optional)
-                                    </label>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-gray-400">Referrer (Contact Person)</label>
                                     <select
                                         value={formData.contact_person || ''}
                                         onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-purple-500"
                                     >
                                         <option value="">No Referrer</option>
-                                        {customers
-                                            .filter(c => c.id !== subscription.subscriber_id)
-                                            .map(customer => (
-                                                <option key={customer.id} value={customer.id}>
-                                                    {customer.name}
-                                                </option>
-                                            ))
-                                        }
+                                        {customers.filter(c => c.id !== subscription.subscriber_id).map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
                                     </select>
                                 </div>
+                            </div>
+                        )}
 
-                                <div className="flex items-center gap-3 p-3 bg-[#1a1a1a] border border-gray-800 rounded">
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            className="sr-only peer"
-                                            checked={formData.referral_credit_applied}
-                                            onChange={(e) => setFormData({ ...formData, referral_credit_applied: e.target.checked })}
+                        {/* SUBSCRIPTION TAB - REDESIGNED */}
+                        {activeTab === 'subscription' && (
+                            <div className="space-y-6">
+                                {/* Top Grid: 3 Columns for logical grouping */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                                    {/* Column 1: Service Plan Details */}
+                                    <div className="space-y-4 lg:col-span-1">
+                                        <div className="flex items-center gap-2 mb-2 text-purple-400">
+                                            <CreditCard className="w-4 h-4" />
+                                            <h4 className="text-sm font-semibold uppercase tracking-wider">Plan & Billing</h4>
+                                        </div>
+
+                                        <div className="bg-gray-900/30 p-4 rounded-xl border border-gray-800 space-y-4">
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Business Unit</label>
+                                                <select
+                                                    value={formData.business_unit_id}
+                                                    onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                >
+                                                    {businessUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Subscription Plan</label>
+                                                <select
+                                                    value={formData.plan_id}
+                                                    onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                >
+                                                    {plans.map(p => <option key={p.id} value={p.id}>{p.name} - ₱{p.monthly_fee}</option>)}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Invoice Date</label>
+                                                <select
+                                                    value={formData.invoice_date}
+                                                    onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                                                    disabled={isInvoiceDateDisabled()}
+                                                    className={`w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors ${isInvoiceDateDisabled() ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''}`}
+                                                >
+                                                    <option value="15th">15th of Month</option>
+                                                    <option value="30th">30th of Month</option>
+                                                </select>
+                                                {isInvoiceDateDisabled() && (
+                                                    <p className="text-[10px] text-gray-500 mt-1">Locked by Business Unit</p>
+                                                )}
+                                            </div>
+
+                                            <div className="pt-2 border-t border-gray-800">
+                                                <label className="text-xs font-medium text-gray-500 block mb-2">Service Status</label>
+                                                <div className="flex items-center justify-between bg-[#151515] p-2.5 rounded-lg border border-gray-800">
+                                                    <span className={`text-sm font-medium ${formData.active ? 'text-green-500' : 'text-gray-400'}`}>
+                                                        {formData.active ? 'Active' : 'Disconnected'}
+                                                    </span>
+                                                    <label className="relative inline-flex items-center cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="sr-only peer"
+                                                            checked={formData.active}
+                                                            onChange={(e) => {
+                                                                setPendingActiveStatus(e.target.checked);
+                                                                setShowStatusConfirm(true);
+                                                            }}
+                                                        />
+                                                        <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-600"></div>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Column 2: Location Details */}
+                                    <div className="space-y-4 lg:col-span-1">
+                                        <div className="flex items-center gap-2 mb-2 text-blue-400">
+                                            <MapPin className="w-4 h-4" />
+                                            <h4 className="text-sm font-semibold uppercase tracking-wider">Location</h4>
+                                        </div>
+
+                                        <div className="bg-gray-900/30 p-4 rounded-xl border border-gray-800 space-y-4 h-full">
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Barangay</label>
+                                                <select
+                                                    value={formData.barangay}
+                                                    onChange={handleBarangayChange}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                >
+                                                    <option value="">Select Barangay</option>
+                                                    {BARANGAY_OPTIONS.map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Exact Address</label>
+                                                <textarea
+                                                    value={formData.address}
+                                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                                    rows={3}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none resize-none transition-colors"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Landmark</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.landmark}
+                                                    onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Column 3: Equipment & Info */}
+                                    <div className="space-y-4 lg:col-span-1">
+                                        <div className="flex items-center gap-2 mb-2 text-amber-500">
+                                            <Hash className="w-4 h-4" />
+                                            <h4 className="text-sm font-semibold uppercase tracking-wider">Technical</h4>
+                                        </div>
+
+                                        <div className="bg-gray-900/30 p-4 rounded-xl border border-gray-800 space-y-4 h-full">
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Label (Tag)</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.label}
+                                                    onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                                                    placeholder="e.g. Home, Bakery"
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Date Installed</label>
+                                                <input
+                                                    type="date"
+                                                    value={formData.date_installed}
+                                                    onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Router Serial Number</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.router_serial_number}
+                                                    onChange={(e) => setFormData({ ...formData, router_serial_number: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors font-mono"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Map Section - Full Width Bottom */}
+                                <div className="mt-4 pt-4 border-t border-gray-800">
+                                    <h4 className="text-sm font-semibold text-gray-400 mb-4 flex items-center gap-2">
+                                        <MapPin className="w-4 h-4 text-red-500" />
+                                        Pin Exact Location
+                                    </h4>
+                                    <div className="h-64 rounded-xl overflow-hidden border border-gray-800 relative shadow-inner">
+                                        <MapPicker
+                                            onChange={(val) => handleLocationSelect(val.lat, val.lng)}
+                                            center={coordinates ? [coordinates.lat, coordinates.lng] : [14.8437, 120.8113]}
+                                            value={coordinates}
                                         />
-                                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                        <span className="ml-3 text-sm font-medium text-gray-300">
-                                            Referral Credit Applied
-                                        </span>
-                                    </label>
+                                    </div>
+                                    <div className="flex gap-4 mt-3">
+                                        <div className="text-xs text-gray-500 font-mono bg-gray-900 border border-gray-800 px-2 py-1 rounded">
+                                            LAT: {coordinates?.lat.toFixed(6) || '-'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 font-mono bg-gray-900 border border-gray-800 px-2 py-1 rounded">
+                                            LNG: {coordinates?.lng.toFixed(6) || '-'}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Location Details */}
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-400 mb-4 uppercase border-b border-gray-800 pb-2">Location Details</h3>
-
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                {/* Map */}
-                                <div className="h-64 rounded-lg overflow-hidden border border-gray-800 relative z-0">
-                                    <MapPicker
-                                        onChange={(val) => handleLocationSelect(val.lat, val.lng)}
-                                        center={coordinates ? [coordinates.lat, coordinates.lng] : [14.8437, 120.8113]}
-                                        value={coordinates}
-                                    />
-                                </div>
-
-                                {/* Coordinates Inputs */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Latitude (Y)</label>
-                                        <input
-                                            type="text"
-                                            value={coordinates?.lat || ''}
-                                            disabled
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                                        />
+                        {/* MIKROTIK PPP TAB */}
+                        {activeTab === 'mikrotik' && (
+                            <div className="space-y-6">
+                                {loadingPpp ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+                                        Loading PPP Details...
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Longitude (X)</label>
-                                        <input
-                                            type="text"
-                                            value={coordinates?.lng || ''}
-                                            disabled
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                                        />
+                                ) : pppSecret ? (
+                                    <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 space-y-4">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <Globe className="w-5 h-5 text-blue-500" />
+                                            <h3 className="text-lg font-medium text-white">Active PPP Secret</h3>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                                <label className="text-gray-500 block mb-1">Username</label>
+                                                <div className="text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.name}</div>
+                                            </div>
+                                            <div>
+                                                <label className="text-gray-500 block mb-1">Service</label>
+                                                <div className="text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.service}</div>
+                                            </div>
+                                            <div>
+                                                <label className="text-gray-500 block mb-1">Profile</label>
+                                                <div className="text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.profile}</div>
+                                            </div>
+                                            <div>
+                                                <label className="text-gray-500 block mb-1">Local Address</label>
+                                                <div className="text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.local_address || '-'}</div>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-gray-500 block mb-1">Comment</label>
+                                                <div className="text-gray-400 italic">{pppSecret.comment || 'No comment'}</div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-
-                                {/* Address Fields */}
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Barangay</label>
-                                        <select
-                                            value={formData.barangay}
-                                            onChange={handleBarangayChange}
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                        >
-                                            <option value="">Select Barangay</option>
-                                            {BARANGAY_OPTIONS.map(opt => (
-                                                <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                        </select>
+                                ) : (
+                                    <div className="text-center py-12 border-2 border-dashed border-gray-800 rounded-xl">
+                                        <Globe className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                                        <h3 className="text-gray-400 font-medium">No PPP Secret Found</h3>
+                                        <p className="text-gray-600 text-sm mt-1">This subscription is not linked to a MikroTik PPP secret.</p>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Complete Address (House No/Street/Subd/Sitio)</label>
-                                        <textarea
-                                            value={formData.address}
-                                            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                            rows={2}
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500 resize-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Location Type</label>
-                                        <input
-                                            type="text"
-                                            value={formData.label}
-                                            onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                                            placeholder="e.g. Home, Office, Work"
-                                            title="Type of location (e.g. Home, Office, Work)"
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-400 mb-1">Landmark</label>
-                                        <input
-                                            type="text"
-                                            value={formData.landmark}
-                                            onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
-                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                                        />
-                                    </div>
-                                </div>
+                                )}
                             </div>
-                        </div>
+                        )}
                     </div>
 
-                    {/* Footer */}
-                    <div className="sticky bottom-0 bg-[#0a0a0a] border-t border-red-900/30 p-6 flex justify-end gap-3 z-10">
+                    {/* Footer - Fixed */}
+                    <div className="p-6 border-t border-gray-800 bg-[#0a0a0a] flex justify-end gap-3 sticky bottom-0 z-10">
                         <button
                             onClick={onClose}
-                            className="px-6 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                            className="px-6 py-2 border border-gray-700 rounded-xl text-gray-300 hover:bg-gray-800 transition-colors"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={handleUpdateClick}
                             disabled={isLoading}
-                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-purple-900/20"
                         >
-                            {isLoading ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Updating...
-                                </>
-                            ) : (
-                                <>
-                                    <CheckCircle className="w-4 h-4" />
-                                    Update Subscription
-                                </>
-                            )}
+                            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            Save Changes
                         </button>
                     </div>
                 </div>
-            </div >
+            </div>
 
-
-            {/* Confirmation Modal */}
-            {
-                showConfirmation && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                        <div className="relative bg-[#0a0a0a] border-2 border-yellow-500/50 rounded-xl shadow-[0_0_50px_rgba(255,255,0,0.3)] w-full max-w-md p-6">
-                            <div className="flex items-center gap-3 mb-4">
-                                <AlertCircle className="w-8 h-8 text-yellow-500" />
-                                <h3 className="text-xl font-bold text-white">Confirm Update</h3>
-                            </div>
-                            <p className="text-gray-300 mb-6">
-                                Are you sure you want to update this subscription?
-                            </p>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => setShowConfirmation(false)}
-                                    className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleConfirmUpdate}
-                                    className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                                >
-                                    Confirm
-                                </button>
-                            </div>
+            {/* Reuse Confirmation Modals... */}
+            {showConfirmation && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
+                    <div className="relative bg-[#0a0a0a] border-2 border-purple-500/50 rounded-xl shadow w-full max-w-md p-6">
+                        <h3 className="text-xl font-bold text-white mb-4">Confirm Changes</h3>
+                        <p className="text-gray-400 mb-6">Are you sure you want to update this subscription?</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300">Cancel</button>
+                            <button onClick={handleConfirmUpdate} className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg">Confirm</button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
 
-            {/* Success Modal */}
-            {
-                showSuccess && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
-                        <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow-[0_0_50px_rgba(0,255,0,0.3)] w-full max-w-md p-6">
-                            <div className="flex items-center gap-3 mb-4">
-                                <CheckCircle className="w-8 h-8 text-green-500" />
-                                <h3 className="text-xl font-bold text-white">Success!</h3>
-                            </div>
-                            <p className="text-gray-300 mb-6">
-                                Subscription updated successfully!
-                            </p>
-                            <button
-                                onClick={handleSuccessClose}
-                                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                            >
-                                Done
-                            </button>
-                        </div>
+            {showSuccess && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" />
+                    <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow w-full max-w-md p-6 flex flex-col items-center text-center">
+                        <CheckCircle className="w-12 h-12 text-green-500 mb-4" />
+                        <h3 className="text-xl font-bold text-white mb-2">Updated Successfully</h3>
+                        <p className="text-gray-400 mb-6">The subscription details have been saved.</p>
+                        <button onClick={handleSuccessClose} className="w-full px-4 py-2 bg-green-600 rounded-lg text-white">Close</button>
                     </div>
-                )
-            }
+                </div>
+            )}
 
-            {/* Status Change Confirmation Dialog */}
             <ConfirmationDialog
                 isOpen={showStatusConfirm}
-                onClose={() => {
-                    setShowStatusConfirm(false);
-                    setPendingActiveStatus(null);
-                }}
+                onClose={() => { setShowStatusConfirm(false); setPendingActiveStatus(null); }}
                 onConfirm={() => {
-                    if (pendingActiveStatus !== null) {
-                        setFormData({ ...formData, active: pendingActiveStatus });
-                    }
-                    setShowStatusConfirm(false);
-                    setPendingActiveStatus(null);
+                    if (pendingActiveStatus !== null) setFormData({ ...formData, active: pendingActiveStatus });
+                    setShowStatusConfirm(false); setPendingActiveStatus(null);
                 }}
                 title={pendingActiveStatus ? 'Enable Subscription?' : 'Disable Subscription?'}
-                message={pendingActiveStatus
-                    ? 'Are you sure you want to enable this subscription? The customer will regain internet access.'
-                    : 'Are you sure you want to disable this subscription? The customer will lose internet access.'
-                }
-                confirmText={pendingActiveStatus ? 'Enable' : 'Disable'}
+                message={pendingActiveStatus ? 'Enable service for this customer?' : 'Disconnect this customer?'}
+                confirmText={pendingActiveStatus ? 'Enable' : 'Disconnect'}
                 type={pendingActiveStatus ? 'info' : 'warning'}
             />
         </>

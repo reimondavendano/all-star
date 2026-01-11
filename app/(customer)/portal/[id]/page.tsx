@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useParams } from 'next/navigation';
 import { CreditCard, Calendar, Wifi, AlertCircle, Loader2, Share2, MapPin, Router, Phone, Download, ChevronDown, FileText, Clock, CheckCircle, XCircle, TrendingUp, Zap, DollarSign } from 'lucide-react';
 import axios from 'axios';
-import { changeSubscriptionPlan, submitManualPayment } from '@/app/actions/subscription';
+import { changeSubscriptionPlan, submitManualPayment, previewPlanChangeInvoices } from '@/app/actions/subscription';
 import ManualPaymentModal from '@/components/customer/ManualPaymentModal';
 
 interface Subscription {
@@ -52,6 +52,13 @@ interface PortalData {
     totalCredits: number;
 }
 
+interface PlanPreview {
+    oldPlan: { days: number; amount: number; fromDate: string; toDate: string };
+    newPlan: { days: number; amount: number; fromDate: string; toDate: string };
+    totalDifference: number;
+    isUpgrade: boolean;
+}
+
 export default function CustomerPortalPage() {
     const params = useParams();
     const [data, setData] = useState<PortalData | null>(null);
@@ -60,8 +67,8 @@ export default function CustomerPortalPage() {
     // showPayModal removed
     const [showShareModal, setShowShareModal] = useState(false);
     const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-    const [showChangePlanModal, setShowChangePlanModal] = useState(false); // Add this
-    const [availablePlans, setAvailablePlans] = useState<any[]>([]); // Add this
+    const [showChangePlanModal, setShowChangePlanModal] = useState(false);
+    const [availablePlans, setAvailablePlans] = useState<any[]>([]);
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
     const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedYear, setSelectedYear] = useState('');
@@ -69,6 +76,11 @@ export default function CustomerPortalPage() {
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     const [showManualPayModal, setShowManualPayModal] = useState(false);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+
+    // Plan Change State
+    const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
+    const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+    const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
     useEffect(() => {
         if (params.id) {
@@ -260,6 +272,9 @@ export default function CustomerPortalPage() {
 
     const handleOpenChangePlan = async (subscription: Subscription) => {
         setSelectedSubscription(subscription);
+        setPlanPreview(null);
+        setSelectedPlanId(null);
+
         // Fetch plans if not loaded
         if (availablePlans.length === 0) {
             const { data } = await supabase.from('plans').select('*').order('monthly_fee');
@@ -268,14 +283,34 @@ export default function CustomerPortalPage() {
         setShowChangePlanModal(true);
     };
 
-    const handleChangePlan = async (planId: string) => {
+    const handlePreviewPlan = async (planId: string) => {
         if (!selectedSubscription) return;
-        setIsProcessingPayment(true); // Reuse loading state or create new one
+        setSelectedPlanId(planId);
+        setIsPreviewLoading(true);
+        setPlanPreview(null);
 
         try {
-            const result = await changeSubscriptionPlan(selectedSubscription.id, planId);
+            const result = await previewPlanChangeInvoices(selectedSubscription.id, planId);
+            if (result.success && result.preview) {
+                setPlanPreview(result.preview);
+            } else {
+                alert('Could not calculate preview: ' + (result.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsPreviewLoading(false);
+        }
+    };
+
+    const handleChangePlan = async () => {
+        if (!selectedSubscription || !selectedPlanId) return;
+        setIsProcessingPayment(true);
+
+        try {
+            const result = await changeSubscriptionPlan(selectedSubscription.id, selectedPlanId);
             if (result.success) {
-                alert('Plan updated successfully! Your internet speed will be adjusted shortly.');
+                alert(result.message || 'Plan updated successfully!');
                 setShowChangePlanModal(false);
                 fetchPortalData(); // Refresh data
             } else {
@@ -733,49 +768,120 @@ export default function CustomerPortalPage() {
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowChangePlanModal(false)} />
                     <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-violet-900/50 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-[0_0_60px_rgba(139,92,246,0.15)]">
-                        <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-violet-900/30">
-                            <Zap className="w-7 h-7 text-white" />
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-2 text-center">Change Subscription Plan</h3>
-                        <p className="text-gray-400 text-center text-sm mb-6">
-                            Choose a new plan for your subscription. Changes apply immediately.
-                        </p>
 
-                        <div className="space-y-3 mb-6">
-                            {availablePlans.map(plan => (
+                        {!planPreview ? (
+                            // STEP 1: SELECT PLAN
+                            <>
+                                <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-violet-900/30">
+                                    <Zap className="w-7 h-7 text-white" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-2 text-center">Change Subscription Plan</h3>
+                                <p className="text-gray-400 text-center text-sm mb-6">
+                                    Choose a new plan for your subscription. Changes apply immediately.
+                                </p>
+
+                                <div className="space-y-3 mb-6">
+                                    {availablePlans.map(plan => (
+                                        <button
+                                            key={plan.id}
+                                            onClick={() => handlePreviewPlan(plan.id)}
+                                            disabled={isPreviewLoading || plan.name === selectedSubscription?.plan.name}
+                                            className={`w-full p-4 rounded-xl transition-all flex items-center justify-between group border ${plan.name === selectedSubscription?.plan.name
+                                                ? 'bg-violet-900/20 border-violet-500/50 cursor-default opacity-70'
+                                                : 'bg-gray-900/50 border-gray-700 hover:border-violet-500 hover:bg-gray-800'
+                                                }`}
+                                        >
+                                            <div className="text-left">
+                                                <div className="font-bold text-white flex items-center gap-2">
+                                                    {plan.name}
+                                                    {plan.name === selectedSubscription?.plan.name && (
+                                                        <span className="text-[10px] bg-violet-600 px-2 py-0.5 rounded-full">CURRENT</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-gray-400 mt-1">{plan.details || `${plan.speed_mbps} Mbps`}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-bold text-violet-400">₱{plan.monthly_fee.toLocaleString()}</div>
+                                                <div className="text-[10px] text-gray-500">/month</div>
+                                            </div>
+                                            {(isPreviewLoading && selectedPlanId === plan.id) && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                                        </button>
+                                    ))}
+                                </div>
+
                                 <button
-                                    key={plan.id}
-                                    onClick={() => handleChangePlan(plan.id)}
-                                    disabled={isProcessingPayment || plan.name === selectedSubscription?.plan.name}
-                                    className={`w-full p-4 rounded-xl transition-all flex items-center justify-between group border ${plan.name === selectedSubscription?.plan.name
-                                        ? 'bg-violet-900/20 border-violet-500/50 cursor-default opacity-70'
-                                        : 'bg-gray-900/50 border-gray-700 hover:border-violet-500 hover:bg-gray-800'
-                                        }`}
+                                    onClick={() => setShowChangePlanModal(false)}
+                                    className="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
                                 >
-                                    <div className="text-left">
-                                        <div className="font-bold text-white flex items-center gap-2">
-                                            {plan.name}
-                                            {plan.name === selectedSubscription?.plan.name && (
-                                                <span className="text-[10px] bg-violet-600 px-2 py-0.5 rounded-full">CURRENT</span>
-                                            )}
-                                        </div>
-                                        <div className="text-xs text-gray-400 mt-1">{plan.details || `${plan.speed_mbps} Mbps`}</div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="font-bold text-violet-400">₱{plan.monthly_fee.toLocaleString()}</div>
-                                        <div className="text-[10px] text-gray-500">/month</div>
-                                    </div>
-                                    {isProcessingPayment && plan.name === selectedSubscription?.plan.name && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                                    Cancel
                                 </button>
-                            ))}
-                        </div>
+                            </>
+                        ) : (
+                            // STEP 2: PREVIEW PRO-RATED CHARGES
+                            <>
+                                <div className="w-14 h-14 bg-gradient-to-br from-emerald-600 to-teal-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-900/30">
+                                    <FileText className="w-7 h-7 text-white" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-2 text-center">Confirm Plan Change</h3>
+                                <p className="text-gray-400 text-center text-sm mb-6">
+                                    Review the prorated charges for this change.
+                                </p>
 
-                        <button
-                            onClick={() => setShowChangePlanModal(false)}
-                            className="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
-                        >
-                            Cancel
-                        </button>
+                                <div className="bg-gray-900/50 rounded-xl p-4 mb-6 space-y-4 border border-gray-800">
+                                    {/* Billing Period Info */}
+                                    <div className="text-xs text-center text-gray-500 border-b border-gray-800 pb-2 mb-2">
+                                        Billing Period: {formatDate(planPreview.oldPlan.fromDate)} - {formatDate(planPreview.newPlan.toDate)}
+                                    </div>
+
+                                    {/* Old Plan */}
+                                    <div className="flex justify-between items-center text-sm">
+                                        <div>
+                                            <div className="text-gray-400">Old Plan ({planPreview.oldPlan.days} days)</div>
+                                            <div className="text-xs text-gray-500">{formatShortDate(planPreview.oldPlan.fromDate)} - {formatShortDate(planPreview.oldPlan.toDate)}</div>
+                                        </div>
+                                        <div className="font-mono text-gray-300">₱{planPreview.oldPlan.amount.toLocaleString()}</div>
+                                    </div>
+
+                                    {/* New Plan */}
+                                    <div className="flex justify-between items-center text-sm">
+                                        <div>
+                                            <div className="text-emerald-400 font-medium">New Plan ({planPreview.newPlan.days} days)</div>
+                                            <div className="text-xs text-gray-500">{formatShortDate(planPreview.newPlan.fromDate)} - {formatShortDate(planPreview.newPlan.toDate)}</div>
+                                        </div>
+                                        <div className="font-mono text-emerald-400">₱{planPreview.newPlan.amount.toLocaleString()}</div>
+                                    </div>
+
+                                    {/* Total Difference */}
+                                    <div className="pt-3 border-t border-gray-800 flex justify-between items-center">
+                                        <div className="font-bold text-white">Total Prorated Invoice</div>
+                                        <div className="font-bold text-xl text-white">
+                                            ₱{((planPreview.oldPlan.amount || 0) + (planPreview.newPlan.amount || 0)).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-gray-500 text-right">
+                                        This amount will be added to your balance.
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setPlanPreview(null)}
+                                        className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 px-4 rounded-xl transition-colors"
+                                        disabled={isProcessingPayment}
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        onClick={handleChangePlan}
+                                        disabled={isProcessingPayment}
+                                        className="flex-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all shadow-lg shadow-violet-900/20 flex items-center justify-center gap-2"
+                                    >
+                                        {isProcessingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                        Confirm Change
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

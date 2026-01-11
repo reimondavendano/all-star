@@ -153,9 +153,9 @@ export default function ExpensesPage() {
             const { data } = await supabase
                 .from('subscriptions')
                 .select(`
-                    id, subscriber_id, address, barangay,
+                    id, subscriber_id, address, barangay, business_unit_id,
                     plans(name),
-                    business_units(name)
+                    business_units(id, name)
                 `)
                 .eq('subscriber_id', customerId)
                 .eq('active', true);
@@ -167,7 +167,8 @@ export default function ExpensesPage() {
                 barangay: s.barangay || '',
                 plan_name: Array.isArray(s.plans) ? s.plans[0]?.name : s.plans?.name || 'No Plan',
                 business_unit_name: Array.isArray(s.business_units) ? s.business_units[0]?.name : s.business_units?.name || 'Unknown',
-                business_unit_id: Array.isArray(s.business_units) ? s.business_units[0]?.id : s.business_units?.id
+                // Use business_unit_id from subscription directly since it's the FK
+                business_unit_id: s.business_unit_id
             }));
             setCustomerSubscriptions(subs);
         } catch (error) {
