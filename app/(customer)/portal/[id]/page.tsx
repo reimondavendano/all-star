@@ -599,17 +599,18 @@ export default function CustomerPortalPage() {
                                                     {sub.active ? 'ACTIVE' : 'INACTIVE'}
                                                 </span>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <p className="text-sm text-gray-500">{sub.plan.details || `₱${sub.plan.monthly_fee.toLocaleString()}/month`}</p>
-                                                <button
-                                                    onClick={() => handleOpenChangePlan(sub)}
-                                                    className="text-xs text-violet-400 hover:text-violet-300 underline"
-                                                >
-                                                    Change Plan
-                                                </button>
-                                            </div>
+                                            <p className="text-sm text-gray-500">{sub.plan.details || `₱${sub.plan.monthly_fee.toLocaleString()}/month`}</p>
                                         </div>
                                     </div>
+
+                                    {/* Change Plan Button - More Prominent */}
+                                    <button
+                                        onClick={() => handleOpenChangePlan(sub)}
+                                        className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600/20 to-purple-600/20 hover:from-violet-600 hover:to-purple-600 border border-violet-500/50 hover:border-violet-400 text-violet-400 hover:text-white rounded-xl transition-all duration-200 group"
+                                    >
+                                        <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                        <span className="text-sm font-medium">Upgrade Plan</span>
+                                    </button>
                                 </div>
                             </div>
 
