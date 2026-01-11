@@ -755,14 +755,24 @@ export default function InvoicesPaymentsPage() {
                                                                 <div className="bg-[#0f0f0f] p-3 border-t border-gray-800">
                                                                     <div className="text-xs text-gray-500 mb-2">Payment History</div>
                                                                     <div className="space-y-1">
-                                                                        {payments.map(payment => (
-                                                                            <div key={payment.id} className="flex items-center justify-between text-xs">
-                                                                                <span className="text-gray-400">
-                                                                                    {new Date(payment.settlement_date).toLocaleDateString()} • {payment.mode}
-                                                                                </span>
-                                                                                <span className="text-emerald-400">+₱{Math.round(payment.amount).toLocaleString()}</span>
-                                                                            </div>
-                                                                        ))}
+                                                                        {payments.map(payment => {
+                                                                            const isPending = payment.notes?.toLowerCase().includes('pending verification');
+                                                                            return (
+                                                                                <div key={payment.id} className="flex items-center justify-between text-xs">
+                                                                                    <span className="text-gray-400 flex items-center gap-2">
+                                                                                        {new Date(payment.settlement_date).toLocaleDateString()} • {payment.mode}
+                                                                                        {isPending && (
+                                                                                            <span className="text-[10px] bg-violet-900/30 text-violet-400 px-1.5 py-0.5 rounded border border-violet-800 flex items-center gap-1">
+                                                                                                Pending
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </span>
+                                                                                    <span className={isPending ? 'text-violet-400' : 'text-emerald-400'}>
+                                                                                        +₱{Math.round(payment.amount).toLocaleString()}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
                                                                     </div>
                                                                 </div>
                                                             )}
@@ -810,8 +820,8 @@ export default function InvoicesPaymentsPage() {
                                         key={page}
                                         onClick={() => setCurrentPage(page)}
                                         className={`w-8 h-8 text-sm rounded transition-colors ${currentPage === page
-                                                ? 'bg-purple-600 text-white font-bold'
-                                                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                                            ? 'bg-purple-600 text-white font-bold'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800'
                                             }`}
                                     >
                                         {page}

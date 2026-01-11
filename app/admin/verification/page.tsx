@@ -14,7 +14,10 @@ import {
     AlertCircle,
     Banknote,
     Eye,
-    DollarSign
+    DollarSign,
+    Calendar,
+    Clock,
+    Filter
 } from 'lucide-react';
 import { approvePayment, rejectPayment } from '@/app/actions/subscription';
 import { getPaymentAccounts } from '@/app/actions/verification';
@@ -30,8 +33,9 @@ interface VerificationItem {
     notes: string;
     settlement_date: string;
     created_at: string;
+    status: 'pending' | 'approved' | 'rejected';
     subscription: {
-        address: string; // Used for "Business Unit" roughly
+        address: string;
         plan: {
             name: string;
         };
@@ -53,6 +57,15 @@ export default function VerificationPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
 
+    // Month Filter - default to current month
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    });
+
+    // Status Filter
+    const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+
     // Modal State
     const [selectedPayment, setSelectedPayment] = useState<any>(null);
     const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
@@ -61,7 +74,7 @@ export default function VerificationPage() {
 
     useEffect(() => {
         if (activeTab === 'verification') {
-            fetchPendingPayments();
+            fetchPayments();
         } else if (activeTab === 'settings') {
             getPaymentAccounts().then(res => {
                 if (res.success && res.accounts) {
@@ -71,12 +84,17 @@ export default function VerificationPage() {
                 }
             });
         }
-    }, [activeTab, showUploadModal]);
+    }, [activeTab, showUploadModal, selectedMonth]);
 
-    const fetchPendingPayments = async () => {
+    const fetchPayments = async () => {
         setIsLoading(true);
         try {
-            // Fetch payments with 'Pending Verification' in notes
+            // Calculate month range
+            const [year, month] = selectedMonth.split('-');
+            const startDate = `${year}-${month}-01`;
+            const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+
+            // Fetch E-Wallet payments for the selected month
             const { data, error } = await supabase
                 .from('payments')
                 .select(`
@@ -97,7 +115,9 @@ export default function VerificationPage() {
                         to_date
                     )
                 `)
-                .ilike('notes', '%Pending Verification%')
+                .eq('mode', 'E-Wallet')
+                .gte('created_at', `${startDate}T00:00:00`)
+                .lte('created_at', `${endDate}T23:59:59`)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -108,10 +128,20 @@ export default function VerificationPage() {
                     sub.plan = Array.isArray(sub.plan) ? sub.plan[0] : sub.plan;
                     sub.customer = Array.isArray(sub.customer) ? sub.customer[0] : sub.customer;
                 }
+
+                // Determine status from notes
+                let status: 'pending' | 'approved' | 'rejected' = 'approved';
+                if (p.notes?.includes('Pending Verification')) {
+                    status = 'pending';
+                } else if (p.notes?.includes('REJECTED')) {
+                    status = 'rejected';
+                }
+
                 return {
                     ...p,
                     subscription: sub,
-                    invoice: Array.isArray(p.invoice) ? p.invoice[0] : p.invoice
+                    invoice: Array.isArray(p.invoice) ? p.invoice[0] : p.invoice,
+                    status
                 };
             });
 
@@ -144,10 +174,9 @@ export default function VerificationPage() {
             );
 
             if (result.success) {
-                // Success: Close modal and refresh
                 setIsVerifyModalOpen(false);
                 setSelectedPayment(null);
-                fetchPendingPayments();
+                fetchPayments();
             } else {
                 alert('Verification failed: ' + result.error);
             }
@@ -167,7 +196,7 @@ export default function VerificationPage() {
         try {
             const result = await rejectPayment(id, reason || undefined);
             if (result.success) {
-                setPayments(prev => prev.filter(p => p.id !== id));
+                fetchPayments();
                 alert('Payment rejected.');
             } else {
                 alert('Failed to reject: ' + result.error);
@@ -180,13 +209,61 @@ export default function VerificationPage() {
     };
 
     const extractRefId = (notes: string) => {
-        const match = notes.match(/Ref:\s*([^\s.,-]+)/);
+        const match = notes?.match(/Ref:\s*([^\s.,-]+)/);
         return match ? match[1] : 'N/A';
     };
 
     const extractProofUrl = (notes: string): string | null => {
-        const match = notes.match(/Proof:\s*([^\s]+)/);
+        const match = notes?.match(/Proof:\s*([^\s]+)/);
         return match ? match[1] : null;
+    };
+
+    // Filter payments based on status
+    const filteredPayments = payments.filter(p => {
+        if (statusFilter === 'all') return true;
+        return p.status === statusFilter;
+    });
+
+    // Stats
+    const pendingCount = payments.filter(p => p.status === 'pending').length;
+    const approvedCount = payments.filter(p => p.status === 'approved').length;
+    const rejectedCount = payments.filter(p => p.status === 'rejected').length;
+
+    // Generate month options (last 12 months)
+    const monthOptions = [];
+    for (let i = 0; i < 12; i++) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const label = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+        monthOptions.push({ value, label });
+    }
+
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'approved':
+                return (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-900/40 text-emerald-400 text-xs rounded-full border border-emerald-700/50">
+                        <CheckCircle className="w-3 h-3" />
+                        Approved
+                    </span>
+                );
+            case 'rejected':
+                return (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-900/40 text-red-400 text-xs rounded-full border border-red-700/50">
+                        <XCircle className="w-3 h-3" />
+                        Rejected
+                    </span>
+                );
+            case 'pending':
+            default:
+                return (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/40 text-amber-400 text-xs rounded-full border border-amber-700/50">
+                        <Clock className="w-3 h-3" />
+                        Pending
+                    </span>
+                );
+        }
     };
 
     return (
@@ -224,21 +301,65 @@ export default function VerificationPage() {
 
             {activeTab === 'verification' ? (
                 <div className="glass-card overflow-hidden border border-gray-800 rounded-xl bg-[#0a0a0a]">
-                    <div className="p-6 border-b border-gray-800 flex justify-between items-center">
-                        <h2 className="text-lg font-semibold text-white">Pending Requests</h2>
-                        <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded-full text-xs border border-emerald-900/50">
-                            {payments.length} Pending
-                        </span>
+                    {/* Header with Filters */}
+                    <div className="p-6 border-b border-gray-800">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <h2 className="text-lg font-semibold text-white">E-Wallet Payments</h2>
+
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* Month Filter */}
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-gray-500" />
+                                    <select
+                                        value={selectedMonth}
+                                        onChange={(e) => setSelectedMonth(e.target.value)}
+                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                        {monthOptions.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Status Filter */}
+                                <div className="flex items-center gap-2">
+                                    <Filter className="w-4 h-4 text-gray-500" />
+                                    <select
+                                        value={statusFilter}
+                                        onChange={(e) => setStatusFilter(e.target.value as any)}
+                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                        <option value="all">All Status</option>
+                                        <option value="pending">Pending</option>
+                                        <option value="approved">Approved</option>
+                                        <option value="rejected">Rejected</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div className="flex flex-wrap gap-3 mt-4">
+                            <span className="bg-amber-900/30 text-amber-400 px-3 py-1 rounded-full text-xs border border-amber-900/50">
+                                {pendingCount} Pending
+                            </span>
+                            <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded-full text-xs border border-emerald-900/50">
+                                {approvedCount} Approved
+                            </span>
+                            <span className="bg-red-900/30 text-red-400 px-3 py-1 rounded-full text-xs border border-red-900/50">
+                                {rejectedCount} Rejected
+                            </span>
+                        </div>
                     </div>
 
                     {isLoading ? (
                         <div className="p-12 flex justify-center">
                             <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
                         </div>
-                    ) : payments.length === 0 ? (
+                    ) : filteredPayments.length === 0 ? (
                         <div className="p-12 text-center text-gray-500">
                             <CheckCircle className="w-12 h-12 mx-auto mb-4 text-gray-700" />
-                            <p>No pending verifications found.</p>
+                            <p>No {statusFilter !== 'all' ? statusFilter : ''} payments found for this month.</p>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
@@ -249,11 +370,12 @@ export default function VerificationPage() {
                                         <th className="p-4 font-medium">Payment Details</th>
                                         <th className="p-4 font-medium">Reference</th>
                                         <th className="p-4 font-medium">Date/Period</th>
+                                        <th className="p-4 font-medium">Status</th>
                                         <th className="p-4 font-medium text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-800">
-                                    {payments.map((payment) => (
+                                    {filteredPayments.map((payment) => (
                                         <tr key={payment.id} className="hover:bg-white/5 transition-colors">
                                             <td className="p-4">
                                                 <p className="font-bold text-white">{payment.subscription?.customer?.name || 'Unknown'}</p>
@@ -274,7 +396,6 @@ export default function VerificationPage() {
                                                 <div className="bg-gray-900 border border-gray-700 rounded px-2 py-1 font-mono text-sm text-yellow-500 w-fit select-all">
                                                     {extractRefId(payment.notes)}
                                                 </div>
-                                                {/* Proof Image */}
                                                 {extractProofUrl(payment.notes) && (
                                                     <a
                                                         href={extractProofUrl(payment.notes) || '#'}
@@ -292,26 +413,38 @@ export default function VerificationPage() {
                                                 <p className="text-xs text-gray-500 mt-1">
                                                     Period: {payment.invoice ? `${new Date(payment.invoice.from_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(payment.invoice.to_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'N/A'}
                                                 </p>
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    Submitted: {new Date(payment.created_at).toLocaleDateString()}
+                                                </p>
+                                            </td>
+                                            <td className="p-4">
+                                                {getStatusBadge(payment.status)}
                                             </td>
                                             <td className="p-4 text-right">
-                                                <div className="flex gap-2 w-full">
-                                                    <button
-                                                        onClick={() => handleApproveClick(payment)}
-                                                        disabled={processingId === payment.id}
-                                                        className="flex-1 py-1.5 px-3 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-400 text-xs rounded border border-emerald-800 transition-colors flex items-center justify-center gap-1 font-medium"
-                                                    >
-                                                        <CheckCircle className="w-3 h-3" />
-                                                        {processingId === payment.id ? '...' : 'Approve'}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleReject(payment.id)}
-                                                        disabled={processingId === payment.id}
-                                                        className="flex-1 py-1.5 px-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 text-xs rounded border border-red-800 transition-colors flex items-center justify-center gap-1 font-medium"
-                                                    >
-                                                        <XCircle className="w-3 h-3" />
-                                                        Reject
-                                                    </button>
-                                                </div>
+                                                {payment.status === 'pending' ? (
+                                                    <div className="flex gap-2 justify-end">
+                                                        <button
+                                                            onClick={() => handleApproveClick(payment)}
+                                                            disabled={processingId === payment.id}
+                                                            className="py-1.5 px-3 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-400 text-xs rounded border border-emerald-800 transition-colors flex items-center gap-1 font-medium"
+                                                        >
+                                                            <CheckCircle className="w-3 h-3" />
+                                                            {processingId === payment.id ? '...' : 'Approve'}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleReject(payment.id)}
+                                                            disabled={processingId === payment.id}
+                                                            className="py-1.5 px-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 text-xs rounded border border-red-800 transition-colors flex items-center gap-1 font-medium"
+                                                        >
+                                                            <XCircle className="w-3 h-3" />
+                                                            Reject
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xs text-gray-500">
+                                                        {payment.status === 'approved' ? 'Verified' : 'Cancelled'}
+                                                    </span>
+                                                )}
                                             </td>
                                         </tr>
                                     ))}
