@@ -1,5 +1,6 @@
 import CustomerNav from '@/components/customer/CustomerNav';
 import NetworkBackground from '@/components/admin/NetworkBackground';
+import CustomerMobileNav from '@/components/customer/CustomerMobileNav';
 
 export default function CustomerLayout({
     children,
@@ -11,9 +12,10 @@ export default function CustomerLayout({
             <div className="scanline-effect" />
             <NetworkBackground />
             <CustomerNav />
-            <main className="pt-24 pb-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto relative z-10">
+            <main className="pt-24 pb-20 md:pb-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto relative z-10">
                 {children}
             </main>
+            <CustomerMobileNav />
         </div>
     );
 }

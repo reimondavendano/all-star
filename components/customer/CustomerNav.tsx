@@ -105,29 +105,8 @@ export default function CustomerNav() {
                     </div>
                 </div>
 
-                {/* Mobile Navigation */}
-                <div className="md:hidden pb-3">
-                    <div className="flex items-center gap-2">
-                        {navigation.map((item) => {
-                            const isActive = pathname === item.href;
-                            return (
-                                <Link
-                                    key={item.name}
-                                    href={item.href}
-                                    className={clsx(
-                                        'flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all text-center',
-                                        isActive
-                                            ? 'text-white bg-gradient-to-r from-violet-600 to-purple-600'
-                                            : 'text-gray-400 bg-gray-800/50'
-                                    )}
-                                >
-                                    <item.icon className="w-4 h-4 mx-auto mb-1" />
-                                    {item.name}
-                                </Link>
-                            );
-                        })}
-                    </div>
-                </div>
+                {/* Mobile Navigation - Removed (Moved to Bottom Nav) */}
+                <div className="md:hidden pb-3"></div>
             </div>
         </nav>
     );

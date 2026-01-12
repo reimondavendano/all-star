@@ -15,12 +15,8 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
     return (
         <div className="h-16 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-red-900/30 flex items-center justify-between px-4 lg:px-6 fixed top-0 right-0 left-0 lg:left-64 z-40 tech-border">
             <div className="flex items-center gap-2 lg:gap-0">
-                <button
-                    onClick={onMenuClick}
-                    className="lg:hidden text-gray-400 hover:text-white p-2 hover:bg-white/5 rounded transition-colors"
-                >
-                    <Menu className="w-6 h-6" />
-                </button>
+                {/* Mobile Menu Button Removed - Moved to Bottom Nav */}
+                <div className="lg:hidden w-2" /> {/* Spacer */}
                 <div className="relative group hidden sm:block">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 group-hover:text-red-500 transition-colors" />
                     <input
