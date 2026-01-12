@@ -95,6 +95,10 @@ export default function CollectorInvoicesPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 20; // Optimized for 500+ records
 
+    // Cash Tracking for Remittance
+    const [cashCollected, setCashCollected] = useState(0);
+    const [ewalletCollected, setEwalletCollected] = useState(0);
+
     // Modals
     const [isQuickCollectOpen, setIsQuickCollectOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -175,10 +179,29 @@ export default function CollectorInvoicesPage() {
             }
 
             const { data: invoices } = await invoicesQuery;
+
+            // Fetch ALL payments for cash tracking (not just by subIds, but for the month)
             const { data: payments } = await supabase
                 .from('payments')
                 .select('*')
                 .in('subscription_id', subIds);
+
+            // Calculate Cash vs E-Wallet totals for the selected month
+            const monthPayments = (payments || []).filter(pay => {
+                if (!pay.settlement_date) return false;
+                return pay.settlement_date.startsWith(selectedMonth);
+            });
+
+            const cashTotal = monthPayments
+                .filter(pay => pay.mode === 'Cash')
+                .reduce((sum, pay) => sum + (pay.amount || 0), 0);
+
+            const ewalletTotal = monthPayments
+                .filter(pay => pay.mode === 'E-Wallet')
+                .reduce((sum, pay) => sum + (pay.amount || 0), 0);
+
+            setCashCollected(cashTotal);
+            setEwalletCollected(ewalletTotal);
 
             // Group by customer
             const customerMap = new Map<string, GroupedData>();
@@ -252,13 +275,24 @@ export default function CollectorInvoicesPage() {
 
             if (paymentError) throw paymentError;
 
-            // Update invoice status
-            const remainingBalance = selectedInvoice.invoice.amount_due - amount;
-            const newStatus = remainingBalance <= 0 ? 'Paid' : 'Partially Paid';
+            // Get current amount_paid from invoice (if tracking partial payments)
+            const { data: invoiceData } = await supabase
+                .from('invoices')
+                .select('amount_paid')
+                .eq('id', selectedInvoice.invoice.id)
+                .single();
 
+            const currentAmountPaid = invoiceData?.amount_paid || 0;
+            const newAmountPaid = currentAmountPaid + amount;
+            const isFullyPaid = newAmountPaid >= selectedInvoice.invoice.amount_due;
+
+            // Update invoice status and amount_paid
             await supabase
                 .from('invoices')
-                .update({ payment_status: newStatus })
+                .update({
+                    payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+                    amount_paid: newAmountPaid
+                })
                 .eq('id', selectedInvoice.invoice.id);
 
             // Update subscription balance
@@ -324,6 +358,32 @@ export default function CollectorInvoicesPage() {
 
     return (
         <div className="space-y-6">
+            {/* Cash Remittance Card - Prominent Display */}
+            <div className="glass-card p-4 bg-gradient-to-r from-amber-900/20 via-yellow-900/20 to-orange-900/20 border-amber-700/50">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-900/30">
+                            <Banknote className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <div className="text-sm text-amber-400 font-medium">Cash to Remit to Admin</div>
+                            <div className="text-xs text-gray-500">For {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-6">
+                        <div className="text-center">
+                            <div className="text-3xl font-bold text-amber-400">₱{Math.round(cashCollected).toLocaleString()}</div>
+                            <div className="text-xs text-amber-500/80">Cash Payments</div>
+                        </div>
+                        <div className="h-10 w-px bg-gray-700"></div>
+                        <div className="text-center opacity-60">
+                            <div className="text-lg font-semibold text-violet-400">₱{Math.round(ewalletCollected).toLocaleString()}</div>
+                            <div className="text-xs text-violet-500/80">E-Wallet (Direct)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* Header */}
             <div className="glass-card p-6">
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -599,8 +659,8 @@ export default function CollectorInvoicesPage() {
                                         key={page}
                                         onClick={() => setCurrentPage(page)}
                                         className={`w-8 h-8 text-sm rounded transition-colors ${currentPage === page
-                                                ? 'bg-purple-600 text-white font-bold'
-                                                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                                            ? 'bg-purple-600 text-white font-bold'
+                                            : 'text-gray-400 hover:text-white hover:bg-gray-800'
                                             }`}
                                     >
                                         {page}

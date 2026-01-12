@@ -604,13 +604,31 @@ export default function CustomerPortalPage() {
                                     </div>
 
                                     {/* Change Plan Button - More Prominent */}
-                                    <button
-                                        onClick={() => handleOpenChangePlan(sub)}
-                                        className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600/20 to-purple-600/20 hover:from-violet-600 hover:to-purple-600 border border-violet-500/50 hover:border-violet-400 text-violet-400 hover:text-white rounded-xl transition-all duration-200 group"
-                                    >
-                                        <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                                        <span className="text-sm font-medium">Upgrade Plan</span>
-                                    </button>
+                                    {/* Change Plan Button - More Prominent */}
+                                    {sub.balance <= 0 ? (
+                                        <button
+                                            onClick={() => handleOpenChangePlan(sub)}
+                                            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600/20 to-purple-600/20 hover:from-violet-600 hover:to-purple-600 border border-violet-500/50 hover:border-violet-400 text-violet-400 hover:text-white rounded-xl transition-all duration-200 group"
+                                        >
+                                            <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                            <span className="text-sm font-medium">Upgrade Plan</span>
+                                        </button>
+                                    ) : (
+                                        <div className="flex flex-col items-end">
+                                            <button
+                                                disabled
+                                                className="flex items-center gap-2 px-4 py-2.5 bg-gray-800/50 border border-gray-700 text-gray-500 rounded-xl cursor-not-allowed opacity-70"
+                                                title="Please settle your outstanding balance to change plan"
+                                            >
+                                                <TrendingUp className="w-4 h-4" />
+                                                <span className="text-sm font-medium">Upgrade Plan</span>
+                                            </button>
+                                            <span className="text-[10px] text-amber-500 mt-1 flex items-center gap-1">
+                                                <AlertCircle className="w-3 h-3" />
+                                                Pay balance to upgrade
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

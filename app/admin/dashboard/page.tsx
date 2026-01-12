@@ -9,6 +9,8 @@ import {
     Send, Download, Clock, CheckCircle, XCircle, Zap, Shield
 } from 'lucide-react';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
+import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { getMikrotikData } from '@/app/actions/mikrotik';
 import { toggleTunnel } from '@/app/actions/system';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
@@ -82,9 +84,11 @@ interface SubscriptionStats {
 }
 
 export default function DashboardPage() {
+    const router = useRouter();
     const [data, setData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [mikrotikStatus, setMikrotikStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+    const [mounted, setMounted] = useState(false);
+    const [mikrotikStatus, setMikrotikStatus] = useState<'checking' | 'online' | 'offline'>('offline');
 
     // Tunnel Control State
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -111,6 +115,7 @@ export default function DashboardPage() {
     );
 
     useEffect(() => {
+        setMounted(true);
         // Check Mikrotik Status
         const checkStatus = async () => {
             try {
@@ -149,18 +154,30 @@ export default function DashboardPage() {
     const handleConfirmToggle = async () => {
         if (!confirmAction) return;
 
+        // 1. Close the Confirmation Dialog immediately
+        setIsConfirmOpen(false);
+
+        // 2. Start Loading State (Triggers Global Overlay)
         setIsLoadingTunnel(true);
+
         try {
             const result = await toggleTunnel(confirmAction);
+
             if (!result.success) {
                 alert(`Failed to ${confirmAction} tunnel: ${result.message}`);
+                // Stop loading immediately on error
+                setIsLoadingTunnel(false);
             } else {
                 if (confirmAction === 'start') {
-                    // Start polling/checking after a delay
-                    setTimeout(() => {
-                        getMikrotikData().then(res => setMikrotikStatus(res.success ? 'online' : 'offline'));
-                    }, 5000);
+                    // 3. For START: Keep overlay for 8 seconds to allow window to open and connect
+                    await new Promise(resolve => setTimeout(resolve, 8000));
+
+                    // 4. Check status after delay
+                    const res = await getMikrotikData();
+                    setMikrotikStatus(res.success ? 'online' : 'offline');
                 } else {
+                    // 3. For STOP: Short delay for UX
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                     setMikrotikStatus('offline');
                 }
             }
@@ -168,8 +185,8 @@ export default function DashboardPage() {
             console.error('Tunnel toggle error:', error);
             alert('An unexpected error occurred.');
         } finally {
+            // 5. Always clear loading state
             setIsLoadingTunnel(false);
-            setIsConfirmOpen(false);
             setConfirmAction(null);
         }
     };
@@ -1027,6 +1044,52 @@ export default function DashboardPage() {
                 type={confirmAction === 'start' ? 'info' : 'warning'}
                 isLoading={isLoadingTunnel}
             />
+
+            {/* Global Loading Overlay */}
+            {/* Global Loading Overlay (Portal to cover Sidebar) */}
+            {isLoadingTunnel && !isConfirmOpen && mounted && createPortal(
+                <div className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-md flex items-center justify-center flex-col animate-in fade-in duration-200">
+                    <div className="relative">
+                        <div className="absolute -inset-4 bg-purple-500/20 blur-xl rounded-full animate-pulse"></div>
+                        <Loader2 className="w-16 h-16 text-purple-500 animate-spin relative z-10" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white mt-8 animate-pulse">
+                        {confirmAction === 'start' ? 'Starting Tunnel...' : 'Stopping Tunnel...'}
+                    </h2>
+                    <p className="text-gray-400 mt-2 max-w-md text-center px-4">
+                        {confirmAction === 'start'
+                            ? 'Please wait while we initialize the connection. Do not close the terminal window that appears.'
+                            : 'Please wait while we safely close the connection...'}
+                    </p>
+                    <div className="mt-8 w-64 h-1 bg-gray-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-purple-500 to-violet-500 w-1/2 animate-[shimmer_1s_infinite_linear]"></div>
+                    </div>
+
+                    {/* Manual Refresh Option */}
+                    <button
+                        onClick={(e) => {
+                            // Immediate Router Push (Triggers shell as per user)
+                            router.push('/admin/dashboard');
+
+                            const btn = e.currentTarget;
+                            // Visual Feedback
+                            btn.innerText = 'Reloading in 5s...';
+                            btn.disabled = true;
+                            btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+                            // Delayed Hard Refresh
+                            setTimeout(() => {
+                                window.location.href = '/admin/dashboard';
+                            }, 5000);
+                        }}
+                        className="mt-8 flex items-center gap-2 px-4 py-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 rounded-xl text-gray-400 hover:text-white transition-all text-xs uppercase tracking-wider"
+                    >
+                        <RefreshCw className="w-6 h-6" />
+                        Refresh Tunnel if still loading
+                    </button>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }

@@ -327,13 +327,24 @@ export default function InvoicesPaymentsPage() {
 
             if (paymentError) throw paymentError;
 
-            // Update invoice status
-            const remainingBalance = selectedInvoice.invoice.amount_due - amount;
-            const newStatus = remainingBalance <= 0 ? 'Paid' : 'Partially Paid';
+            // Get current amount_paid from invoice (for tracking partial payments)
+            const { data: invoiceData } = await supabase
+                .from('invoices')
+                .select('amount_paid')
+                .eq('id', selectedInvoice.invoice.id)
+                .single();
 
+            const currentAmountPaid = invoiceData?.amount_paid || 0;
+            const newAmountPaid = currentAmountPaid + amount;
+            const isFullyPaid = newAmountPaid >= selectedInvoice.invoice.amount_due;
+
+            // Update invoice status and amount_paid
             await supabase
                 .from('invoices')
-                .update({ payment_status: newStatus })
+                .update({
+                    payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+                    amount_paid: newAmountPaid
+                })
                 .eq('id', selectedInvoice.invoice.id);
 
             // Update subscription balance

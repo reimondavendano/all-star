@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp } from 'lucide-react';
+import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp, Minus } from 'lucide-react';
 
 interface UnpaidInvoice {
     id: string;
@@ -11,6 +11,7 @@ interface UnpaidInvoice {
     to_date: string;
     due_date: string;
     amount_due: number;
+    amount_paid: number;  // Track how much has been paid
     payment_status: string;
     customer_name: string;
     mobile_number: string;
@@ -38,6 +39,10 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalCollectedAmount, setTotalCollectedAmount] = useState(0);
+
+    // Partial Payment State
+    const [partialPaymentId, setPartialPaymentId] = useState<string | null>(null);
+    const [partialAmount, setPartialAmount] = useState<string>('');
 
     useEffect(() => {
         if (isOpen) {
@@ -84,6 +89,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                     to_date,
                     due_date,
                     amount_due,
+                    amount_paid,
                     payment_status,
                     subscriptions!inner (
                         id,
@@ -125,6 +131,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                     to_date: inv.to_date,
                     due_date: inv.due_date,
                     amount_due: inv.amount_due,
+                    amount_paid: inv.amount_paid || 0,
                     payment_status: inv.payment_status,
                     customer_name: inv.subscriptions?.customers?.name || 'Unknown',
                     mobile_number: inv.subscriptions?.customers?.mobile_number || '',
@@ -147,7 +154,9 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         try {
             const now = new Date();
             const settlementDate = now.toISOString().split('T')[0];
-            const amount = invoice.amount_due;
+            // Use remaining balance for partially paid invoices
+            const remainingBalance = invoice.amount_due - invoice.amount_paid;
+            const amount = remainingBalance;
 
             const { error: paymentError } = await supabase.from('payments').insert({
                 subscription_id: invoice.subscription_id,
@@ -155,14 +164,18 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                 settlement_date: settlementDate,
                 amount: amount,
                 mode: 'Cash',
-                notes: 'Quick Collect'
+                notes: 'Quick Collect - Full Payment'
             });
 
             if (paymentError) throw paymentError;
 
+            // Update invoice to Paid and set amount_paid to full amount
             const { error: invoiceError } = await supabase
                 .from('invoices')
-                .update({ payment_status: 'Paid' })
+                .update({
+                    payment_status: 'Paid',
+                    amount_paid: invoice.amount_due  // Full amount
+                })
                 .eq('id', invoice.id);
 
             if (invoiceError) throw invoiceError;
@@ -189,6 +202,93 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         } catch (error) {
             console.error('Error processing payment:', error);
             alert('Failed to process payment');
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    // Handle Partial Payment
+    const handlePartialCollect = async (invoice: UnpaidInvoice) => {
+        const amount = parseFloat(partialAmount);
+        const remainingBalance = invoice.amount_due - invoice.amount_paid;
+
+        if (isNaN(amount) || amount <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        // Allow slight overpayment (rounding up) - cap at remaining balance
+        // If paying more than remaining, we'll just record the remaining amount
+        const actualPayment = Math.min(amount, remainingBalance);
+
+        setProcessingId(invoice.id);
+
+        try {
+            const now = new Date();
+            const settlementDate = now.toISOString().split('T')[0];
+            const newTotalPaid = invoice.amount_paid + actualPayment;
+            const isFullyPaid = newTotalPaid >= invoice.amount_due;
+
+            // Insert payment record
+            const { error: paymentError } = await supabase.from('payments').insert({
+                subscription_id: invoice.subscription_id,
+                invoice_id: invoice.id,
+                settlement_date: settlementDate,
+                amount: actualPayment,
+                mode: 'Cash',
+                notes: `Quick Collect - Partial Payment (₱${actualPayment} of ₱${invoice.amount_due})`
+            });
+
+            if (paymentError) throw paymentError;
+
+            // Update invoice with new amount_paid and status
+            const { error: invoiceError } = await supabase
+                .from('invoices')
+                .update({
+                    payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+                    amount_paid: newTotalPaid
+                })
+                .eq('id', invoice.id);
+
+            if (invoiceError) throw invoiceError;
+
+            // Update subscription balance
+            const { data: subData } = await supabase
+                .from('subscriptions')
+                .select('balance')
+                .eq('id', invoice.subscription_id)
+                .single();
+
+            const currentBalance = subData?.balance || 0;
+            await supabase
+                .from('subscriptions')
+                .update({ balance: currentBalance - actualPayment })
+                .eq('id', invoice.subscription_id);
+
+            setTotalCollectedAmount(prev => prev + actualPayment);
+
+            if (isFullyPaid) {
+                // Fully paid - remove from list
+                setSuccessIds(prev => new Set(prev).add(invoice.id));
+                setTimeout(() => {
+                    setUnpaidInvoices(prev => prev.filter(inv => inv.id !== invoice.id));
+                }, 800);
+            } else {
+                // Partially paid - update the invoice in the list
+                setUnpaidInvoices(prev => prev.map(inv =>
+                    inv.id === invoice.id
+                        ? { ...inv, amount_paid: newTotalPaid, payment_status: 'Partially Paid' }
+                        : inv
+                ));
+            }
+
+            // Reset partial payment state
+            setPartialPaymentId(null);
+            setPartialAmount('');
+
+        } catch (error) {
+            console.error('Error processing partial payment:', error);
+            alert('Failed to process partial payment');
         } finally {
             setProcessingId(null);
         }
@@ -377,7 +477,9 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                         <div
                                             key={invoice.id}
                                             className={`bg-gray-900/50 border rounded-lg p-3 transition-all duration-300 ${isSuccess
-                                                    ? 'border-emerald-500/50 bg-emerald-900/20 opacity-60'
+                                                ? 'border-emerald-500/50 bg-emerald-900/20 opacity-60'
+                                                : invoice.payment_status === 'Partially Paid'
+                                                    ? 'border-yellow-500/30 bg-yellow-900/10'
                                                     : 'border-gray-800 hover:border-gray-700'
                                                 }`}
                                         >
@@ -396,6 +498,11 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                                 {invoice.label}
                                                             </span>
                                                         )}
+                                                        {invoice.payment_status === 'Partially Paid' && (
+                                                            <span className="px-1.5 py-0.5 bg-yellow-900/30 text-yellow-400 text-[10px] rounded">
+                                                                Partial
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5">
                                                         <span>{invoice.plan_name}</span>
@@ -406,34 +513,87 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
 
                                                 {/* Amount */}
                                                 <div className="text-right flex-shrink-0 mr-2">
-                                                    <div className="text-base font-bold text-white">
-                                                        ₱{Math.round(invoice.amount_due).toLocaleString()}
-                                                    </div>
-                                                    <div className="text-[10px] text-gray-500">
-                                                        Due {new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                                    </div>
+                                                    {invoice.amount_paid > 0 ? (
+                                                        <>
+                                                            <div className="text-base font-bold text-yellow-400">
+                                                                ₱{Math.round(invoice.amount_due - invoice.amount_paid).toLocaleString()}
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-500">
+                                                                of ₱{Math.round(invoice.amount_due).toLocaleString()}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className="text-base font-bold text-white">
+                                                                ₱{Math.round(invoice.amount_due).toLocaleString()}
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-500">
+                                                                Due {new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                                            </div>
+                                                        </>
+                                                    )}
                                                 </div>
 
-                                                {/* Action Button */}
-                                                <div className="flex-shrink-0">
+                                                {/* Action Buttons */}
+                                                <div className="flex-shrink-0 flex items-center gap-1.5">
                                                     {isSuccess ? (
                                                         <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg">
                                                             <CheckCircle className="w-3.5 h-3.5" />
                                                             <span className="text-xs font-medium">Done</span>
                                                         </div>
+                                                    ) : partialPaymentId === invoice.id ? (
+                                                        /* Partial Payment Input Mode */
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="relative">
+                                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">₱</span>
+                                                                <input
+                                                                    type="number"
+                                                                    value={partialAmount}
+                                                                    onChange={(e) => setPartialAmount(e.target.value)}
+                                                                    placeholder="Amount"
+                                                                    className="w-24 bg-gray-800 border border-gray-600 rounded-lg pl-6 pr-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-500"
+                                                                    autoFocus
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handlePartialCollect(invoice)}
+                                                                disabled={isProcessing}
+                                                                className="px-2.5 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg text-xs font-medium disabled:opacity-50"
+                                                            >
+                                                                {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'OK'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { setPartialPaymentId(null); setPartialAmount(''); }}
+                                                                className="px-2 py-1.5 text-gray-400 hover:text-white text-xs"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
                                                     ) : (
-                                                        <button
-                                                            onClick={() => handleQuickCollect(invoice)}
-                                                            disabled={isProcessing || processingBatch}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
-                                                        >
-                                                            {isProcessing ? (
-                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                            ) : (
-                                                                <CreditCard className="w-3.5 h-3.5" />
-                                                            )}
-                                                            <span>{isProcessing ? 'Wait...' : 'Collect'}</span>
-                                                        </button>
+                                                        /* Normal Buttons */
+                                                        <>
+                                                            <button
+                                                                onClick={() => { setPartialPaymentId(invoice.id); setPartialAmount(''); }}
+                                                                disabled={isProcessing || processingBatch}
+                                                                className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-all disabled:opacity-50"
+                                                                title="Record partial payment"
+                                                            >
+                                                                <Minus className="w-3 h-3" />
+                                                                <span>Partial</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleQuickCollect(invoice)}
+                                                                disabled={isProcessing || processingBatch}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
+                                                            >
+                                                                {isProcessing ? (
+                                                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <CreditCard className="w-3.5 h-3.5" />
+                                                                )}
+                                                                <span>{isProcessing ? 'Wait...' : 'Collect'}</span>
+                                                            </button>
+                                                        </>
                                                     )}
                                                 </div>
                                             </div>
@@ -488,8 +648,8 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                 key={pageNum}
                                                 onClick={() => setCurrentPage(pageNum)}
                                                 className={`w-7 h-7 text-xs rounded transition-colors ${currentPage === pageNum
-                                                        ? 'bg-amber-600 text-white font-bold'
-                                                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                                                    ? 'bg-amber-600 text-white font-bold'
+                                                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                                                     }`}
                                             >
                                                 {pageNum}

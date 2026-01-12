@@ -43,7 +43,9 @@ if [ -n "$NGROK_PATH" ]; then
     
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS - Open in new Terminal window
-        osascript -e "tell application \"Terminal\" to do script \"'$NGROK_PATH' http --domain=$NGROK_DOMAIN $NGROK_TARGET\""
+        # macOS - Open in new Terminal window
+        # We append '; read' to keep the window open if ngrok exits with an error
+        osascript -e "tell application \"Terminal\" to do script \"'$NGROK_PATH' http --domain=$NGROK_DOMAIN $NGROK_TARGET; echo ''; echo '---------------------------------------------------'; echo 'Ngrok process exited.'; echo 'Press [Enter] to close this window...'; read\""
         echo "Ngrok tunnel started in new Terminal window."
     else
         # Linux - Run in background

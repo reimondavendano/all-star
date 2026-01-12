@@ -2,7 +2,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { updatePppSecret } from './mikrotik';
-import { processPlanChange, previewPlanChange } from '@/lib/planChangeService';
+import { processPlanChange, previewPlanChange, getBillingPeriodStart, getBillingPeriodEnd } from '@/lib/planChangeService';
+import { toISODateString } from '@/lib/billing';
 
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -134,10 +135,30 @@ export async function previewPlanChangeInvoices(
             ? subscription.plans[0]
             : subscription.plans;
 
+        const invoiceDate = subscription.invoice_date || '15th';
+
+        // Check for Paid Invoice covering current period
+        const today = new Date();
+        const billingStart = getBillingPeriodStart(invoiceDate, today);
+        const billingEnd = getBillingPeriodEnd(invoiceDate, today);
+
+        const { data: paidInvoice } = await supabase
+            .from('invoices')
+            .select('id')
+            .eq('subscription_id', subscriptionId)
+            .lte('from_date', toISODateString(billingStart))
+            .gte('to_date', toISODateString(billingEnd))
+            .eq('payment_status', 'Paid')
+            .maybeSingle();
+
+        const isPaid = !!paidInvoice;
+
         const preview = previewPlanChange(
             currentPlan?.monthly_fee || 0,
             newPlan.monthly_fee,
-            subscription.invoice_date || '15th'
+            invoiceDate,
+            today,
+            isPaid
         );
 
         return { success: true, preview };

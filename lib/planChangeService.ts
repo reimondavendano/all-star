@@ -116,6 +116,15 @@ export function calculateProratedAmountForDays(
  * @param changeDate - The effective date of the change (default: today)
  * @returns Result with prorated invoice details
  */
+/**
+ * Process a plan change request
+ * Creates a prorated invoice for the old plan and records the change
+ *
+ * @param subscriptionId - The subscription being modified
+ * @param newPlanId - The new plan ID
+ * @param changeDate - The effective date of the change (default: today)
+ * @returns Result with prorated invoice details
+ */
 export async function processPlanChange(
     subscriptionId: string,
     newPlanId: string,
@@ -181,71 +190,117 @@ export async function processPlanChange(
         const billingPeriodStart = getBillingPeriodStart(invoiceDate, changeDate);
         const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, changeDate);
 
+        // Check for EXISTING PAID INVOICE for this period
+        const { data: existingInvoice } = await supabase
+            .from('invoices')
+            .select('*')
+            .eq('subscription_id', subscriptionId)
+            .lte('from_date', toISODateString(billingPeriodStart))
+            .gte('to_date', toISODateString(billingPeriodEnd))
+            .eq('payment_status', 'Paid')
+            .maybeSingle();
+
+        const isPaid = !!existingInvoice;
+
         // Ensure the change date is within the billing period
+        // If change date is BEFORE start (rare), snap to start
         const effectiveStartDate = changeDate < billingPeriodStart ? billingPeriodStart : changeDate;
 
-        // 4. Calculate prorated days on OLD plan (from billing period start to change date - 1)
-        // The change date is the FIRST day on the new plan
+        let proratedAmount = 0;
+        let invoiceId: string | undefined;
+        let proratedDays = 0;
+
         const changeDateMidnight = new Date(changeDate);
         changeDateMidnight.setHours(0, 0, 0, 0);
 
-        const oldPlanEndDate = new Date(changeDateMidnight);
-        oldPlanEndDate.setDate(oldPlanEndDate.getDate() - 1); // Day before the change
+        if (isPaid) {
+            // SCENARIO: Already Paid
+            // We need to CREDIT the unused days of the OLD plan
+            // From Change Date to Billing End
 
-        // Only calculate if there are days to bill on old plan
-        let proratedDays = 0;
-        let proratedAmount = 0;
+            const remainingDays = daysBetween(changeDateMidnight, billingPeriodEnd);
 
-        if (oldPlanEndDate >= billingPeriodStart) {
-            proratedDays = daysBetween(billingPeriodStart, oldPlanEndDate);
-            const { amount } = calculateProratedAmountForDays(oldPlan.monthly_fee, proratedDays);
-            proratedAmount = amount;
-        }
+            if (remainingDays > 0) {
+                // Calculate Credit (Negative Amount)
+                const { amount: creditAmount } = calculateProratedAmountForDays(oldPlan.monthly_fee, remainingDays);
 
-        const customer = Array.isArray(subscription.customers)
-            ? subscription.customers[0]
-            : subscription.customers;
+                // Credit the balance (Subtracting creditAmount from balance effectively gives user money)
+                // Wait, logic: `balance` is Amount Due. 
+                // We want to reduce Amount Due. So we Subtract.
+                // Or if we view it as "User has `creditAmount` to spend".
+                // Let's negate it for the "Prorated Amount" return value to signal credit?
+                // No, clear variable naming.
 
-        // 5. Create prorated invoice for OLD plan (if there are days to bill)
-        let invoiceId: string | undefined;
+                proratedDays = remainingDays;
+                proratedAmount = -creditAmount; // Negative to indicate credit
 
-        if (proratedDays > 0 && proratedAmount > 0) {
-            const invoiceDescription = `${oldPlan.name} (Prorated: ${proratedDays} days from ${toISODateString(billingPeriodStart)} to ${toISODateString(oldPlanEndDate)}) - Plan changed to ${newPlan.name}`;
-
-            // Calculate due date (use billing period end or a few days from now, whichever is sooner)
-            const dueDate = billingPeriodEnd;
-
-            const { data: invoice, error: invoiceError } = await supabase
-                .from('invoices')
-                .insert({
-                    subscription_id: subscriptionId,
-                    amount_due: proratedAmount,
-                    payment_status: 'Unpaid',
-                    due_date: toISODateString(dueDate),
-                    from_date: toISODateString(billingPeriodStart),
-                    to_date: toISODateString(oldPlanEndDate),
-                    is_prorated: true,
-                    notes: invoiceDescription
-                })
-                .select('id')
-                .single();
-
-            if (invoiceError) {
-                console.error('Failed to create prorated invoice:', invoiceError);
-                // Don't throw - continue with plan change, log the issue
-            } else {
-                invoiceId = invoice?.id;
-
-                // Update subscription balance with prorated amount
+                // Update balance directly (Add negative amount)
                 const currentBalance = subscription.balance || 0;
                 await supabase
                     .from('subscriptions')
-                    .update({ balance: currentBalance + proratedAmount })
+                    .update({ balance: currentBalance - creditAmount }) // Subtract positive credit
                     .eq('id', subscriptionId);
+
+                // We do NOT create an invoice for the Old Plan here, because it's already paid.
+                // We effectively applied a credit.
+            }
+
+        } else {
+            // SCENARIO: Not Paid (Regular)
+            // 4. Calculate prorated days on OLD plan (from billing period start to change date - 1)
+
+            const oldPlanEndDate = new Date(changeDateMidnight);
+            oldPlanEndDate.setDate(oldPlanEndDate.getDate() - 1); // Day before the change
+
+            // Only calculate if there are days to bill on old plan
+            if (oldPlanEndDate >= billingPeriodStart) {
+                proratedDays = daysBetween(billingPeriodStart, oldPlanEndDate);
+                const { amount } = calculateProratedAmountForDays(oldPlan.monthly_fee, proratedDays);
+                proratedAmount = amount;
+            }
+
+            // 5. Create prorated invoice for OLD plan (if there are days to bill)
+            if (proratedDays > 0 && proratedAmount > 0) {
+                const invoiceDescription = `${oldPlan.name} (Prorated: ${proratedDays} days from ${toISODateString(billingPeriodStart)} to ${toISODateString(oldPlanEndDate)}) - Plan changed to ${newPlan.name}`;
+
+                // Calculate due date (use billing period end or a few days from now, whichever is sooner)
+                const dueDate = billingPeriodEnd;
+
+                const { data: invoice, error: invoiceError } = await supabase
+                    .from('invoices')
+                    .insert({
+                        subscription_id: subscriptionId,
+                        amount_due: proratedAmount,
+                        payment_status: 'Unpaid',
+                        due_date: toISODateString(dueDate),
+                        from_date: toISODateString(billingPeriodStart),
+                        to_date: toISODateString(oldPlanEndDate),
+                        is_prorated: true,
+                        notes: invoiceDescription
+                    })
+                    .select('id')
+                    .single();
+
+                if (invoiceError) {
+                    console.error('Failed to create prorated invoice:', invoiceError);
+                } else {
+                    invoiceId = invoice?.id;
+
+                    // Update subscription balance with prorated amount
+                    const currentBalance = subscription.balance || 0;
+                    await supabase
+                        .from('subscriptions')
+                        .update({ balance: currentBalance + proratedAmount })
+                        .eq('id', subscriptionId);
+                }
             }
         }
 
         // 6. Record the plan change event (for future invoice generation)
+        // If isPaid, we record 'prorated_amount' as the CREDIT (negative) so downstream logic knows?
+        // Actually `createNewPlanProratedInvoice` looks at `new_monthly_fee`. It doesn't care about old plan credit.
+        // But for record keeping, accurate logging is good.
+
         const planChangeRecord: Omit<PlanChangeRecord, 'id' | 'created_at'> = {
             subscription_id: subscriptionId,
             old_plan_id: oldPlan.id,
@@ -253,11 +308,11 @@ export async function processPlanChange(
             old_monthly_fee: oldPlan.monthly_fee,
             new_monthly_fee: newPlan.monthly_fee,
             change_date: toISODateString(changeDate),
-            prorated_amount: proratedAmount,
+            prorated_amount: proratedAmount, // Can be negative
             prorated_days: proratedDays,
             billing_period_start: toISODateString(billingPeriodStart),
             billing_period_end: toISODateString(billingPeriodEnd),
-            invoice_id: invoiceId,
+            invoice_id: invoiceId, // Undefined if isPaid
             processed: false // Will be set to true when new plan invoice is generated
         };
 
@@ -267,7 +322,6 @@ export async function processPlanChange(
 
         if (changeError) {
             console.error('Failed to record plan change:', changeError);
-            // Continue anyway, the main operation succeeded
         }
 
         // 7. Update subscription to new plan
@@ -280,15 +334,30 @@ export async function processPlanChange(
             throw new Error('Failed to update subscription plan');
         }
 
-        return {
-            success: true,
-            proratedInvoice: proratedAmount > 0 ? {
+        // Return result
+        let resultInvoice = undefined;
+        if (proratedAmount > 0) {
+            resultInvoice = {
                 id: invoiceId || '',
                 amount: proratedAmount,
                 fromDate: toISODateString(billingPeriodStart),
-                toDate: toISODateString(oldPlanEndDate),
+                toDate: toISODateString(new Date(new Date(changeDate).setDate(changeDate.getDate() - 1))),
                 description: `${oldPlan.name} - ${proratedDays} days`
-            } : undefined
+            };
+        } else if (proratedAmount < 0) {
+            // Return credit info
+            resultInvoice = {
+                id: 'CREDIT',
+                amount: proratedAmount,
+                fromDate: toISODateString(changeDate),
+                toDate: toISODateString(billingPeriodEnd),
+                description: `Credit for unused ${oldPlan.name} days`
+            };
+        }
+
+        return {
+            success: true,
+            proratedInvoice: resultInvoice
         };
 
     } catch (error: any) {
@@ -417,7 +486,8 @@ export function previewPlanChange(
     currentMonthlyFee: number,
     newMonthlyFee: number,
     invoiceDate: string, // '15th' or '30th'
-    changeDate: Date = new Date()
+    changeDate: Date = new Date(),
+    isPaid: boolean = false
 ): {
     oldPlan: { days: number; amount: number; fromDate: string; toDate: string };
     newPlan: { days: number; amount: number; fromDate: string; toDate: string };
@@ -426,29 +496,55 @@ export function previewPlanChange(
 } {
     const billingPeriodStart = getBillingPeriodStart(invoiceDate, changeDate);
     const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, changeDate);
+    const changeDateMidnight = new Date(changeDate);
+    changeDateMidnight.setHours(0, 0, 0, 0);
 
     // Old plan: from billing start to day before change
-    const oldPlanEndDate = new Date(changeDate);
+    const oldPlanEndDate = new Date(changeDateMidnight);
     oldPlanEndDate.setDate(oldPlanEndDate.getDate() - 1);
 
-    const oldPlanDays = oldPlanEndDate >= billingPeriodStart
-        ? daysBetween(billingPeriodStart, oldPlanEndDate)
-        : 0;
-    const { amount: oldPlanAmount } = calculateProratedAmountForDays(currentMonthlyFee, oldPlanDays);
-
     // New plan: from change date to billing end
-    const newPlanDays = daysBetween(changeDate, billingPeriodEnd);
+    const newPlanDays = daysBetween(changeDateMidnight, billingPeriodEnd);
     const { amount: newPlanAmount } = calculateProratedAmountForDays(newMonthlyFee, newPlanDays);
 
-    const totalNewInvoices = oldPlanAmount + newPlanAmount;
-    const totalIfNoChange = currentMonthlyFee;
+    let oldPlanDays = 0;
+    let oldPlanAmount = 0;
+    let totalNewInvoices = 0;
+
+    if (isPaid) {
+        // If PAID: Old Plan Amount is CREDIT for REMAINING DAYS (overlapping with new Plan)
+        // Effectively: Unused old plan days = newPlanDays (same period)
+        oldPlanDays = newPlanDays;
+
+        // Credit for unused days
+        const { amount: credit } = calculateProratedAmountForDays(currentMonthlyFee, oldPlanDays);
+        oldPlanAmount = -credit;
+
+        // Total = New - Credit
+        totalNewInvoices = newPlanAmount + oldPlanAmount;
+    } else {
+        // If NOT PAID: Old Plan Amount is CHARGE for USED DAYS
+        oldPlanDays = oldPlanEndDate >= billingPeriodStart
+            ? daysBetween(billingPeriodStart, oldPlanEndDate)
+            : 0;
+        const { amount: charge } = calculateProratedAmountForDays(currentMonthlyFee, oldPlanDays);
+        oldPlanAmount = charge;
+
+        // Total = Old + New
+        totalNewInvoices = oldPlanAmount + newPlanAmount;
+    }
+
+    const totalIfNoChange = isPaid ? 0 : currentMonthlyFee;
+
+    // For isPaid, totalDifference represents "Extra Amount to Pay"
+    // For Unpaid, totalDifference represents "Diff from original monthly fee"
 
     return {
         oldPlan: {
             days: oldPlanDays,
             amount: oldPlanAmount,
-            fromDate: toISODateString(billingPeriodStart),
-            toDate: toISODateString(oldPlanEndDate)
+            fromDate: isPaid ? toISODateString(changeDate) : toISODateString(billingPeriodStart),
+            toDate: isPaid ? toISODateString(billingPeriodEnd) : toISODateString(oldPlanEndDate)
         },
         newPlan: {
             days: newPlanDays,

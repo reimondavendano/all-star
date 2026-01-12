@@ -15,16 +15,26 @@ export async function toggleTunnel(action: 'start' | 'stop') {
     if (action === 'start') {
         try {
             if (isWindows) {
-                // "start" command in Windows cmd launches a separate process
-                exec(`start "" "${scriptPath}"`);
+                // Windows: Use spawn to launch 'start' command detached
+                const child = spawn('cmd.exe', ['/C', 'start', '""', scriptPath], {
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true
+                });
+                child.unref(); // Allow parent to exit/continue independently
             } else {
-                // macOS/Linux
-                // Make sure it's executable
-                exec(`chmod +x "${scriptPath}"`);
+                // macOS/Linux: Execute shell script detached
+                // Ensure executable permissions first (sync)
+                try {
+                    const chmod = spawn('chmod', ['+x', scriptPath]);
+                    await new Promise((resolve) => chmod.on('close', resolve));
+                } catch (e) { /* ignore */ }
 
-                // Execute the shell script
-                // We use 'sh' or './' 
-                exec(`sh "${scriptPath}"`);
+                const child = spawn('sh', [scriptPath], {
+                    detached: true,
+                    stdio: 'ignore'
+                });
+                child.unref();
             }
 
             return { success: true, message: 'Tunnel starting logic initiated.' };
