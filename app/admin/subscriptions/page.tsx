@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
+import DisconnectionModal from '@/components/admin/DisconnectionModal';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
@@ -58,6 +59,9 @@ export default function SubscriptionsPage() {
 
     // Add Modal State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+    // Disconnect Modal State
+    const [disconnectSub, setDisconnectSub] = useState<Subscription | null>(null);
 
     const itemsPerPage = 10;
 
@@ -128,7 +132,16 @@ export default function SubscriptionsPage() {
 
     const handleToggleActive = async (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
-        const newActiveState = !subscription.active;
+
+        // If currently active (true) -> User wants to disconnect (false)
+        if (subscription.active) {
+            setDisconnectSub(subscription);
+            return;
+        }
+
+        // If currently inactive (false) -> User wants to activate (true)
+        // Proceed with standard activation
+        const newActiveState = true;
 
         try {
             const { error } = await supabase
@@ -150,6 +163,23 @@ export default function SubscriptionsPage() {
             console.error('Error toggling subscription status:', error);
             alert('Failed to update subscription status');
         }
+    };
+
+    const handleDisconnectSuccess = async () => {
+        if (!disconnectSub) return;
+
+        // The modal handles the DB update (active=false) and invoice creation.
+        // We just need to sync to Mikrotik and refresh UI.
+
+        console.log(`[Subscription] Syncing ${disconnectSub.id} to MikroTik (active: false)`);
+        const syncResult = await syncSubscriptionToMikrotik(disconnectSub.id, false);
+
+        if (!syncResult.success) {
+            console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
+        }
+
+        setDisconnectSub(null);
+        fetchSubscriptions();
     };
 
     const formatDate = (dateString: string) => {
@@ -514,6 +544,15 @@ export default function SubscriptionsPage() {
                 onClose={() => setIsAddModalOpen(false)}
                 onSuccess={fetchSubscriptions}
             />
+
+            {disconnectSub && (
+                <DisconnectionModal
+                    isOpen={!!disconnectSub}
+                    onClose={() => setDisconnectSub(null)}
+                    subscription={disconnectSub}
+                    onConfirm={handleDisconnectSuccess}
+                />
+            )}
         </div>
     );
 }
