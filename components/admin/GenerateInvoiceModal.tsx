@@ -269,18 +269,10 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 const amountAfterCredits = Math.max(0, amountAfterDiscount - creditsApplied);
                 const finalAmount = amountAfterCredits + outstandingBalance;
 
-                // Filter: Only eligible if installed on or before the 15th of the billing month
-                // Only applies if installed in the same month we are billing for
-                if (dateInstalled) {
-                    const installMonth = dateInstalled.getMonth() + 1;
-                    const installYear = dateInstalled.getFullYear();
-                    const installDay = dateInstalled.getDate();
-
-                    if (installYear === yearInt && installMonth === monthInt) {
-                        if (installDay > 15) {
-                            continue; // Skip this subscription for this billing period
-                        }
-                    }
+                // Filter: Only eligible if installed on or before the end of the billing period
+                // If installed after the billing period end date, they should be billed in the NEXT cycle
+                if (dateInstalled && dateInstalled > dates.toDate) {
+                    continue;
                 }
 
                 // Determine accurate Invoice Period
@@ -439,13 +431,14 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
 
     const now = new Date();
     const currentYear = now.getFullYear();
-    const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
+    const currentMonthNum = now.getMonth() + 1;
+    const currentDay = now.getDate();
 
-    // Only current year is allowed
-    const years = [currentYear];
+    // Dynamic years: Current year + next 2 years
+    const years = [currentYear, currentYear + 1, currentYear + 2];
 
-    // Only current month is allowed
-    const months = [
+    // standard months definitions
+    const allMonths = [
         { value: '01', label: 'January' },
         { value: '02', label: 'February' },
         { value: '03', label: 'March' },
@@ -459,6 +452,50 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         { value: '11', label: 'November' },
         { value: '12', label: 'December' },
     ];
+
+    // Determine enabled months based on business unit rules
+    const getEnabledMonths = () => {
+        const unit = businessUnits.find(u => u.id === selectedUnit);
+        if (!unit) return allMonths.map(m => m.value); // Default all enabled
+
+        const unitName = unit.name.toLowerCase();
+
+        // Logic for Bulihan (Mid-month cycle, cutoff 15th)
+        if (unitName.includes('bulihan')) {
+            if (currentDay > 15) {
+                // Late in the month: Enable Current Month and Next Month
+                // e.g., Jan 20 -> Enable Jan & Feb
+                const nextMonthNum = currentMonthNum === 12 ? 1 : currentMonthNum + 1;
+                return [
+                    currentMonthNum.toString().padStart(2, '0'),
+                    nextMonthNum.toString().padStart(2, '0')
+                ];
+            } else {
+                // Early in the month: Enable Previous Month and Current Month
+                // e.g., Jan 10 -> Enable Dec & Jan
+                const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
+                return [
+                    prevMonthNum.toString().padStart(2, '0'),
+                    currentMonthNum.toString().padStart(2, '0')
+                ];
+            }
+        }
+
+        // Logic for Malanggam (End of month cycle)
+        if (unitName.includes('malanggam')) {
+            // Always just the current month
+            return [currentMonthNum.toString().padStart(2, '0')];
+        }
+
+        // Default or other units: Enable current and next for flexibility
+        const nextMonthNum = currentMonthNum === 12 ? 1 : currentMonthNum + 1;
+        return [
+            currentMonthNum.toString().padStart(2, '0'),
+            nextMonthNum.toString().padStart(2, '0')
+        ];
+    };
+
+    const enabledMonths = getEnabledMonths();
 
     // Determine if cycle date should be locked based on business unit
     const getLockedCycleDate = (): '15th' | '30th' | null => {
@@ -546,30 +583,37 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                             <div className="grid grid-cols-2 gap-2">
                                 <div className="relative">
                                     <select
-                                        value={currentMonth}
-                                        disabled
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-2 text-white appearance-none cursor-not-allowed opacity-70"
+                                        value={billingMonth.split('-')[1]}
+                                        onChange={(e) => handleMonthChange(e.target.value)}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-2 text-white appearance-none focus:border-blue-500 focus:outline-none"
                                     >
-                                        {months.map(m => (
-                                            <option key={m.value} value={m.value} disabled={m.value !== currentMonth}>
-                                                {m.label}
-                                            </option>
-                                        ))}
+                                        {allMonths.map(m => {
+                                            const isEnabled = enabledMonths.includes(m.value);
+                                            // Only render if enabled (or show disabled option if current selection is invalid?)
+                                            // User pref: "enabled january / feb only... disabled others"
+                                            // Standard <option disabled> is good.
+                                            return (
+                                                <option key={m.value} value={m.value} disabled={!isEnabled}>
+                                                    {m.label}
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                     <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-500 pointer-events-none" />
                                 </div>
                                 <div className="relative">
                                     <select
-                                        value={currentYear.toString()}
-                                        disabled
-                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-2 text-white appearance-none cursor-not-allowed opacity-70"
+                                        value={billingMonth.split('-')[0]}
+                                        onChange={(e) => handleYearChange(e.target.value)}
+                                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-2 text-white appearance-none focus:border-blue-500 focus:outline-none"
                                     >
-                                        <option value={currentYear}>{currentYear}</option>
+                                        {years.map(y => (
+                                            <option key={y} value={y} disabled={y !== currentYear}>{y}</option>
+                                        ))}
                                     </select>
                                     <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-500 pointer-events-none" />
                                 </div>
                             </div>
-                            <p className="text-xs text-gray-500">Only current month billing is allowed</p>
                         </div>
                     </div>
 
