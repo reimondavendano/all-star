@@ -13,6 +13,8 @@ import { validatePhilippineMobileNumber } from '@/lib/validation';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
+import DisconnectionModal from '@/components/admin/DisconnectionModal';
+import ActivationModal from '@/components/admin/ActivationModal';
 
 interface MikrotikPPP {
     id: string;
@@ -103,10 +105,9 @@ export default function CustomersSubscriptionsPage() {
         enabled: true
     });
 
-    const [confirmationParams, setConfirmationParams] = useState<{
-        sub: Subscription;
-        isActive: boolean;
-    } | null>(null);
+    // Disconnect/Activation Modal State
+    const [disconnectSub, setDisconnectSub] = useState<Subscription | null>(null);
+    const [activateSub, setActivateSub] = useState<Subscription | null>(null);
 
     const itemsPerPage = 10;
 
@@ -190,31 +191,28 @@ export default function CustomersSubscriptionsPage() {
     const handleToggleActive = (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
         console.log('Handle toggle active clicked', subscription.id);
-        setConfirmationParams({
-            sub: subscription,
-            isActive: !subscription.active
-        });
+
+        // If currently active -> show disconnect modal
+        if (subscription.active) {
+            setDisconnectSub(subscription);
+        } else {
+            // If currently inactive -> show activation modal
+            setActivateSub(subscription);
+        }
     };
 
-    const handleConfirmToggle = async () => {
-        if (!confirmationParams) return;
-        const { sub, isActive } = confirmationParams;
+    const handleDisconnectSuccess = async () => {
+        if (!disconnectSub) return;
+        await syncSubscriptionToMikrotik(disconnectSub.id, false);
+        fetchData();
+        setDisconnectSub(null);
+    };
 
-        try {
-            console.log('Confirming toggle', sub.id, isActive);
-            const { error } = await supabase
-                .from('subscriptions')
-                .update({ active: isActive })
-                .eq('id', sub.id);
-            if (error) throw error;
-            await syncSubscriptionToMikrotik(sub.id, isActive);
-            fetchData();
-        } catch (error) {
-            console.error('Error toggling status:', error);
-            alert('Failed to toggle status');
-        } finally {
-            setConfirmationParams(null);
-        }
+    const handleActivationSuccess = async () => {
+        if (!activateSub) return;
+        await syncSubscriptionToMikrotik(activateSub.id, true);
+        fetchData();
+        setActivateSub(null);
     };
 
     const saveChanges = async () => {
@@ -802,15 +800,23 @@ export default function CustomersSubscriptionsPage() {
                 </div>
             )}
 
-            <ConfirmationDialog
-                isOpen={!!confirmationParams}
-                onClose={() => setConfirmationParams(null)}
-                onConfirm={handleConfirmToggle}
-                title={confirmationParams?.isActive ? "Enable Subscription?" : "Disable Subscription?"}
-                message={`Are you sure you want to ${confirmationParams?.isActive ? "enable" : "disable"} this subscription? This will update the MikroTik status as well.`}
-                confirmText={confirmationParams?.isActive ? "Enable" : "Disable"}
-                type={confirmationParams?.isActive ? "info" : "danger"}
-            />
+            {disconnectSub && (
+                <DisconnectionModal
+                    isOpen={!!disconnectSub}
+                    onClose={() => setDisconnectSub(null)}
+                    subscription={disconnectSub}
+                    onConfirm={handleDisconnectSuccess}
+                />
+            )}
+
+            {activateSub && (
+                <ActivationModal
+                    isOpen={!!activateSub}
+                    onClose={() => setActivateSub(null)}
+                    subscription={activateSub}
+                    onConfirm={handleActivationSuccess}
+                />
+            )}
 
             {isAddSubscriptionModalOpen && selectedCustomer && (
                 <AddSubscriptionModal

@@ -10,6 +10,7 @@ import {
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
 import DisconnectionModal from '@/components/admin/DisconnectionModal';
+import ActivationModal from '@/components/admin/ActivationModal';
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
@@ -62,6 +63,9 @@ export default function SubscriptionsPage() {
 
     // Disconnect Modal State
     const [disconnectSub, setDisconnectSub] = useState<Subscription | null>(null);
+
+    // Activation Modal State
+    const [activateSub, setActivateSub] = useState<Subscription | null>(null);
 
     const itemsPerPage = 10;
 
@@ -140,29 +144,25 @@ export default function SubscriptionsPage() {
         }
 
         // If currently inactive (false) -> User wants to activate (true)
-        // Proceed with standard activation
-        const newActiveState = true;
+        // Show activation modal with invoice generation option
+        setActivateSub(subscription);
+    };
 
-        try {
-            const { error } = await supabase
-                .from('subscriptions')
-                .update({ active: newActiveState })
-                .eq('id', subscription.id);
+    const handleActivationSuccess = async () => {
+        if (!activateSub) return;
 
-            if (error) throw error;
+        // The modal handles the DB update (active=true) and invoice creation.
+        // We just need to sync to Mikrotik and refresh UI.
 
-            console.log(`[Subscription] Syncing ${subscription.id} to MikroTik (active: ${newActiveState})`);
-            const syncResult = await syncSubscriptionToMikrotik(subscription.id, newActiveState);
+        console.log(`[Subscription] Syncing ${activateSub.id} to MikroTik (active: true)`);
+        const syncResult = await syncSubscriptionToMikrotik(activateSub.id, true);
 
-            if (!syncResult.success) {
-                console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
-            }
-
-            fetchSubscriptions();
-        } catch (error) {
-            console.error('Error toggling subscription status:', error);
-            alert('Failed to update subscription status');
+        if (!syncResult.success) {
+            console.warn(`[Subscription] MikroTik sync warning: ${syncResult.error}`);
         }
+
+        fetchSubscriptions();
+        setActivateSub(null);
     };
 
     const handleDisconnectSuccess = async () => {
@@ -551,6 +551,15 @@ export default function SubscriptionsPage() {
                     onClose={() => setDisconnectSub(null)}
                     subscription={disconnectSub}
                     onConfirm={handleDisconnectSuccess}
+                />
+            )}
+
+            {activateSub && (
+                <ActivationModal
+                    isOpen={!!activateSub}
+                    onClose={() => setActivateSub(null)}
+                    subscription={activateSub}
+                    onConfirm={handleActivationSuccess}
                 />
             )}
         </div>

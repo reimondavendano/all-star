@@ -7,6 +7,11 @@ import {
     ChevronLeft, ChevronRight, Check
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import ProspectStatusModal, { ProspectStatus } from './ProspectStatusModal';
+import ProspectConfirmationModal from './ProspectConfirmationModal';
+import ProspectSuccessModal from './ProspectSuccessModal';
+import MikrotikInputModal, { MikrotikData } from './MikrotikInputModal';
+import { addPppSecret } from '@/app/actions/mikrotik';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
@@ -60,6 +65,14 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
     // Customer Lookup
     const [showCustomerLookup, setShowCustomerLookup] = useState(false);
     const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+
+    // Prospect Status Modals
+    const [showStatusModal, setShowStatusModal] = useState(false);
+    const [showMikrotikModal, setShowMikrotikModal] = useState(false);
+    const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [selectedStatus, setSelectedStatus] = useState<ProspectStatus | null>(null);
+    const [mikrotikData, setMikrotikData] = useState<MikrotikData | null>(null);
 
     const [formData, setFormData] = useState({
         subscriber_id: '',
@@ -188,34 +201,96 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
 
         setIsLoading(true);
         try {
-            const { error } = await supabase.from('subscriptions').insert({
-                subscriber_id: formData.subscriber_id,
-                business_unit_id: formData.business_unit_id,
-                plan_id: formData.plan_id,
-                active: formData.active,
-                date_installed: formData.date_installed,
-                address: formData.address,
-                barangay: formData.barangay,
-                landmark: formData.landmark,
-                label: formData.label,
-                contact_person: formData.contact_person,
-                customer_portal: formData.customer_portal,
-                invoice_date: formData.invoice_date,
-                referral_credit_applied: formData.referral_credit_applied,
-                'x-coordinates': coordinates?.lng || null,
-                'y-coordinates': coordinates?.lat || null
-            });
+            // Create subscription
+            const { data: subscriptionData, error: subscriptionError } = await supabase
+                .from('subscriptions')
+                .insert({
+                    subscriber_id: formData.subscriber_id,
+                    business_unit_id: formData.business_unit_id,
+                    plan_id: formData.plan_id,
+                    active: formData.active,
+                    date_installed: formData.date_installed,
+                    address: formData.address,
+                    barangay: formData.barangay,
+                    landmark: formData.landmark,
+                    label: formData.label,
+                    contact_person: formData.contact_person,
+                    customer_portal: formData.customer_portal,
+                    invoice_date: formData.invoice_date,
+                    referral_credit_applied: formData.referral_credit_applied,
+                    'x-coordinates': coordinates?.lng || null,
+                    'y-coordinates': coordinates?.lat || null
+                })
+                .select()
+                .single();
 
-            if (error) throw error;
+            if (subscriptionError) throw subscriptionError;
 
-            onSuccess();
-            handleClose();
+            // Create MikroTik PPP Secret if Closed Won and data provided
+            if (selectedStatus === 'Closed Won' && mikrotikData && subscriptionData) {
+                try {
+                    // Save to database
+                    const { error: pppError } = await supabase
+                        .from('mikrotik_ppp_secrets')
+                        .insert({
+                            subscription_id: subscriptionData.id,
+                            name: mikrotikData.name,
+                            password: mikrotikData.password,
+                            service: mikrotikData.service,
+                            profile: mikrotikData.profile,
+                            comment: mikrotikData.comment,
+                            enabled: mikrotikData.enabled
+                        });
+
+                    if (pppError) throw pppError;
+
+                    // Add to MikroTik router if requested
+                    if (mikrotikData.addToRouter) {
+                        const mtResult = await addPppSecret({
+                            name: mikrotikData.name,
+                            password: mikrotikData.password,
+                            service: mikrotikData.service,
+                            profile: mikrotikData.profile,
+                            comment: mikrotikData.comment
+                        });
+
+                        if (!mtResult.success) {
+                            console.warn('MikroTik creation warning:', mtResult.error);
+                        }
+                    }
+                } catch (pppError) {
+                    console.error('Error creating MikroTik PPP:', pppError);
+                    // Don't fail the whole operation, just log the error
+                }
+            }
+
+            // Update prospect status if one exists for this customer
+            if (selectedStatus) {
+                const { error: prospectError } = await supabase
+                    .from('prospects')
+                    .update({ status: selectedStatus })
+                    .eq('customerId', formData.subscriber_id);
+
+                // Don't throw error if prospect doesn't exist, just log it
+                if (prospectError) {
+                    console.warn('No prospect found to update or error updating:', prospectError);
+                }
+            }
+
+            // Show success modal
+            setShowSuccessModal(true);
         } catch (error) {
             console.error('Error creating subscription:', error);
             alert('Failed to create subscription');
-        } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleSuccessClose = () => {
+        setShowSuccessModal(false);
+        setIsLoading(false);
+        onSuccess();
+        handleClose();
     };
 
     const handleClose = () => {
@@ -238,6 +313,12 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
         setSelectedCustomer(null);
         setCustomerSearchQuery('');
         setActiveStep(0);
+        setShowStatusModal(false);
+        setShowMikrotikModal(false);
+        setShowConfirmationModal(false);
+        setShowSuccessModal(false);
+        setSelectedStatus(null);
+        setMikrotikData(null);
         onClose();
     };
 
@@ -245,8 +326,33 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
         if (activeStep < steps.length - 1) {
             setActiveStep(prev => prev + 1);
         } else {
-            handleSubmit();
+            // On final step, show status modal instead of submitting directly
+            setShowStatusModal(true);
         }
+    };
+
+    const handleStatusSelect = (status: ProspectStatus) => {
+        setSelectedStatus(status);
+        setShowStatusModal(false);
+        
+        // If Closed Won, show MikroTik input modal
+        if (status === 'Closed Won') {
+            setShowMikrotikModal(true);
+        } else {
+            // For Open or Closed Lost, skip MikroTik and go to confirmation
+            setShowConfirmationModal(true);
+        }
+    };
+
+    const handleMikrotikContinue = (data: MikrotikData) => {
+        setMikrotikData(data);
+        setShowMikrotikModal(false);
+        setShowConfirmationModal(true);
+    };
+
+    const handleConfirmSubscription = () => {
+        setShowConfirmationModal(false);
+        handleSubmit();
     };
 
     const handleBack = () => {
@@ -691,6 +797,72 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                     </button>
                 </div>
             </div>
+
+            {/* Prospect Status Modal */}
+            {showStatusModal && selectedCustomer && (
+                <ProspectStatusModal
+                    isOpen={showStatusModal}
+                    onClose={() => setShowStatusModal(false)}
+                    onSelectStatus={handleStatusSelect}
+                    customerName={selectedCustomer.name}
+                />
+            )}
+
+            {/* MikroTik Input Modal */}
+            {showMikrotikModal && selectedCustomer && (
+                <MikrotikInputModal
+                    isOpen={showMikrotikModal}
+                    onClose={() => {
+                        setShowMikrotikModal(false);
+                        setShowStatusModal(true); // Go back to status selection
+                    }}
+                    onContinue={handleMikrotikContinue}
+                    customerName={selectedCustomer.name}
+                    suggestedUsername={selectedCustomer.name.split(' ')[0].toUpperCase()}
+                />
+            )}
+
+            {/* Prospect Confirmation Modal */}
+            {showConfirmationModal && selectedStatus && selectedCustomer && (
+                <ProspectConfirmationModal
+                    isOpen={showConfirmationModal}
+                    onClose={() => {
+                        setShowConfirmationModal(false);
+                        // Go back to appropriate modal based on status
+                        if (selectedStatus === 'Closed Won') {
+                            setShowMikrotikModal(true);
+                        } else {
+                            setShowStatusModal(true);
+                        }
+                    }}
+                    onConfirm={handleConfirmSubscription}
+                    status={selectedStatus}
+                    subscriptionData={{
+                        customerName: selectedCustomer.name,
+                        customerMobile: selectedCustomer.mobile_number,
+                        businessUnit: businessUnits.find(u => u.id === formData.business_unit_id)?.name || '',
+                        plan: plans.find(p => p.id === formData.plan_id)?.name || '',
+                        planFee: plans.find(p => p.id === formData.plan_id)?.monthly_fee || 0,
+                        address: formData.address,
+                        barangay: formData.barangay,
+                        landmark: formData.landmark,
+                        dateInstalled: formData.date_installed,
+                        invoiceDate: formData.invoice_date,
+                        referrer: formData.contact_person ? customers.find(c => c.id === formData.contact_person)?.name : undefined,
+                        active: formData.active
+                    }}
+                />
+            )}
+
+            {/* Prospect Success Modal */}
+            {showSuccessModal && selectedStatus && selectedCustomer && (
+                <ProspectSuccessModal
+                    isOpen={showSuccessModal}
+                    onClose={handleSuccessClose}
+                    status={selectedStatus}
+                    customerName={selectedCustomer.name}
+                />
+            )}
         </div>
     );
 }

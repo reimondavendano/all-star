@@ -403,6 +403,289 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
 }
 
 /**
+ * Generate invoice on disconnection
+ * Creates an invoice from last billing date to disconnection date
+ */
+export async function generateDisconnectionInvoice(
+    subscriptionId: string,
+    disconnectionDate: Date
+): Promise<{
+    success: boolean;
+    invoiceId?: string;
+    amount?: number;
+    errors: string[];
+}> {
+    const supabase = getSupabaseAdmin();
+    const result: { success: boolean; invoiceId?: string; amount?: number; errors: string[] } = {
+        success: false,
+        errors: [],
+    };
+
+    try {
+        // 1. Get subscription details
+        const { data: subscription, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id,
+                subscriber_id,
+                business_unit_id,
+                plan_id,
+                balance,
+                plans (
+                    name,
+                    monthly_fee
+                ),
+                business_units (
+                    name
+                ),
+                customers!subscriptions_subscriber_id_fkey (
+                    id,
+                    name,
+                    mobile_number
+                )
+            `)
+            .eq('id', subscriptionId)
+            .single();
+
+        if (subError || !subscription) {
+            result.errors.push('Subscription not found');
+            return result;
+        }
+
+        // 2. Get the last invoice to determine billing period start
+        const { data: lastInvoice } = await supabase
+            .from('invoices')
+            .select('to_date, due_date')
+            .eq('subscription_id', subscriptionId)
+            .order('due_date', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (!lastInvoice) {
+            result.errors.push('No previous invoice found. Cannot determine billing period.');
+            return result;
+        }
+
+        const fromDate = new Date(lastInvoice.to_date);
+        fromDate.setDate(fromDate.getDate() + 1); // Start from day after last invoice end
+        const toDate = disconnectionDate;
+
+        // 3. Calculate prorated amount
+        const plan = subscription.plans as any;
+        const prorated = calculateProratedAmount(
+            plan.monthly_fee,
+            fromDate,
+            toDate
+        );
+
+        if (prorated.daysUsed <= 0) {
+            result.errors.push('No days to bill for disconnection period');
+            return result;
+        }
+
+        // 4. Create disconnection invoice
+        const { data: invoice, error: invoiceError } = await supabase
+            .from('invoices')
+            .insert({
+                subscription_id: subscriptionId,
+                from_date: toISODateString(fromDate),
+                to_date: toISODateString(toDate),
+                due_date: toISODateString(disconnectionDate), // Due immediately
+                amount_due: prorated.proratedAmount,
+                payment_status: 'Unpaid',
+            })
+            .select('id')
+            .single();
+
+        if (invoiceError) {
+            result.errors.push(`Error creating invoice: ${invoiceError.message}`);
+            return result;
+        }
+
+        // 5. Update subscription balance
+        const newBalance = (Number(subscription.balance) || 0) + prorated.proratedAmount;
+        await supabase
+            .from('subscriptions')
+            .update({ balance: newBalance })
+            .eq('id', subscriptionId);
+
+        // 6. Send SMS notification (optional)
+        const customer = subscription.customers as any;
+        if (customer?.mobile_number) {
+            const buName = (subscription.business_units as any)?.name || '';
+            await sendSMS(
+                customer.mobile_number,
+                SMSTemplates.invoiceGenerated(
+                    customer.name,
+                    prorated.proratedAmount,
+                    formatDatePH(disconnectionDate),
+                    buName
+                )
+            );
+        }
+
+        result.success = true;
+        result.invoiceId = invoice.id;
+        result.amount = prorated.proratedAmount;
+        return result;
+
+    } catch (error) {
+        result.errors.push(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return result;
+    }
+}
+
+/**
+ * Generate invoice on activation/reconnection
+ * Creates an invoice from activation date to next billing date
+ */
+export async function generateActivationInvoice(
+    subscriptionId: string,
+    activationDate: Date
+): Promise<{
+    success: boolean;
+    invoiceId?: string;
+    amount?: number;
+    errors: string[];
+}> {
+    const supabase = getSupabaseAdmin();
+    const result: { success: boolean; invoiceId?: string; amount?: number; errors: string[] } = {
+        success: false,
+        errors: [],
+    };
+
+    try {
+        // 1. Get subscription details
+        const { data: subscription, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id,
+                subscriber_id,
+                business_unit_id,
+                plan_id,
+                balance,
+                invoice_date,
+                plans (
+                    name,
+                    monthly_fee
+                ),
+                business_units (
+                    name
+                ),
+                customers!subscriptions_subscriber_id_fkey (
+                    id,
+                    name,
+                    mobile_number
+                )
+            `)
+            .eq('id', subscriptionId)
+            .single();
+
+        if (subError || !subscription) {
+            result.errors.push('Subscription not found');
+            return result;
+        }
+
+        const plan = subscription.plans as any;
+        const buName = (subscription.business_units as any)?.name || '';
+
+        // 2. Calculate next billing date based on business unit schedule
+        const schedule = getBillingSchedule(buName);
+        const activationMonth = activationDate.getMonth();
+        const activationYear = activationDate.getFullYear();
+        const activationDay = activationDate.getDate();
+
+        let nextBillingDate: Date;
+        
+        if (schedule.billingPeriodType === 'mid-month') {
+            // For 15th billing (Bulihan/Extension)
+            if (activationDay <= 15) {
+                // Activated before or on 15th, bill until 15th of same month
+                nextBillingDate = new Date(activationYear, activationMonth, 15);
+            } else {
+                // Activated after 15th, bill until 15th of next month
+                nextBillingDate = new Date(activationYear, activationMonth + 1, 15);
+            }
+        } else {
+            // For 30th billing (Malanggam)
+            const lastDayOfMonth = getLastDayOfMonth(activationYear, activationMonth + 1);
+            const billingDay = Math.min(schedule.dueDay, lastDayOfMonth);
+            
+            if (activationDay <= billingDay) {
+                // Activated before or on billing day, bill until billing day of same month
+                nextBillingDate = new Date(activationYear, activationMonth, billingDay);
+            } else {
+                // Activated after billing day, bill until billing day of next month
+                const nextMonth = activationMonth + 1;
+                const nextMonthLastDay = getLastDayOfMonth(activationYear, nextMonth + 1);
+                nextBillingDate = new Date(activationYear, nextMonth, Math.min(schedule.dueDay, nextMonthLastDay));
+            }
+        }
+
+        // 3. Calculate prorated amount
+        const prorated = calculateProratedAmount(
+            plan.monthly_fee,
+            activationDate,
+            nextBillingDate
+        );
+
+        if (prorated.daysUsed <= 0) {
+            result.errors.push('No days to bill for activation period');
+            return result;
+        }
+
+        // 4. Create activation invoice
+        const { data: invoice, error: invoiceError } = await supabase
+            .from('invoices')
+            .insert({
+                subscription_id: subscriptionId,
+                from_date: toISODateString(activationDate),
+                to_date: toISODateString(nextBillingDate),
+                due_date: toISODateString(nextBillingDate),
+                amount_due: prorated.proratedAmount,
+                payment_status: 'Unpaid',
+            })
+            .select('id')
+            .single();
+
+        if (invoiceError) {
+            result.errors.push(`Error creating invoice: ${invoiceError.message}`);
+            return result;
+        }
+
+        // 5. Update subscription balance
+        const newBalance = (Number(subscription.balance) || 0) + prorated.proratedAmount;
+        await supabase
+            .from('subscriptions')
+            .update({ balance: newBalance })
+            .eq('id', subscriptionId);
+
+        // 6. Send SMS notification (optional)
+        const customer = subscription.customers as any;
+        if (customer?.mobile_number) {
+            await sendSMS(
+                customer.mobile_number,
+                SMSTemplates.invoiceGenerated(
+                    customer.name,
+                    prorated.proratedAmount,
+                    formatDatePH(nextBillingDate),
+                    buName
+                )
+            );
+        }
+
+        result.success = true;
+        result.invoiceId = invoice.id;
+        result.amount = prorated.proratedAmount;
+        return result;
+
+    } catch (error) {
+        result.errors.push(`Unexpected error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return result;
+    }
+}
+
+/**
  * Send disconnection warnings
  */
 export async function sendDisconnectionWarnings(businessUnitId: string): Promise<{
