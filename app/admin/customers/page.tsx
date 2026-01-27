@@ -12,6 +12,7 @@ import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscriptio
 import { validatePhilippineMobileNumber } from '@/lib/validation';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
+import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
 
 interface MikrotikPPP {
     id: string;
@@ -74,6 +75,7 @@ export default function CustomersSubscriptionsPage() {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+    const [isAddSubscriptionModalOpen, setIsAddSubscriptionModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'customer' | 'subscription' | 'mikrotik'>('customer');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
@@ -395,6 +397,19 @@ export default function CustomersSubscriptionsPage() {
                                                 <Edit className="w-4 h-4" />
                                                 <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                                                     Edit Customer
+                                                </span>
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedCustomer(customer);
+                                                    setIsAddSubscriptionModalOpen(true);
+                                                }}
+                                                className="group relative p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded-lg transition-colors"
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                    Add Subscription
                                                 </span>
                                             </button>
                                         </div>
@@ -796,6 +811,25 @@ export default function CustomersSubscriptionsPage() {
                 confirmText={confirmationParams?.isActive ? "Enable" : "Disable"}
                 type={confirmationParams?.isActive ? "info" : "danger"}
             />
+
+            {isAddSubscriptionModalOpen && selectedCustomer && (
+                <AddSubscriptionModal
+                    isOpen={isAddSubscriptionModalOpen}
+                    onClose={() => {
+                        setIsAddSubscriptionModalOpen(false);
+                        setSelectedCustomer(null);
+                    }}
+                    onSuccess={() => {
+                        fetchData();
+                        setIsAddSubscriptionModalOpen(false);
+                    }}
+                    initialCustomer={{
+                        id: selectedCustomer.id,
+                        name: selectedCustomer.name,
+                        mobile_number: selectedCustomer.mobile_number || ''
+                    }}
+                />
+            )}
             {/* Edit Subscription Modal Component */}
             {isSubscriptionModalOpen && selectedSubscription && (
                 <EditSubscriptionModal

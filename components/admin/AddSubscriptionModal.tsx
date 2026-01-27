@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Search, Navigation } from 'lucide-react';
+import {
+    X, Search, Navigation, User, MapPin, Wifi, FileText,
+    ChevronLeft, ChevronRight, Check
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -31,17 +34,30 @@ interface Plan {
     monthly_fee: number;
 }
 
+const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
+
 interface AddSubscriptionModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    initialCustomer?: Customer | null;
 }
 
-export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: AddSubscriptionModalProps) {
+const steps = [
+    { id: 'information', label: 'Information', subLabel: 'Personal details', icon: User },
+    { id: 'location', label: 'Location', subLabel: 'Service area', icon: MapPin },
+    { id: 'plan', label: 'Plan', subLabel: 'Choose package', icon: Wifi },
+    { id: 'others', label: 'Others', subLabel: 'Additional info', icon: FileText }
+] as const;
+
+export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initialCustomer }: AddSubscriptionModalProps) {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [activeStep, setActiveStep] = useState(0);
+
+    // Customer Lookup
     const [showCustomerLookup, setShowCustomerLookup] = useState(false);
     const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
@@ -55,7 +71,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
         barangay: '',
         landmark: '',
         label: '',
-        contact_person: '',
+        contact_person: '', // This acts as Referrer ID
         customer_portal: '',
         invoice_date: '',
         referral_credit_applied: false
@@ -67,8 +83,12 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
     useEffect(() => {
         if (isOpen) {
             fetchData();
+            setActiveStep(0); // Reset to first step
+            if (initialCustomer) {
+                handleCustomerSelect(initialCustomer);
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, initialCustomer]);
 
     useEffect(() => {
         // Auto-set invoice date based on business unit
@@ -123,7 +143,6 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
             if (data && data.address) {
                 setFormData(prev => ({
                     ...prev,
-                    barangay: data.address.suburb || data.address.neighbourhood || data.address.village || '',
                     address: data.address.road || data.address.street || data.display_name || ''
                 }));
             }
@@ -218,7 +237,22 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
         setCoordinates(null);
         setSelectedCustomer(null);
         setCustomerSearchQuery('');
+        setActiveStep(0);
         onClose();
+    };
+
+    const handleNext = () => {
+        if (activeStep < steps.length - 1) {
+            setActiveStep(prev => prev + 1);
+        } else {
+            handleSubmit();
+        }
+    };
+
+    const handleBack = () => {
+        if (activeStep > 0) {
+            setActiveStep(prev => prev - 1);
+        }
     };
 
     const filteredCustomers = customers.filter(c =>
@@ -233,312 +267,427 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess }: Add
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={handleClose} />
 
-            <div className="relative bg-[#0a0a0a] border-2 border-red-900/50 rounded-xl shadow-[0_0_50px_rgba(255,0,0,0.3)] w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                <div className="sticky top-0 bg-[#0a0a0a] border-b border-red-900/30 p-6 flex justify-between items-center z-10">
-                    <div>
-                        <h2 className="text-2xl font-bold text-white neon-text">Add Subscription</h2>
-                        <p className="text-gray-400 text-sm mt-1">Create a new subscription for an existing customer</p>
+            <div className="relative bg-[#0a0a0a] border border-purple-900/30 rounded-2xl shadow-[0_0_60px_rgba(147,51,234,0.1)] w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+
+                {/* Header Section */}
+                <div className="p-8 pb-0">
+                    <div className="flex justify-between items-start mb-8">
+                        <div>
+                            <h2 className="text-3xl font-bold text-white mb-2">New Subscription</h2>
+                            <p className="text-gray-400">Complete the form to apply for service</p>
+                        </div>
+                        <button
+                            onClick={handleClose}
+                            className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full"
+                        >
+                            <X className="w-6 h-6" />
+                        </button>
                     </div>
-                    <button
-                        onClick={handleClose}
-                        className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded"
-                    >
-                        <X className="w-6 h-6" />
-                    </button>
+
+                    {/* Stepper */}
+                    <div className="flex items-center justify-between relative px-4">
+                        {/* Connecting Line */}
+                        <div className="absolute left-0 right-0 top-1/2 h-0.5 bg-gray-800 -z-10" />
+
+                        {steps.map((step, index) => {
+                            const isActive = index === activeStep;
+                            const isCompleted = index < activeStep;
+                            const Icon = step.icon;
+
+                            return (
+                                <div key={step.id} className="flex flex-col items-center bg-[#0a0a0a] px-4">
+                                    <div
+                                        className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-300 mb-3
+                                            ${isActive
+                                                ? 'border-purple-500 bg-purple-500/10 text-purple-500 shadow-[0_0_20px_rgba(147,51,234,0.3)]'
+                                                : isCompleted
+                                                    ? 'border-green-500 bg-green-500/10 text-green-500'
+                                                    : 'border-gray-800 bg-[#151515] text-gray-600'
+                                            }`}
+                                    >
+                                        {isCompleted ? <Check className="w-6 h-6" /> : <Icon className="w-5 h-5" />}
+                                    </div>
+                                    <div className="text-center">
+                                        <p className={`text-sm font-medium mb-0.5 ${isActive ? 'text-white' : 'text-gray-500'}`}>
+                                            {step.label}
+                                        </p>
+                                        <p className="text-xs text-gray-600 hidden sm:block">{step.subLabel}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
 
-                <div className="p-6 space-y-6">
-                    {/* Customer Lookup */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                            Customer <span className="text-red-500">*</span>
-                        </label>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={selectedCustomer?.name || ''}
-                                onClick={() => setShowCustomerLookup(true)}
-                                readOnly
-                                placeholder="Click to select customer"
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white cursor-pointer focus:outline-none focus:border-red-500"
-                            />
-                            {showCustomerLookup && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-gray-800 rounded-lg shadow-xl z-20 max-h-64 overflow-hidden">
-                                    <div className="p-3 border-b border-gray-800">
-                                        <div className="relative">
-                                            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                {/* Content Area */}
+                <div className="flex-1 overflow-y-auto p-8">
+                    <div className="max-w-3xl mx-auto">
+
+                        {/* Step 1: Information */}
+                        {activeStep === 0 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                <div className="flex items-center gap-3 text-purple-400 mb-6 border-b border-gray-800 pb-4">
+                                    <User className="w-5 h-5" />
+                                    <h3 className="text-lg font-medium">Personal Information</h3>
+                                </div>
+
+                                <div className="space-y-6">
+                                    {!selectedCustomer ? (
+                                        // Customer Lookup Mode
+                                        <div>
+                                            <label className="block text-sm font-medium text-purple-400 mb-2">
+                                                Select Customer <span className="text-red-500">*</span>
+                                            </label>
+                                            <div className="relative">
+                                                <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
+                                                <input
+                                                    type="text"
+                                                    value={customerSearchQuery}
+                                                    onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                                                    placeholder="Search existing customers..."
+                                                    className="w-full bg-[#151515] border border-gray-800 rounded-xl pl-12 pr-4 py-4 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                                />
+                                                {customerSearchQuery && (
+                                                    <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-gray-800 rounded-xl shadow-2xl z-20 max-h-64 overflow-y-auto">
+                                                        {filteredCustomers.length > 0 ? (
+                                                            filteredCustomers.map(customer => (
+                                                                <button
+                                                                    key={customer.id}
+                                                                    onClick={() => handleCustomerSelect(customer)}
+                                                                    className="w-full text-left px-6 py-4 hover:bg-[#202020] transition-colors border-b border-gray-800/50 last:border-0"
+                                                                >
+                                                                    <p className="text-white font-medium">{customer.name}</p>
+                                                                    <p className="text-gray-500 text-sm mt-1">{customer.mobile_number}</p>
+                                                                </button>
+                                                            ))
+                                                        ) : (
+                                                            <div className="p-4 text-center text-gray-500">No customers found</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        // Selected Customer View (Read-Only)
+                                        <div className="space-y-6">
+                                            <div className="p-4 bg-purple-900/10 border border-purple-500/20 rounded-xl flex items-center justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                                                        {selectedCustomer.name.charAt(0)}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-white font-medium">{selectedCustomer.name}</h4>
+                                                        <p className="text-gray-400 text-sm">{selectedCustomer.mobile_number}</p>
+                                                    </div>
+                                                </div>
+                                                {!initialCustomer && (
+                                                    <button
+                                                        onClick={() => setSelectedCustomer(null)}
+                                                        className="text-sm text-gray-500 hover:text-white underline"
+                                                    >
+                                                        Change
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-400 mb-2">Full Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={selectedCustomer.name}
+                                                    readOnly
+                                                    className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-gray-500 focus:outline-none"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-400 mb-2">Mobile Number</label>
+                                                <input
+                                                    type="text"
+                                                    value={selectedCustomer.mobile_number}
+                                                    readOnly
+                                                    className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-gray-500 focus:outline-none"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Step 2: Location */}
+                        {activeStep === 1 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                <div className="flex items-center gap-3 text-purple-400 mb-6 border-b border-gray-800 pb-4">
+                                    <MapPin className="w-5 h-5" />
+                                    <h3 className="text-lg font-medium">Installation Address</h3>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Location Type</label>
                                             <input
                                                 type="text"
-                                                value={customerSearchQuery}
-                                                onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                                                placeholder="Search customers..."
-                                                className="w-full bg-[#0a0a0a] border border-gray-700 rounded pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-red-500"
-                                                autoFocus
+                                                value={formData.label}
+                                                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                                                placeholder="e.g. Home, Office"
+                                                className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Barangay</label>
+                                            <select
+                                                value={formData.barangay}
+                                                onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
+                                                className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                            >
+                                                <option value="">Select Barangay</option>
+                                                {BARANGAY_OPTIONS.map(barangay => (
+                                                    <option key={barangay} value={barangay}>{barangay}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Detailed Address</label>
+                                            <input
+                                                type="text"
+                                                value={formData.address}
+                                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                                className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Landmark</label>
+                                            <input
+                                                type="text"
+                                                value={formData.landmark}
+                                                onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
+                                                className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
                                             />
                                         </div>
                                     </div>
-                                    <div className="max-h-48 overflow-y-auto">
-                                        {filteredCustomers.map(customer => (
+
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm font-medium text-gray-400">Pin Location</label>
                                             <button
-                                                key={customer.id}
-                                                onClick={() => handleCustomerSelect(customer)}
-                                                className="w-full text-left px-4 py-2 hover:bg-[#0f0f0f] transition-colors"
+                                                onClick={handleGetCurrentLocation}
+                                                type="button"
+                                                className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300"
                                             >
-                                                <p className="text-white font-medium">{customer.name}</p>
-                                                <p className="text-gray-500 text-sm">{customer.mobile_number}</p>
+                                                <Navigation className="w-3 h-3" />
+                                                Use Current
                                             </button>
-                                        ))}
+                                        </div>
+                                        <div className="h-[280px] rounded-xl overflow-hidden border border-gray-800 relative z-0">
+                                            <MapPicker
+                                                center={coordinates ? [coordinates.lat, coordinates.lng] : [14.8430, 120.8120]}
+                                                value={coordinates}
+                                                onChange={(val) => handleLocationSelect(val.lat, val.lng)}
+                                            />
+                                        </div>
+                                        {coordinates && (
+                                            <div className="text-xs text-center text-gray-500 font-mono bg-[#151515] p-2 rounded-lg">
+                                                {coordinates.lat.toFixed(6)}, {coordinates.lng.toFixed(6)}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            )}
-                        </div>
-                    </div>
+                            </div>
+                        )}
 
-                    {/* Customer Portal (Auto-generated) */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Customer Portal</label>
-                        <input
-                            type="text"
-                            value={formData.customer_portal}
-                            disabled
-                            className="w-full bg-[#0f0f0f] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                        />
-                    </div>
-
-                    {/* Connection Status & Referral Credit Toggles */}
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Active/Connection Toggle */}
-                        <div className="bg-[#1a1a1a] border border-gray-800 rounded-lg p-4">
-                            <label className="block text-sm font-medium text-gray-400 mb-3">Connection</label>
-                            <button
-                                onClick={() => setFormData({ ...formData, active: !formData.active })}
-                                className="relative inline-flex items-center cursor-pointer group"
-                            >
-                                <div className={`w-14 h-7 rounded-full transition-colors ${formData.active ? 'bg-green-600' : 'bg-gray-700'
-                                    }`}>
-                                    <div className={`absolute top-0.5 left-0.5 bg-white w-6 h-6 rounded-full transition-transform ${formData.active ? 'translate-x-7' : 'translate-x-0'
-                                        }`} />
+                        {/* Step 3: Plan */}
+                        {activeStep === 2 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                <div className="flex items-center gap-3 text-purple-400 mb-6 border-b border-gray-800 pb-4">
+                                    <Wifi className="w-5 h-5" />
+                                    <h3 className="text-lg font-medium">Plan Information</h3>
                                 </div>
-                                <span className={`ml-3 text-sm font-medium ${formData.active ? 'text-green-500' : 'text-gray-500'
-                                    }`}>
-                                    {formData.active ? 'Active' : 'Disconnected'}
-                                </span>
-                            </button>
-                        </div>
 
-                        {/* Referral Credit Toggle */}
-                        <div className="bg-[#1a1a1a] border border-gray-800 rounded-lg p-4">
-                            <label className="block text-sm font-medium text-gray-400 mb-3">Referral Credit</label>
-                            <button
-                                onClick={() => setFormData({ ...formData, referral_credit_applied: !formData.referral_credit_applied })}
-                                className="relative inline-flex items-center cursor-pointer group"
-                            >
-                                <div className={`w-14 h-7 rounded-full transition-colors ${formData.referral_credit_applied ? 'bg-blue-600' : 'bg-gray-700'
-                                    }`}>
-                                    <div className={`absolute top-0.5 left-0.5 bg-white w-6 h-6 rounded-full transition-transform ${formData.referral_credit_applied ? 'translate-x-7' : 'translate-x-0'
-                                        }`} />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">Business Unit</label>
+                                        <div className="space-y-2">
+                                            {businessUnits.map(unit => (
+                                                <label
+                                                    key={unit.id}
+                                                    className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all ${formData.business_unit_id === unit.id
+                                                        ? 'border-purple-500 bg-purple-500/10'
+                                                        : 'border-gray-800 bg-[#151515] hover:border-gray-700'
+                                                        }`}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name="business_unit"
+                                                        value={unit.id}
+                                                        checked={formData.business_unit_id === unit.id}
+                                                        onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
+                                                        className="hidden"
+                                                    />
+                                                    <span className={`font-medium ${formData.business_unit_id === unit.id ? 'text-white' : 'text-gray-400'}`}>
+                                                        {unit.name}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">Select Plan</label>
+                                        <select
+                                            value={formData.plan_id}
+                                            onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
+                                            className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors mb-4"
+                                            size={4}
+                                        >
+                                            {plans.map(plan => (
+                                                <option key={plan.id} value={plan.id} className="py-2">
+                                                    {plan.name} - ₱{plan.monthly_fee.toLocaleString()}/mo
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
-                                <span className={`ml-3 text-sm font-medium ${formData.referral_credit_applied ? 'text-blue-500' : 'text-gray-500'
-                                    }`}>
-                                    {formData.referral_credit_applied ? 'Applied' : 'Not Applied'}
-                                </span>
-                            </button>
-                        </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Business Unit */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Business Unit <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={formData.business_unit_id}
-                                onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            >
-                                <option value="">Select Business Unit</option>
-                                {businessUnits.map(unit => (
-                                    <option key={unit.id} value={unit.id}>{unit.name}</option>
-                                ))}
-                            </select>
-                        </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">Installation Date</label>
+                                        <input
+                                            type="date"
+                                            value={formData.date_installed}
+                                            onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
+                                            className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">Billing Period</label>
+                                        <select
+                                            value={formData.invoice_date}
+                                            onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
+                                            className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                        >
+                                            <option value="">Select Billing Period</option>
+                                            <option value="15th">15th of the Month</option>
+                                            <option value="30th">30th of the Month</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-                        {/* Plan */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">
-                                Plan <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={formData.plan_id}
-                                onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            >
-                                <option value="">Select Plan</option>
-                                {plans.map(plan => (
-                                    <option key={plan.id} value={plan.id}>
-                                        {plan.name} - ₱{plan.monthly_fee.toLocaleString()}/mo
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
+                        {/* Step 4: Others */}
+                        {activeStep === 3 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                <div className="flex items-center gap-3 text-purple-400 mb-6 border-b border-gray-800 pb-4">
+                                    <FileText className="w-5 h-5" />
+                                    <h3 className="text-lg font-medium">Additional Information</h3>
+                                </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Installation Date */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Installation Date</label>
-                            <input
-                                type="date"
-                                value={formData.date_installed}
-                                onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-2">Referrer (Optional)</label>
+                                    <select
+                                        value={formData.contact_person}
+                                        onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+                                        className="w-full bg-[#151515] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
+                                    >
+                                        <option value="">No Referrer</option>
+                                        {availableReferrers.map(customer => (
+                                            <option key={customer.id} value={customer.id}>{customer.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                        {/* Invoice Date */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Billing Period (Day of Month)</label>
-                            <select
-                                value={formData.invoice_date}
-                                onChange={(e) => setFormData({ ...formData, invoice_date: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            >
-                                <option value="">Select Billing Period</option>
-                                <option value="15th">15th of the Month</option>
-                                <option value="30th">30th of the Month</option>
-                            </select>
-                            {formData.business_unit_id && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                    Default based on Business Unit. Can be changed for edge cases (e.g., extensions).
-                                </p>
-                            )}
-                        </div>
-                    </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Active/Connection Toggle */}
+                                    <div
+                                        onClick={() => setFormData({ ...formData, active: !formData.active })}
+                                        className={`p-4 rounded-xl border cursor-pointer transition-all ${formData.active ? 'border-green-500/50 bg-green-500/10' : 'border-gray-800 bg-[#151515]'
+                                            }`}
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className={`font-medium ${formData.active ? 'text-green-400' : 'text-gray-400'}`}>Connection Status</span>
+                                            <div className={`w-10 h-6 rounded-full relative transition-colors ${formData.active ? 'bg-green-500' : 'bg-gray-700'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.active ? 'left-5' : 'left-1'}`} />
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-500">
+                                            {formData.active ? 'Service will be active immediately' : 'Service will be installed but inactive'}
+                                        </p>
+                                    </div>
 
-                    {/* Map Location with Current Location Button */}
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-medium text-gray-400">Location</label>
-                            <button
-                                onClick={handleGetCurrentLocation}
-                                type="button"
-                                className="flex items-center gap-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
-                            >
-                                <Navigation className="w-4 h-4" />
-                                Update to Current Location
-                            </button>
-                        </div>
-                        <div className="h-64 rounded-lg overflow-hidden border border-gray-800 relative z-0">
-                            <MapPicker
-                                center={coordinates ? [coordinates.lat, coordinates.lng] : [14.8430, 120.8120]}
-                                value={coordinates}
-                                onChange={(val) => handleLocationSelect(val.lat, val.lng)}
-                            />
-                        </div>
-                    </div>
+                                    {/* Referral Credit Toggle */}
+                                    <div
+                                        onClick={() => setFormData({ ...formData, referral_credit_applied: !formData.referral_credit_applied })}
+                                        className={`p-4 rounded-xl border cursor-pointer transition-all ${formData.referral_credit_applied ? 'border-blue-500/50 bg-blue-500/10' : 'border-gray-800 bg-[#151515]'
+                                            }`}
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className={`font-medium ${formData.referral_credit_applied ? 'text-blue-400' : 'text-gray-400'}`}>Referral Credit</span>
+                                            <div className={`w-10 h-6 rounded-full relative transition-colors ${formData.referral_credit_applied ? 'bg-blue-500' : 'bg-gray-700'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.referral_credit_applied ? 'left-5' : 'left-1'}`} />
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-500">
+                                            {formData.referral_credit_applied ? 'Credit already applied to referrer' : 'Mark if credit needs to be applied'}
+                                        </p>
+                                    </div>
+                                </div>
 
-                    {/* Coordinates Display */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Latitude (Y-Coordinates)</label>
-                            <input
-                                type="text"
-                                value={coordinates?.lat.toFixed(6) || ''}
-                                disabled
-                                placeholder="Not set"
-                                className="w-full bg-[#0f0f0f] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Longitude (X-Coordinates)</label>
-                            <input
-                                type="text"
-                                value={coordinates?.lng.toFixed(6) || ''}
-                                disabled
-                                placeholder="Not set"
-                                className="w-full bg-[#0f0f0f] border border-gray-800 rounded px-4 py-2 text-gray-500 cursor-not-allowed"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Address Fields */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Barangay</label>
-                            <input
-                                type="text"
-                                value={formData.barangay}
-                                onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Address</label>
-                            <input
-                                type="text"
-                                value={formData.address}
-                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Location Type</label>
-                            <input
-                                type="text"
-                                value={formData.label}
-                                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                                placeholder="e.g. Home, Office, Work"
-                                title="Type of location (e.g. Home, Office, Work)"
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-2">Landmark</label>
-                            <input
-                                type="text"
-                                value={formData.landmark}
-                                onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
-                                className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Referrer */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Referrer (Optional)</label>
-                        <select
-                            value={formData.contact_person}
-                            onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
-                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-4 py-2 text-white focus:outline-none focus:border-red-500"
-                        >
-                            <option value="">No Referrer</option>
-                            {availableReferrers.map(customer => (
-                                <option key={customer.id} value={customer.id}>{customer.name}</option>
-                            ))}
-                        </select>
+                                <div className="p-4 bg-gray-900 rounded-xl mt-6">
+                                    <h4 className="text-gray-400 text-sm font-medium mb-2 uppercase tracking-wide">Summary</h4>
+                                    <ul className="space-y-2 text-sm">
+                                        <li className="flex justify-between">
+                                            <span className="text-gray-500">Customer:</span>
+                                            <span className="text-white">{selectedCustomer?.name || '-'}</span>
+                                        </li>
+                                        <li className="flex justify-between">
+                                            <span className="text-gray-500">Plan:</span>
+                                            <span className="text-white">
+                                                {plans.find(p => p.id === formData.plan_id)?.name || '-'}
+                                                <span className="text-gray-600 ml-1">
+                                                    (₱{plans.find(p => p.id === formData.plan_id)?.monthly_fee.toLocaleString() || '0'}/mo)
+                                                </span>
+                                            </span>
+                                        </li>
+                                        <li className="flex justify-between">
+                                            <span className="text-gray-500">Location:</span>
+                                            <span className="text-white truncate max-w-[200px]">{formData.barangay}, {formData.address}</span>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Footer */}
-                <div className="sticky bottom-0 bg-[#0a0a0a] border-t border-red-900/30 p-6 flex justify-end gap-3">
+                {/* Footer Controls */}
+                <div className="p-6 border-t border-gray-800 bg-[#0a0a0a] flex justify-between items-center z-10">
                     <button
-                        onClick={handleClose}
-                        className="px-6 py-2 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors"
+                        onClick={handleBack}
+                        disabled={activeStep === 0}
+                        className={`flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-colors ${activeStep === 0
+                            ? 'text-gray-600 cursor-not-allowed'
+                            : 'text-gray-300 hover:text-white hover:bg-gray-800'
+                            }`}
                     >
-                        Cancel
+                        <ChevronLeft className="w-5 h-5" /> Back
                     </button>
+
                     <button
-                        onClick={handleSubmit}
-                        disabled={isLoading}
-                        className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={handleNext}
+                        disabled={isLoading || (activeStep === 0 && !selectedCustomer)}
+                        className={`flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 transition-all ${(isLoading || (activeStep === 0 && !selectedCustomer)) ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                     >
-                        {isLoading ? 'Creating...' : 'Create Subscription'}
+                        {isLoading ? (
+                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : activeStep === steps.length - 1 ? (
+                            <>Confirm Subscription <Check className="w-5 h-5" /></>
+                        ) : (
+                            <>Next Step <ChevronRight className="w-5 h-5" /></>
+                        )}
                     </button>
                 </div>
             </div>

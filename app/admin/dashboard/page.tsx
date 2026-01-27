@@ -424,15 +424,21 @@ export default function DashboardPage() {
             });
             const planDistribution = Object.values(planMap).sort((a, b) => b.count - a.count);
 
-            // 11. Recent Activities (last 10)
+            // 11. Recent Activities (last 10) - FILTERED BY BU
             const recentActivities: RecentActivity[] = [];
 
-            // Recent payments
-            const { data: recentPayments } = await supabase
+            // Recent payments - filter by BU
+            let paymentsQuery = supabase
                 .from('payments')
-                .select('id, amount, created_at, subscriptions!inner(customers!subscriptions_subscriber_id_fkey(name))')
+                .select('id, amount, created_at, subscriptions!inner(customers!subscriptions_subscriber_id_fkey(name), business_unit_id)')
                 .order('created_at', { ascending: false })
-                .limit(5);
+                .limit(10);
+
+            if (selectedBusinessUnit !== 'all') {
+                paymentsQuery = paymentsQuery.eq('subscriptions.business_unit_id', selectedBusinessUnit);
+            }
+
+            const { data: recentPayments } = await paymentsQuery;
             (recentPayments || []).forEach((p: any) => {
                 const customerName = p.subscriptions?.customers?.name || 'Unknown';
                 recentActivities.push({
@@ -445,12 +451,18 @@ export default function DashboardPage() {
                 });
             });
 
-            // Recent invoices
-            const { data: recentInvoices } = await supabase
+            // Recent invoices - filter by BU
+            let invoicesQuery = supabase
                 .from('invoices')
-                .select('id, amount_due, created_at, subscriptions!inner(customers!subscriptions_subscriber_id_fkey(name))')
+                .select('id, amount_due, created_at, subscriptions!inner(customers!subscriptions_subscriber_id_fkey(name), business_unit_id)')
                 .order('created_at', { ascending: false })
-                .limit(5);
+                .limit(10);
+
+            if (selectedBusinessUnit !== 'all') {
+                invoicesQuery = invoicesQuery.eq('subscriptions.business_unit_id', selectedBusinessUnit);
+            }
+
+            const { data: recentInvoices } = await invoicesQuery;
             (recentInvoices || []).forEach((inv: any) => {
                 const customerName = inv.subscriptions?.customers?.name || 'Unknown';
                 recentActivities.push({
@@ -460,6 +472,29 @@ export default function DashboardPage() {
                     action: `Invoice Generated ₱${inv.amount_due?.toLocaleString()}`,
                     amount: inv.amount_due,
                     timestamp: inv.created_at
+                });
+            });
+
+            // Recent subscribers (new subscriptions) - filter by BU
+            let subscribersQuery = supabase
+                .from('subscriptions')
+                .select('id, created_at, customers!subscriptions_subscriber_id_fkey(name), business_unit_id')
+                .order('created_at', { ascending: false })
+                .limit(10);
+
+            if (selectedBusinessUnit !== 'all') {
+                subscribersQuery = subscribersQuery.eq('business_unit_id', selectedBusinessUnit);
+            }
+
+            const { data: recentSubscribers } = await subscribersQuery;
+            (recentSubscribers || []).forEach((sub: any) => {
+                const customerName = sub.customers?.name || 'Unknown';
+                recentActivities.push({
+                    id: `sub-${sub.id}`,
+                    type: 'subscriber',
+                    customerName,
+                    action: 'New Subscription',
+                    timestamp: sub.created_at
                 });
             });
 
@@ -938,12 +973,14 @@ export default function DashboardPage() {
                             {data.recentActivities.map((activity) => (
                                 <div key={activity.id} className="flex items-start gap-3 p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
                                     <div className={`p-2 rounded-lg ${activity.type === 'payment' ? 'bg-emerald-900/30' :
-                                        activity.type === 'invoice' ? 'bg-blue-900/30' :
-                                            'bg-amber-900/30'
+                                            activity.type === 'invoice' ? 'bg-blue-900/30' :
+                                                activity.type === 'subscriber' ? 'bg-purple-900/30' :
+                                                    'bg-amber-900/30'
                                         }`}>
                                         {activity.type === 'payment' ? <CheckCircle className="w-4 h-4 text-emerald-400" /> :
                                             activity.type === 'invoice' ? <FileText className="w-4 h-4 text-blue-400" /> :
-                                                <AlertCircle className="w-4 h-4 text-amber-400" />}
+                                                activity.type === 'subscriber' ? <Users className="w-4 h-4 text-purple-400" /> :
+                                                    <AlertCircle className="w-4 h-4 text-amber-400" />}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-white text-sm font-medium truncate">{activity.customerName}</p>

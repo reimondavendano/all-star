@@ -95,6 +95,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
     const [referrerName, setReferrerName] = useState<string>('');
+    const [selectedReferrerId, setSelectedReferrerId] = useState<string>(prospect.referrer_id || '');
+    const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
 
     // Calculate tomorrow's date for min attribute (Local Time)
     const tomorrow = new Date();
@@ -108,6 +110,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         if (isOpen) {
             fetchBusinessUnits();
             fetchPlans();
+            fetchCustomers();
             if (prospect['x-coordinates'] && prospect['y-coordinates']) {
                 setCoordinates({
                     lat: prospect['y-coordinates'],
@@ -210,6 +213,20 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             setPlans(plansMap);
         } catch (error) {
             console.error('Error fetching plans:', error);
+        }
+    };
+
+    const fetchCustomers = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('customers')
+                .select('id, name')
+                .order('name');
+
+            if (error) throw error;
+            setCustomers(data || []);
+        } catch (error) {
+            console.error('Error fetching customers:', error);
         }
     };
 
@@ -328,7 +345,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
             setPppForm({
                 name: mikrotikName,
-                password: Math.random().toString(36).slice(-8), // Generate random password
+                password: '1111', // Default password to 1111
                 service: 'pppoe',
                 profile: profile,
                 comment: `Converted from prospect: ${prospect.name}`,
@@ -430,23 +447,41 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 console.log('[PPP] Skipping MikroTik router (checkbox unchecked) - saving to DB only');
             }
 
-            // 1. Create customer
-            const { data: newCustomer, error: customerError } = await supabase
-                .from('customers')
-                .insert({
-                    name: prospect.name,
-                    mobile_number: prospect.mobile_number
-                })
-                .select()
-                .single();
+            // 1. Check for existing customer or create new
+            let customerId: string;
 
-            if (customerError) throw customerError;
+            // Try to find existing customer by name (exact match, case insensitive)
+            const { data: existingCustomers } = await supabase
+                .from('customers')
+                .select('id')
+                .ilike('name', prospect.name)
+                .limit(1);
+
+            if (existingCustomers && existingCustomers.length > 0) {
+                // Use existing customer
+                customerId = existingCustomers[0].id;
+                console.log(`Using existing customer: ${prospect.name} (${customerId})`);
+            } else {
+                // Create new customer
+                const { data: newCustomer, error: customerError } = await supabase
+                    .from('customers')
+                    .insert({
+                        name: prospect.name,
+                        mobile_number: prospect.mobile_number
+                    })
+                    .select()
+                    .single();
+
+                if (customerError) throw customerError;
+                customerId = newCustomer.id;
+                console.log(`Created new customer: ${prospect.name} (${customerId})`);
+            }
 
             // 2. Create subscription
             const { data: newSubscription, error: subscriptionError } = await supabase
                 .from('subscriptions')
                 .insert({
-                    subscriber_id: newCustomer.id,
+                    subscriber_id: customerId,
                     plan_id: prospect.plan_id,
                     business_unit_id: formData.business_unit_id,
                     address: prospect.address,
@@ -455,8 +490,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     barangay: prospect.barangay,
                     invoice_date: formData.invoice_date, // Use selected invoice date
                     date_installed: formData.installation_date, // Map installation date
-                    customer_portal: `/portal/${newCustomer.id}`, // Set portal link
-                    contact_person: prospect.referrer_id || null,
+                    customer_portal: `/portal/${customerId}`, // Set portal link
+                    contact_person: selectedReferrerId || null,
                     router_serial_number: formData.router_serial_number,
                     'x-coordinates': coordinates?.lng || null,
                     'y-coordinates': coordinates?.lat || null
@@ -471,7 +506,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             const { error: pppDbError } = await supabase
                 .from('mikrotik_ppp_secrets')
                 .insert({
-                    customer_id: newCustomer.id,
+                    customer_id: customerId,
                     subscription_id: newSubscription.id,  // Link to subscription
                     name: pppForm.name,
                     password: pppForm.password,
@@ -493,14 +528,14 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
 
             // 3. Referral Logic: If referrer exists, create a 300 payment for the REFERRER's subscription
-            if (prospect.referrer_id) {
-                console.log('Processing referral for:', prospect.referrer_id);
+            if (selectedReferrerId) {
+                console.log('Processing referral for:', selectedReferrerId);
 
                 // Find referrer's subscription (Latest one created)
                 const { data: referrerSubs, error: subError } = await supabase
                     .from('subscriptions')
                     .select('id, balance')
-                    .eq('subscriber_id', prospect.referrer_id)
+                    .eq('subscriber_id', selectedReferrerId)
                     .order('created_at', { ascending: false }) // Latest subscription
                     .limit(1);
 
@@ -549,7 +584,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                         // alert(`Referral credit applied! New Balance: ${newBalance}`);
                     }
                 } else {
-                    console.warn('No subscription found for referrer:', prospect.referrer_id);
+                    console.warn('No subscription found for referrer:', selectedReferrerId);
                     // alert('Referrer has no subscription to apply credit to.');
                 }
             }
@@ -894,16 +929,41 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     Additional Details
                                 </h3>
                                 <div className="space-y-4">
-                                    {/* Referrer - Always show, read-only */}
-                                    {prospect.referrer_id && (
+                                    {/* Referrer Lookup - Editable for Closed Won */}
+                                    {formData.status === 'Closed Won' ? (
                                         <div className="flex items-start gap-3">
                                             <UserCheck className="w-4 h-4 text-teal-500 mt-0.5" />
                                             <div className="flex-1">
-                                                <label className="text-xs text-gray-500">Referrer</label>
-                                                <p className="text-sm text-gray-300 font-medium">{referrerName || 'Loading...'}</p>
-                                                <p className="text-xs text-gray-500 font-mono mt-0.5">{prospect.referrer_id}</p>
+                                                <label className="text-xs text-gray-500 mb-1 block">Referrer (Optional)</label>
+                                                <select
+                                                    value={selectedReferrerId}
+                                                    onChange={(e) => setSelectedReferrerId(e.target.value)}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
+                                                >
+                                                    <option value="">Select Referrer</option>
+                                                    {customers.map(customer => (
+                                                        <option key={customer.id} value={customer.id}>
+                                                            {customer.name}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    Select a referrer to apply the ₱300 credit.
+                                                </p>
                                             </div>
                                         </div>
+                                    ) : (
+                                        /* Read-only Referrer for other statuses */
+                                        prospect.referrer_id && (
+                                            <div className="flex items-start gap-3">
+                                                <UserCheck className="w-4 h-4 text-teal-500 mt-0.5" />
+                                                <div className="flex-1">
+                                                    <label className="text-xs text-gray-500">Referrer</label>
+                                                    <p className="text-sm text-gray-300 font-medium">{referrerName || 'Loading...'}</p>
+                                                    <p className="text-xs text-gray-500 font-mono mt-0.5">{prospect.referrer_id}</p>
+                                                </div>
+                                            </div>
+                                        )
                                     )}
                                     {(formData.status === 'Open' || prospect.details) && (
                                         <div className="flex items-start gap-3">
@@ -1068,8 +1128,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                 <input
                                     type="text"
                                     value={pppForm.password}
-                                    onChange={(e) => setPppForm({ ...pppForm, password: e.target.value })}
-                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white font-mono"
+                                    readOnly
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white font-mono cursor-not-allowed opacity-75"
                                     placeholder="Enter password"
                                 />
                             </div>
@@ -1079,8 +1139,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Service</label>
                                 <select
                                     value={pppForm.service}
-                                    onChange={(e) => setPppForm({ ...pppForm, service: e.target.value })}
-                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
+                                    disabled
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white cursor-not-allowed opacity-75"
                                 >
                                     <option value="any">any</option>
                                     <option value="pppoe">pppoe</option>
