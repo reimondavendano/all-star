@@ -513,15 +513,15 @@ export async function generateDisconnectionInvoice(
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const buName = (subscription.business_units as any)?.name || '';
-            await sendSMS(
-                customer.mobile_number,
-                SMSTemplates.invoiceGenerated(
+            await sendSMS({
+                to: customer.mobile_number,
+                message: SMSTemplates.invoiceGenerated(
                     customer.name,
                     prorated.proratedAmount,
                     formatDatePH(disconnectionDate),
                     buName
                 )
-            );
+            });
         }
 
         result.success = true;
@@ -608,8 +608,9 @@ export async function generateActivationInvoice(
             }
         } else {
             // For 30th billing (Malanggam)
-            const lastDayOfMonth = getLastDayOfMonth(activationYear, activationMonth + 1);
-            const billingDay = Math.min(schedule.dueDay, lastDayOfMonth);
+            // Get last day of current month (month is 0-indexed in Date constructor)
+            const lastDayOfCurrentMonth = new Date(activationYear, activationMonth + 1, 0).getDate();
+            const billingDay = Math.min(schedule.dueDay, lastDayOfCurrentMonth);
             
             if (activationDay <= billingDay) {
                 // Activated before or on billing day, bill until billing day of same month
@@ -617,7 +618,7 @@ export async function generateActivationInvoice(
             } else {
                 // Activated after billing day, bill until billing day of next month
                 const nextMonth = activationMonth + 1;
-                const nextMonthLastDay = getLastDayOfMonth(activationYear, nextMonth + 1);
+                const nextMonthLastDay = new Date(activationYear, nextMonth + 1, 0).getDate();
                 nextBillingDate = new Date(activationYear, nextMonth, Math.min(schedule.dueDay, nextMonthLastDay));
             }
         }
@@ -663,15 +664,15 @@ export async function generateActivationInvoice(
         // 6. Send SMS notification (optional)
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
-            await sendSMS(
-                customer.mobile_number,
-                SMSTemplates.invoiceGenerated(
+            await sendSMS({
+                to: customer.mobile_number,
+                message: SMSTemplates.invoiceGenerated(
                     customer.name,
                     prorated.proratedAmount,
                     formatDatePH(nextBillingDate),
                     buName
                 )
-            );
+            });
         }
 
         result.success = true;

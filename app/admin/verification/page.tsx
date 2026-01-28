@@ -63,8 +63,8 @@ export default function VerificationPage() {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
 
-    // Status Filter
-    const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+    // Status Tab - default to pending
+    const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
 
     // Modal State
     const [selectedPayment, setSelectedPayment] = useState<any>(null);
@@ -218,11 +218,8 @@ export default function VerificationPage() {
         return match ? match[1] : null;
     };
 
-    // Filter payments based on status
-    const filteredPayments = payments.filter(p => {
-        if (statusFilter === 'all') return true;
-        return p.status === statusFilter;
-    });
+    // Filter payments based on status tab
+    const filteredPayments = payments.filter(p => p.status === statusTab);
 
     // Stats
     const pendingCount = payments.filter(p => p.status === 'pending').length;
@@ -306,49 +303,68 @@ export default function VerificationPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <h2 className="text-lg font-semibold text-white">E-Wallet Payments</h2>
 
-                            <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-2">
                                 {/* Month Filter */}
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="w-4 h-4 text-gray-500" />
-                                    <select
-                                        value={selectedMonth}
-                                        onChange={(e) => setSelectedMonth(e.target.value)}
-                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
-                                    >
-                                        {monthOptions.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Status Filter */}
-                                <div className="flex items-center gap-2">
-                                    <Filter className="w-4 h-4 text-gray-500" />
-                                    <select
-                                        value={statusFilter}
-                                        onChange={(e) => setStatusFilter(e.target.value as any)}
-                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
-                                    >
-                                        <option value="all">All Status</option>
-                                        <option value="pending">Pending</option>
-                                        <option value="approved">Approved</option>
-                                        <option value="rejected">Rejected</option>
-                                    </select>
-                                </div>
+                                <Calendar className="w-4 h-4 text-gray-500" />
+                                <select
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                >
+                                    {monthOptions.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
 
-                        {/* Stats */}
-                        <div className="flex flex-wrap gap-3 mt-4">
-                            <span className="bg-amber-900/30 text-amber-400 px-3 py-1 rounded-full text-xs border border-amber-900/50">
-                                {pendingCount} Pending
-                            </span>
-                            <span className="bg-emerald-900/30 text-emerald-400 px-3 py-1 rounded-full text-xs border border-emerald-900/50">
-                                {approvedCount} Approved
-                            </span>
-                            <span className="bg-red-900/30 text-red-400 px-3 py-1 rounded-full text-xs border border-red-900/50">
-                                {rejectedCount} Rejected
-                            </span>
+                        {/* Status Tabs */}
+                        <div className="flex gap-2 mt-4">
+                            <button
+                                onClick={() => setStatusTab('pending')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'pending'
+                                    ? 'bg-amber-600 text-white shadow-lg'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                    }`}
+                            >
+                                <Clock className="w-4 h-4" />
+                                Pending
+                                {pendingCount > 0 && (
+                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                        {pendingCount}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setStatusTab('approved')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'approved'
+                                    ? 'bg-emerald-600 text-white shadow-lg'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                    }`}
+                            >
+                                <CheckCircle className="w-4 h-4" />
+                                Approved
+                                {approvedCount > 0 && (
+                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                        {approvedCount}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setStatusTab('rejected')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'rejected'
+                                    ? 'bg-red-600 text-white shadow-lg'
+                                    : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                    }`}
+                            >
+                                <XCircle className="w-4 h-4" />
+                                Rejected
+                                {rejectedCount > 0 && (
+                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                        {rejectedCount}
+                                    </span>
+                                )}
+                            </button>
                         </div>
                     </div>
 
@@ -359,7 +375,7 @@ export default function VerificationPage() {
                     ) : filteredPayments.length === 0 ? (
                         <div className="p-12 text-center text-gray-500">
                             <CheckCircle className="w-12 h-12 mx-auto mb-4 text-gray-700" />
-                            <p>No {statusFilter !== 'all' ? statusFilter : ''} payments found for this month.</p>
+                            <p>No {statusTab} payments found for this month.</p>
                         </div>
                     ) : (
                         <div className="overflow-x-auto">

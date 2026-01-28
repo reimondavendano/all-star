@@ -731,7 +731,7 @@ export default function InvoicesPaymentsPage() {
                                                                                     )}
                                                                                 </td>
                                                                                 <td className="p-3 text-right text-white font-medium">
-                                                                                    ₱{Math.round(invoice.amount_due).toLocaleString()}
+                                                                                    ₱{invoice.amount_due.toFixed(2)}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
                                                                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(invoice.payment_status)}`}>
@@ -779,7 +779,7 @@ export default function InvoicesPaymentsPage() {
                                                                                         )}
                                                                                     </span>
                                                                                     <span className={isPending ? 'text-violet-400' : 'text-emerald-400'}>
-                                                                                        +₱{Math.round(payment.amount).toLocaleString()}
+                                                                                        +₱{payment.amount.toFixed(2)}
                                                                                     </span>
                                                                                 </div>
                                                                             );
