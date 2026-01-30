@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { sendSMS, SMSTemplates } from '@/lib/sms';
 import {
     X, Search, Navigation, User, MapPin, Wifi, FileText,
     ChevronLeft, ChevronRight, Check
@@ -274,6 +275,38 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                 // Don't throw error if prospect doesn't exist, just log it
                 if (prospectError) {
                     console.warn('No prospect found to update or error updating:', prospectError);
+                }
+            }
+
+            // Send welcome SMS if Closed Won
+            if (selectedStatus === 'Closed Won' && subscriptionData) {
+                try {
+                    // Get customer and plan details
+                    const { data: customer } = await supabase
+                        .from('customers')
+                        .select('name, mobile_number')
+                        .eq('id', formData.subscriber_id)
+                        .single();
+
+                    const { data: plan } = await supabase
+                        .from('plans')
+                        .select('name, monthly_fee')
+                        .eq('id', formData.plan_id)
+                        .single();
+
+                    if (customer?.mobile_number && plan) {
+                        await sendSMS({
+                            to: customer.mobile_number,
+                            message: SMSTemplates.newSubscription(
+                                customer.name,
+                                plan.name,
+                                plan.monthly_fee
+                            )
+                        });
+                    }
+                } catch (smsError) {
+                    console.error('Error sending welcome SMS:', smsError);
+                    // Don't fail the whole operation
                 }
             }
 

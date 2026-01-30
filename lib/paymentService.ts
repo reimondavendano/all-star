@@ -8,10 +8,18 @@ import { calculateNewBalance, determinePaymentStatus, toISODateString } from './
 import { sendSMS, SMSTemplates } from './sms';
 
 // Server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
 function getSupabaseAdmin() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl) {
+        throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured in environment variables');
+    }
+
+    if (!supabaseServiceKey) {
+        throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured in environment variables');
+    }
+
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 

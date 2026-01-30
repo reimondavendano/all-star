@@ -16,10 +16,18 @@ import {
 import { sendSMS, SMSTemplates, sendBulkSMS } from './sms';
 
 // Server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
 function getSupabaseAdmin() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl) {
+        throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured in environment variables');
+    }
+
+    if (!supabaseServiceKey) {
+        throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured in environment variables');
+    }
+
     return createClient(supabaseUrl, supabaseServiceKey);
 }
 
@@ -596,7 +604,7 @@ export async function generateActivationInvoice(
         const activationDay = activationDate.getDate();
 
         let nextBillingDate: Date;
-        
+
         if (schedule.billingPeriodType === 'mid-month') {
             // For 15th billing (Bulihan/Extension)
             if (activationDay <= 15) {
@@ -611,7 +619,7 @@ export async function generateActivationInvoice(
             // Get last day of current month (month is 0-indexed in Date constructor)
             const lastDayOfCurrentMonth = new Date(activationYear, activationMonth + 1, 0).getDate();
             const billingDay = Math.min(schedule.dueDay, lastDayOfCurrentMonth);
-            
+
             if (activationDay <= billingDay) {
                 // Activated before or on billing day, bill until billing day of same month
                 nextBillingDate = new Date(activationYear, activationMonth, billingDay);

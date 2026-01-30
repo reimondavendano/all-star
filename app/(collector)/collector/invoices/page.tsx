@@ -22,11 +22,13 @@ import {
     DollarSign,
     Banknote,
     Smartphone,
-    Zap
+    Zap,
+    MessageSquare
 } from 'lucide-react';
 import { BalanceInline } from '@/components/BalanceDisplay';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import QuickCollectModal from '@/components/admin/QuickCollectModal';
+import InvoiceNotesModal from '@/components/collector/InvoiceNotesModal';
 
 interface Customer {
     id: string;
@@ -86,7 +88,7 @@ export default function CollectorInvoicesPage() {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-    const [statusFilter, setStatusFilter] = useState<'all' | 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification'>('all');
+    const [statusTab, setStatusTab] = useState<'Unpaid' | 'Partially Paid' | 'Paid'>('Unpaid');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -102,6 +104,7 @@ export default function CollectorInvoicesPage() {
     // Modals
     const [isQuickCollectOpen, setIsQuickCollectOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<{
         invoice: Invoice;
         subscription: Subscription;
@@ -121,7 +124,7 @@ export default function CollectorInvoicesPage() {
 
     useEffect(() => {
         fetchData();
-    }, [selectedBusinessUnit, selectedMonth, statusFilter]);
+    }, [selectedBusinessUnit, selectedMonth, statusTab]);
 
     // Real-time subscription for invoices and payments
     useMultipleRealtimeSubscriptions(
@@ -174,8 +177,12 @@ export default function CollectorInvoicesPage() {
                 .gte('due_date', startDate)
                 .lte('due_date', endDate);
 
-            if (statusFilter !== 'all') {
-                invoicesQuery = invoicesQuery.eq('payment_status', statusFilter);
+            if (statusTab === 'Unpaid') {
+                invoicesQuery = invoicesQuery.eq('payment_status', 'Unpaid');
+            } else if (statusTab === 'Partially Paid') {
+                invoicesQuery = invoicesQuery.eq('payment_status', 'Partially Paid');
+            } else if (statusTab === 'Paid') {
+                invoicesQuery = invoicesQuery.eq('payment_status', 'Paid');
             }
 
             const { data: invoices } = await invoicesQuery;
@@ -421,47 +428,73 @@ export default function CollectorInvoicesPage() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-800">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                        <input
-                            type="text"
-                            placeholder="Search customer..."
-                            value={searchQuery}
-                            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                            className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
-                        />
+                <div className="space-y-4 mt-4 pt-4 border-t border-gray-800">
+                    {/* Status Tabs */}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => { setStatusTab('Unpaid'); setCurrentPage(1); }}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'Unpaid'
+                                ? 'bg-red-600 text-white shadow-lg'
+                                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                }`}
+                        >
+                            <AlertCircle className="w-4 h-4" />
+                            Unpaid
+                        </button>
+                        <button
+                            onClick={() => { setStatusTab('Partially Paid'); setCurrentPage(1); }}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'Partially Paid'
+                                ? 'bg-amber-600 text-white shadow-lg'
+                                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                }`}
+                        >
+                            <Clock className="w-4 h-4" />
+                            Partially Paid
+                        </button>
+                        <button
+                            onClick={() => { setStatusTab('Paid'); setCurrentPage(1); }}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'Paid'
+                                ? 'bg-emerald-600 text-white shadow-lg'
+                                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                }`}
+                        >
+                            <CheckCircle className="w-4 h-4" />
+                            Paid
+                        </button>
                     </div>
-                    <input
-                        type="month"
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(e.target.value)}
-                        className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
-                    />
-                    <select
-                        value={selectedBusinessUnit}
-                        onChange={(e) => setSelectedBusinessUnit(e.target.value)}
-                        className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
-                    >
-                        <option value="all">All Business Units</option>
-                        {businessUnits.map(bu => (
-                            <option key={bu.id} value={bu.id}>{bu.name}</option>
-                        ))}
-                    </select>
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value as any)}
-                        className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
-                    >
-                        <option value="all">All Status</option>
-                        <option value="Paid">Paid</option>
-                        <option value="Unpaid">Unpaid</option>
-                        <option value="Partially Paid">Partially Paid</option>
-                        <option value="Pending Verification">Pending Verification</option>
-                    </select>
-                    <button onClick={fetchData} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                        <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                    </button>
+
+                    {/* Search and Filters Row */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="relative flex-1 min-w-[200px]">
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                            <input
+                                type="text"
+                                placeholder="Search customer..."
+                                value={searchQuery}
+                                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                            />
+                        </div>
+                        <input
+                            type="month"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                        />
+                        <select
+                            value={selectedBusinessUnit}
+                            onChange={(e) => setSelectedBusinessUnit(e.target.value)}
+                            className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                        >
+                            <option value="all">All Business Units</option>
+                            {businessUnits.map(bu => (
+                                <option key={bu.id} value={bu.id}>{bu.name}</option>
+                            ))}
+                        </select>
+                        <button onClick={fetchData} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -482,22 +515,23 @@ export default function CollectorInvoicesPage() {
                                 ? businessUnits.find(b => b.id === selectedBusinessUnit)?.name
                                 : null;
 
-                            if (statusFilter !== 'all' && buName) {
+                            if (buName) {
                                 return (
                                     <>
-                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusFilter.toLowerCase()}</span> invoices found</p>
+                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab.toLowerCase()}</span> invoices found</p>
                                         <p className="text-sm mt-1">for <span className="text-purple-400">{buName}</span> in <span className="text-purple-400">{monthLabel}</span></p>
                                     </>
                                 );
-                            } else if (statusFilter !== 'all') {
+                            } else {
                                 return (
                                     <>
-                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusFilter.toLowerCase()}</span> invoices found</p>
+                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab.toLowerCase()}</span> invoices found</p>
                                         <p className="text-sm mt-1">for <span className="text-purple-400">{monthLabel}</span></p>
                                     </>
                                 );
-                            } else if (buName) {
-                                return (
+                            }
+                        })()}
+                    </div>
                                     <>
                                         <p className="text-gray-400">No invoices generated yet</p>
                                         <p className="text-sm mt-1">for <span className="text-purple-400">{buName}</span> in <span className="text-purple-400">{monthLabel}</span></p>
@@ -580,21 +614,34 @@ export default function CollectorInvoicesPage() {
                                                                     </div>
                                                                     <div className="flex items-center gap-4">
                                                                         <div className="text-right">
-                                                                            <div className="text-lg font-bold text-white">₱{invoice.amount_due.toLocaleString()}</div>
+                                                                            <div className="text-lg font-bold text-white">₱{invoice.amount_due.toFixed(2)}</div>
                                                                             <div className="text-xs text-gray-500">Due: {new Date(invoice.due_date).toLocaleDateString()}</div>
                                                                         </div>
-                                                                        {invoice.payment_status !== 'Paid' && (
+                                                                        <div className="flex items-center gap-2">
                                                                             <button
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    openPaymentModal(invoice, subscription, group.customer);
+                                                                                    setSelectedInvoice({ invoice, subscription, customer: group.customer });
+                                                                                    setIsNotesModalOpen(true);
                                                                                 }}
-                                                                                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg text-sm font-medium transition-colors"
+                                                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+                                                                                title="Add/View Notes"
                                                                             >
-                                                                                <CreditCard className="w-4 h-4 inline mr-1" />
-                                                                                Pay
+                                                                                <MessageSquare className="w-4 h-4" />
                                                                             </button>
-                                                                        )}
+                                                                            {invoice.payment_status !== 'Paid' && (
+                                                                                <button
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        openPaymentModal(invoice, subscription, group.customer);
+                                                                                    }}
+                                                                                    className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg text-sm font-medium transition-colors"
+                                                                                >
+                                                                                    <CreditCard className="w-4 h-4 inline mr-1" />
+                                                                                    Pay
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -843,6 +890,19 @@ export default function CollectorInvoicesPage() {
                     fetchData();
                 }}
             />
+
+            {/* Invoice Notes Modal */}
+            {selectedInvoice && (
+                <InvoiceNotesModal
+                    isOpen={isNotesModalOpen}
+                    onClose={() => {
+                        setIsNotesModalOpen(false);
+                        setSelectedInvoice(null);
+                    }}
+                    invoiceId={selectedInvoice.invoice.id}
+                    customerName={selectedInvoice.customer.name}
+                />
+            )}
         </div>
     );
 }
