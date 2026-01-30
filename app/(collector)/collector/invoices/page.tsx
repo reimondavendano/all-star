@@ -532,21 +532,6 @@ export default function CollectorInvoicesPage() {
                             }
                         })()}
                     </div>
-                                    <>
-                                        <p className="text-gray-400">No invoices generated yet</p>
-                                        <p className="text-sm mt-1">for <span className="text-purple-400">{buName}</span> in <span className="text-purple-400">{monthLabel}</span></p>
-                                    </>
-                                );
-                            } else {
-                                return (
-                                    <>
-                                        <p className="text-gray-400">No invoices generated yet</p>
-                                        <p className="text-sm mt-1">for <span className="text-purple-400">{monthLabel}</span></p>
-                                    </>
-                                );
-                            }
-                        })()}
-                    </div>
                 ) : (
                     <div className="divide-y divide-gray-800">
                         {paginated.map((group) => (
