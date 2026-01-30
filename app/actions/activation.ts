@@ -61,6 +61,15 @@ export async function processActivation(
             };
         }
 
+        // Sync to MikroTik (restore profile based on plan and enable)
+        const { syncSubscriptionToMikrotik } = await import('./mikrotik');
+        const mikrotikResult = await syncSubscriptionToMikrotik(subscriptionId, true);
+
+        if (!mikrotikResult.success) {
+            console.error('[Activation] MikroTik sync failed:', mikrotikResult.error);
+            // Don't fail the whole operation, just log the error
+        }
+
         return {
             success: true,
             invoiceId,

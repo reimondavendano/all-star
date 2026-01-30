@@ -415,13 +415,15 @@ export async function updatePppSecret(username: string, updates: any) {
 /**
  * Sync subscription active status to MikroTik.
  * When subscription is marked as inactive:
- * 1. Disables the PPP secret on MikroTik
- * 2. Disconnects any active PPP session
- * 3. Updates mikrotik_ppp_secrets table
+ * 1. Changes profile to "DC" (Disconnected)
+ * 2. Disables the PPP secret on MikroTik
+ * 3. Disconnects any active PPP session
+ * 4. Updates mikrotik_ppp_secrets table
  * 
  * When subscription is marked as active:
- * 1. Enables the PPP secret on MikroTik
- * 2. Updates mikrotik_ppp_secrets table
+ * 1. Restores profile to correct speed based on plan (e.g., "100MBPS")
+ * 2. Enables the PPP secret on MikroTik
+ * 3. Updates mikrotik_ppp_secrets table
  */
 export async function syncSubscriptionToMikrotik(subscriptionId: string, isActive: boolean) {
     try {
@@ -433,7 +435,26 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
 
         console.log(`[SYNC] Syncing subscription ${subscriptionId} to MikroTik (active: ${isActive})`);
 
-        // 1. Get the PPP secret linked to this subscription
+        // 1. Get the subscription with plan info and PPP secret
+        const { data: subscription, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id,
+                plan_id,
+                plans (
+                    name,
+                    monthly_fee
+                )
+            `)
+            .eq('id', subscriptionId)
+            .single();
+
+        if (subError || !subscription) {
+            console.error(`[SYNC] Subscription not found: ${subscriptionId}`);
+            return { success: false, error: 'Subscription not found' };
+        }
+
+        // 2. Get the PPP secret linked to this subscription
         const { data: pppSecret, error: fetchError } = await supabase
             .from('mikrotik_ppp_secrets')
             .select('*') // Get all fields including password
@@ -448,28 +469,51 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
         const mikrotikUsername = pppSecret.name;
         console.log(`[SYNC] Found PPP secret: ${mikrotikUsername}`);
 
-        // 2. Toggle the PPP connection on MikroTik
-        // We pass the full secret details so it can be auto-created if missing
-        const toggleResult = await togglePppConnection(
-            mikrotikUsername,
-            isActive,
-            {
-                password: pppSecret.password,
-                service: pppSecret.service,
-                profile: pppSecret.profile,
-                comment: pppSecret.comment
-            }
-        );
+        // 3. Determine the correct profile based on plan
+        let targetProfile: string;
 
-        if (!toggleResult.success) {
-            console.error(`[SYNC] Failed to toggle PPP on MikroTik: ${toggleResult.error}`);
-            return { success: false, error: toggleResult.error };
+        if (isActive) {
+            // When activating, use the plan-based profile
+            const plan = subscription.plans as any;
+            const planName = plan?.name || '';
+
+            // Map plan names to MikroTik profiles
+            const planToProfile: Record<string, string> = {
+                'Plan 799': '50MBPS',
+                'Plan 999': '100MBPS',
+                'Plan 1299': '130MBPS',
+                'Plan 1499': '150MBPS'
+            };
+
+            targetProfile = planToProfile[planName] || pppSecret.profile || '50MBPS';
+            console.log(`[SYNC] Activating with profile: ${targetProfile} (plan: ${planName})`);
+        } else {
+            // When disconnecting, set to DC profile
+            targetProfile = 'DC';
+            console.log(`[SYNC] Disconnecting - setting profile to: DC`);
         }
 
-        // 3. Update the mikrotik_ppp_secrets table
+        // 4. Update the PPP secret on MikroTik (profile + disabled status)
+        const updateResult = await updatePppSecret(mikrotikUsername, {
+            profile: targetProfile,
+            disabled: isActive ? 'false' : 'true'
+        });
+
+        if (!updateResult.success) {
+            console.error(`[SYNC] Failed to update PPP on MikroTik: ${updateResult.error}`);
+            return { success: false, error: updateResult.error };
+        }
+
+        // 5. If disabling, also remove any active connection
+        if (!isActive) {
+            await togglePppConnection(mikrotikUsername, false);
+        }
+
+        // 6. Update the mikrotik_ppp_secrets table
         const { error: updateError } = await supabase
             .from('mikrotik_ppp_secrets')
             .update({
+                profile: targetProfile,
                 enabled: isActive,
                 disabled: !isActive,
                 last_synced_at: new Date().toISOString()
@@ -481,10 +525,10 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
             return { success: false, error: updateError.message };
         }
 
-        console.log(`[SYNC] Successfully synced ${mikrotikUsername} to MikroTik (${isActive ? 'enabled' : 'disabled'})`);
+        console.log(`[SYNC] Successfully synced ${mikrotikUsername} to MikroTik (${isActive ? 'enabled' : 'disabled'}, profile: ${targetProfile})`);
         return {
             success: true,
-            message: `PPP secret "${mikrotikUsername}" ${isActive ? 'enabled' : 'disabled'} on MikroTik`
+            message: `PPP secret "${mikrotikUsername}" ${isActive ? 'enabled' : 'disabled'} on MikroTik with profile ${targetProfile}`
         };
 
     } catch (error: any) {

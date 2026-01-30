@@ -61,6 +61,15 @@ export async function processDisconnection(
             };
         }
 
+        // Sync to MikroTik (set profile to DC and disable)
+        const { syncSubscriptionToMikrotik } = await import('./mikrotik');
+        const mikrotikResult = await syncSubscriptionToMikrotik(subscriptionId, false);
+
+        if (!mikrotikResult.success) {
+            console.error('[Disconnect] MikroTik sync failed:', mikrotikResult.error);
+            // Don't fail the whole operation, just log the error
+        }
+
         return {
             success: true,
             invoiceId,
