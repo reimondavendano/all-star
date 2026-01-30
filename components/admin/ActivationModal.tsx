@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Loader2, CheckCircle, FileText, Calendar } from 'lucide-react';
+import { Loader2, CheckCircle, FileText, Calendar, AlertTriangle } from 'lucide-react';
+import { processActivation } from '@/app/actions/activation';
 
 interface ActivationModalProps {
     isOpen: boolean;
@@ -20,34 +20,22 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
     const [isLoading, setIsLoading] = useState(false);
     const [generateInvoice, setGenerateInvoice] = useState(true);
     const [activationDate, setActivationDate] = useState(new Date().toISOString().split('T')[0]);
+    const [error, setError] = useState<string | null>(null);
 
     const handleActivate = async () => {
         setIsLoading(true);
+        setError(null);
         try {
-            // 1. Set Active = True
-            const { error: updateError } = await supabase
-                .from('subscriptions')
-                .update({ active: true })
-                .eq('id', subscription.id);
+            const date = new Date(activationDate);
 
-            if (updateError) throw updateError;
+            const result = await processActivation(
+                subscription.id,
+                date,
+                generateInvoice
+            );
 
-            // 2. Generate invoice if requested
-            if (generateInvoice) {
-                const response = await fetch('/api/invoices/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        subscriptionId: subscription.id,
-                        activationDate: activationDate
-                    })
-                });
-
-                const result = await response.json();
-
-                if (!response.ok || !result.success) {
-                    throw new Error(result.error || 'Failed to generate invoice');
-                }
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to process activation');
             }
 
             onConfirm();
@@ -55,7 +43,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
 
         } catch (error) {
             console.error('Activation error:', error);
-            alert(`Failed to process activation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setError(error instanceof Error ? error.message : 'Unknown error occurred');
         } finally {
             setIsLoading(false);
         }
@@ -85,6 +73,16 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                 <div className="p-6 space-y-6">
                     {step === 'confirm' && (
                         <div className="space-y-4">
+                            {error && (
+                                <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg flex items-start gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                    <div className="text-sm text-red-400">
+                                        <div className="font-semibold">Error</div>
+                                        {error}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-4">
                                 <p className="text-sm text-gray-300 mb-4">
                                     You are about to activate this subscription. This will enable the service immediately.

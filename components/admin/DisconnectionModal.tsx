@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Loader2, AlertTriangle, FileText, Calendar, Building2 } from 'lucide-react';
-import { calculateProratedAmount, getBillingSchedule } from '@/lib/billing';
-import { generateDisconnectionInvoice } from '@/lib/invoiceService';
+import { Loader2, AlertTriangle, FileText } from 'lucide-react';
+import { processDisconnection } from '@/app/actions/disconnection';
 
 interface DisconnectionModalProps {
     isOpen: boolean;
@@ -26,36 +24,31 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
     const [generateInvoice, setGenerateInvoice] = useState(true);
     const [disconnectionDate, setDisconnectionDate] = useState(new Date().toISOString().split('T')[0]);
 
+    const [error, setError] = useState<string | null>(null);
+
     const handleDisconnect = async () => {
         setIsLoading(true);
+        setError(null);
         try {
-            // 1. Generate invoice if requested
-            if (generateInvoice) {
-                const disconnectDate = new Date(disconnectionDate);
-                const invoiceResult = await generateDisconnectionInvoice(
-                    subscription.id,
-                    disconnectDate
-                );
+            const disconnectDate = new Date(disconnectionDate);
 
-                if (!invoiceResult.success) {
-                    throw new Error(invoiceResult.errors.join(', '));
-                }
+            // Call server action to handle disconnection
+            const result = await processDisconnection(
+                subscription.id,
+                disconnectDate,
+                generateInvoice
+            );
+
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to process disconnection');
             }
-
-            // 2. Set Active = False
-            const { error: updateError } = await supabase
-                .from('subscriptions')
-                .update({ active: false })
-                .eq('id', subscription.id);
-
-            if (updateError) throw updateError;
 
             onConfirm();
             setStep('success');
 
         } catch (error) {
             console.error('Disconnection error:', error);
-            alert(`Failed to process disconnection: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setError(error instanceof Error ? error.message : 'Unknown error occurred');
         } finally {
             setIsLoading(false);
         }
@@ -85,6 +78,16 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                 <div className="p-6 space-y-6">
                     {step === 'confirm' && (
                         <div className="space-y-4">
+                            {error && (
+                                <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg flex items-start gap-3">
+                                    <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                    <div className="text-sm text-red-400">
+                                        <div className="font-semibold">Error</div>
+                                        {error}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-4">
                                 <p className="text-sm text-gray-300 mb-4">
                                     You are about to disconnect this subscription. This will disable the service immediately.
