@@ -9,13 +9,17 @@ import {
     LogOut,
     MapPin,
     X,
-    CreditCard
+    CreditCard,
+    CheckCircle,
+    DollarSign
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
 
 const navigation = [
     { name: 'Invoices & Payments', href: '/collector/invoices', icon: FileText },
+    { name: 'E-Payment Verification', href: '/collector/verification', icon: CheckCircle },
+    { name: 'Expenses', href: '/collector/expenses', icon: DollarSign },
     { name: 'Customers & Subscriptions', href: '/collector/customers', icon: Users },
     { name: 'Locations', href: '/collector/locations', icon: MapPin },
 ];

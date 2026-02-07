@@ -374,7 +374,14 @@ export default function CollectorInvoicesPage() {
                         </div>
                         <div>
                             <div className="text-sm text-amber-400 font-medium">Cash to Remit to Admin</div>
-                            <div className="text-xs text-gray-500">For {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+                            <div className="text-xs text-gray-500">
+                                For {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                                {selectedBusinessUnit !== 'all' && businessUnits.find(bu => bu.id === selectedBusinessUnit) && (
+                                    <span className="ml-2 px-2 py-0.5 bg-amber-900/40 text-amber-400 rounded">
+                                        {businessUnits.find(bu => bu.id === selectedBusinessUnit)?.name}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-6">

@@ -202,6 +202,11 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
 
         setIsLoading(true);
         try {
+            // Determine active status based on prospect status
+            // Only "Closed Won" should respect the user's toggle setting
+            // "Open" and "Closed Lost" should always be inactive
+            const isActive = selectedStatus === 'Closed Won' ? formData.active : false;
+
             // Create subscription
             const { data: subscriptionData, error: subscriptionError } = await supabase
                 .from('subscriptions')
@@ -209,7 +214,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                     subscriber_id: formData.subscriber_id,
                     business_unit_id: formData.business_unit_id,
                     plan_id: formData.plan_id,
-                    active: formData.active,
+                    active: isActive,
                     date_installed: formData.date_installed,
                     address: formData.address,
                     barangay: formData.barangay,
@@ -265,12 +270,42 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                 }
             }
 
-            // Update prospect status if one exists for this customer
-            if (selectedStatus) {
+            // Handle prospect based on status
+            if (selectedStatus === 'Open' && subscriptionData && selectedCustomer) {
+                // Create a new prospect record so this appears in the Prospects tab
+                try {
+                    const { error: prospectError } = await supabase
+                        .from('prospects')
+                        .insert({
+                            name: selectedCustomer.name,
+                            mobile_number: selectedCustomer.mobile_number,
+                            plan_id: formData.plan_id,
+                            business_unit_id: formData.business_unit_id,
+                            landmark: formData.landmark,
+                            barangay: formData.barangay,
+                            address: formData.address,
+                            label: formData.label,
+                            'x-coordinates': coordinates?.lng || null,
+                            'y-coordinates': coordinates?.lat || null,
+                            installation_date: formData.date_installed,
+                            referrer_id: formData.contact_person || null,
+                            status: 'Open',
+                            details: `Subscription ID: ${subscriptionData.id}` // Link to subscription for reference
+                        });
+
+                    if (prospectError) {
+                        console.warn('Error creating prospect:', prospectError);
+                    }
+                } catch (prospectError) {
+                    console.error('Error creating prospect:', prospectError);
+                    // Don't fail the whole operation
+                }
+            } else if (selectedStatus) {
+                // For other statuses, try to update existing prospect if one exists
                 const { error: prospectError } = await supabase
                     .from('prospects')
                     .update({ status: selectedStatus })
-                    .eq('customerId', formData.subscriber_id);
+                    .eq('mobile_number', selectedCustomer?.mobile_number);
 
                 // Don't throw error if prospect doesn't exist, just log it
                 if (prospectError) {
@@ -367,7 +402,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
     const handleStatusSelect = (status: ProspectStatus) => {
         setSelectedStatus(status);
         setShowStatusModal(false);
-        
+
         // If Closed Won, show MikroTik input modal
         if (status === 'Closed Won') {
             setShowMikrotikModal(true);

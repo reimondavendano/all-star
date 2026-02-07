@@ -328,8 +328,9 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         onClose();
     };
 
-    const totalAmount = filteredInvoices.reduce((sum, inv) => sum + inv.amount_due, 0);
-    const pageAmount = paginatedInvoices.reduce((sum, inv) => sum + inv.amount_due, 0);
+    // Calculate remaining balance for each invoice
+    const totalAmount = filteredInvoices.reduce((sum, inv) => sum + (inv.amount_due - inv.amount_paid), 0);
+    const pageAmount = paginatedInvoices.reduce((sum, inv) => sum + (inv.amount_due - inv.amount_paid), 0);
 
     if (!isOpen) return null;
 

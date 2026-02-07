@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileText, Users, MapPin } from 'lucide-react';
+import { FileText, Users, MapPin, CheckCircle, DollarSign } from 'lucide-react';
 import clsx from 'clsx';
 
 const navigation = [
     { name: 'Invoices', href: '/collector/invoices', icon: FileText },
+    { name: 'Verification', href: '/collector/verification', icon: CheckCircle },
+    { name: 'Expenses', href: '/collector/expenses', icon: DollarSign },
     { name: 'Customers', href: '/collector/customers', icon: Users },
     { name: 'Locations', href: '/collector/locations', icon: MapPin },
 ];

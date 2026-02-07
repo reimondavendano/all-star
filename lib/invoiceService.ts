@@ -487,7 +487,9 @@ export async function generateDisconnectionInvoice(
         );
 
         if (prorated.daysUsed <= 0) {
-            result.errors.push('No days to bill for disconnection period');
+            // No days to bill - this is valid (e.g., disconnecting on same day as last bill)
+            // Just return success without creating an invoice
+            result.success = true;
             return result;
         }
 
@@ -639,7 +641,9 @@ export async function generateActivationInvoice(
         );
 
         if (prorated.daysUsed <= 0) {
-            result.errors.push('No days to bill for activation period');
+            // No days to bill - this is valid (e.g., activating on the billing date)
+            // Just return success without creating an invoice
+            result.success = true;
             return result;
         }
 

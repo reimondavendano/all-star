@@ -10,6 +10,7 @@ import {
 import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+import DisconnectionModal from '@/components/admin/DisconnectionModal';
 
 interface MikrotikPPP {
     id: string;
@@ -72,6 +73,7 @@ export default function CollectorCustomersPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+    const [showDisconnectModal, setShowDisconnectModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // MikroTik Form State
@@ -167,12 +169,21 @@ export default function CollectorCustomersPage() {
         }
     };
 
-    const handleToggleActive = (subscription: Subscription, e: React.MouseEvent) => {
+    const handleToggleActive = (customer: Customer, subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
-        setConfirmationParams({
-            sub: subscription,
-            isActive: !subscription.active
-        });
+
+        // If disabling (subscription is currently active), show disconnection modal with invoice option
+        if (subscription.active) {
+            setSelectedCustomer(customer);
+            setSelectedSubscription(subscription);
+            setShowDisconnectModal(true);
+        } else {
+            // If enabling (subscription is currently inactive), just show confirmation
+            setConfirmationParams({
+                sub: subscription,
+                isActive: true
+            });
+        }
     };
 
     const handleConfirmToggle = async () => {
@@ -353,7 +364,7 @@ export default function CollectorCustomersPage() {
                                                             <div className="flex items-center gap-2">
                                                                 {/* Toggle Switch */}
                                                                 <button
-                                                                    onClick={(e) => handleToggleActive(sub, e)}
+                                                                    onClick={(e) => handleToggleActive(customer, sub, e)}
                                                                     className="group relative w-10 h-5 rounded-full transition-colors"
                                                                     style={{ background: sub.active ? '#059669' : '#374151' }}
                                                                 >
@@ -604,6 +615,28 @@ export default function CollectorCustomersPage() {
                 confirmText={confirmationParams?.isActive ? "Enable" : "Disable"}
                 type={confirmationParams?.isActive ? "info" : "danger"}
             />
+
+            {/* Disconnection Modal */}
+            {showDisconnectModal && selectedSubscription && (
+                <DisconnectionModal
+                    isOpen={showDisconnectModal}
+                    onClose={() => {
+                        setShowDisconnectModal(false);
+                        setSelectedSubscription(null);
+                    }}
+                    subscription={{
+                        id: selectedSubscription.id,
+                        customer_name: selectedCustomer?.name || 'Unknown',
+                        business_unit_name: selectedSubscription.business_units?.name || 'Unknown',
+                        business_unit_id: selectedSubscription.business_unit_id,
+                        date_installed: selectedSubscription.date_installed,
+                        plan_fee: selectedSubscription.plans?.monthly_fee
+                    }}
+                    onConfirm={() => {
+                        fetchData();
+                    }}
+                />
+            )}
         </div>
     );
 }
