@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { sendSMS, SMSTemplates } from '@/lib/sms';
 import {
     X, Search, Navigation, User, MapPin, Wifi, FileText,
     ChevronLeft, ChevronRight, Check
@@ -330,14 +329,26 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                         .single();
 
                     if (customer?.mobile_number && plan) {
-                        await sendSMS({
-                            to: customer.mobile_number,
-                            message: SMSTemplates.newSubscription(
-                                customer.name,
-                                plan.name,
-                                plan.monthly_fee
-                            )
+                        // Use API route to send SMS (client-side can't access server env vars)
+                        const smsResponse = await fetch('/api/sms/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                to: customer.mobile_number,
+                                template: 'newSubscription',
+                                templateData: {
+                                    customerName: customer.name,
+                                    planName: plan.name,
+                                    amount: plan.monthly_fee
+                                }
+                            })
                         });
+                        const smsResult = await smsResponse.json();
+                        if (!smsResult.success) {
+                            console.warn('Welcome SMS not sent:', smsResult.error);
+                        } else {
+                            console.log('Welcome SMS sent successfully');
+                        }
                     }
                 } catch (smsError) {
                     console.error('Error sending welcome SMS:', smsError);

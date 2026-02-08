@@ -795,11 +795,20 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
 /**
  * Get today's scheduled tasks based on the current date (Philippine Time)
  * Since Vercel cron runs in UTC, we convert to PHT (UTC+8) for accurate scheduling
+ * 
+ * Note: Extension business unit subscriptions can have either '15th' or '30th' invoice_date
+ * so Extension tasks are tracked with the specific cycle to filter subscriptions
  */
 export function getTodaysTasks(today: Date): {
     shouldGenerateInvoices: string[];  // Business unit types
     shouldSendDueReminders: string[];
     shouldSendDisconnectionWarnings: string[];
+    // Extension-specific: which billing cycle to process
+    extensionTasks: {
+        generateInvoices: '15th' | '30th' | null;
+        sendDueReminders: '15th' | '30th' | null;
+        sendDisconnectionWarnings: '15th' | '30th' | null;
+    };
 } {
     // Convert to Philippine Time (UTC+8)
     const philippineTime = new Date(today.getTime() + (8 * 60 * 60 * 1000));
@@ -810,32 +819,404 @@ export function getTodaysTasks(today: Date): {
         shouldGenerateInvoices: [] as string[],
         shouldSendDueReminders: [] as string[],
         shouldSendDisconnectionWarnings: [] as string[],
+        extensionTasks: {
+            generateInvoices: null as '15th' | '30th' | null,
+            sendDueReminders: null as '15th' | '30th' | null,
+            sendDisconnectionWarnings: null as '15th' | '30th' | null,
+        },
     };
 
-    // Check Bulihan/Extension schedule (10th gen, 15th due, 20th disc)
+    // 15th Billing Cycle: Bulihan + Extension subscriptions with invoice_date='15th'
+    // (10th gen, 15th due, 20th disc)
     if (day === 10) {
-        tasks.shouldGenerateInvoices.push('bulihan', 'extension');
+        tasks.shouldGenerateInvoices.push('bulihan');
+        tasks.extensionTasks.generateInvoices = '15th';
     }
     if (day === 15) {
-        tasks.shouldSendDueReminders.push('bulihan', 'extension');
+        tasks.shouldSendDueReminders.push('bulihan');
+        tasks.extensionTasks.sendDueReminders = '15th';
     }
     if (day === 20) {
-        tasks.shouldSendDisconnectionWarnings.push('bulihan', 'extension');
+        tasks.shouldSendDisconnectionWarnings.push('bulihan');
+        tasks.extensionTasks.sendDisconnectionWarnings = '15th';
     }
 
-    // Check Malanggam schedule (25th gen, 30th due, 5th disc next month)
+    // 30th Billing Cycle: Malanggam + Extension subscriptions with invoice_date='30th'
+    // (25th gen, 30th due, 5th disc next month)
     if (day === 25) {
         tasks.shouldGenerateInvoices.push('malanggam');
+        tasks.extensionTasks.generateInvoices = '30th';
     }
     // Handle February (month === 1) which may have 28 or 29 days
     const isFebruary = month === 1;
     const lastDayOfFeb = new Date(philippineTime.getUTCFullYear(), 2, 0).getDate(); // 28 or 29
     if (day === 30 || (isFebruary && day === lastDayOfFeb)) {
         tasks.shouldSendDueReminders.push('malanggam');
+        tasks.extensionTasks.sendDueReminders = '30th';
     }
     if (day === 5) {
         tasks.shouldSendDisconnectionWarnings.push('malanggam');
+        tasks.extensionTasks.sendDisconnectionWarnings = '30th';
     }
 
     return tasks;
 }
+
+/**
+ * Generate invoices for Extension business unit subscriptions with a specific billing cycle
+ * @param invoiceDate - The billing cycle to process ('15th' or '30th')
+ */
+export async function generateInvoicesForExtension(
+    invoiceDate: '15th' | '30th',
+    year: number,
+    month: number,
+    sendSmsNotifications: boolean = true
+): Promise<GenerateInvoiceResult> {
+    const supabase = getSupabaseAdmin();
+    const result: GenerateInvoiceResult = {
+        success: false,
+        generated: 0,
+        skipped: 0,
+        smsSent: 0,
+        errors: [],
+        invoices: [],
+    };
+
+    try {
+        // Find Extension business unit
+        const { data: extensionBU, error: buError } = await supabase
+            .from('business_units')
+            .select('id, name')
+            .ilike('name', '%extension%')
+            .single();
+
+        if (buError || !extensionBU) {
+            result.errors.push('Extension business unit not found');
+            return result;
+        }
+
+        console.log(`[Extension] Processing subscriptions with invoice_date='${invoiceDate}'`);
+
+        // Get Extension subscriptions with the matching invoice_date
+        const { data: subscriptions, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id,
+                subscriber_id,
+                business_unit_id,
+                plan_id,
+                date_installed,
+                balance,
+                active,
+                invoice_date,
+                referral_credit_applied,
+                customers!subscriptions_subscriber_id_fkey (
+                    id,
+                    name,
+                    mobile_number
+                ),
+                plans (
+                    name,
+                    monthly_fee
+                ),
+                business_units (
+                    id,
+                    name
+                )
+            `)
+            .eq('business_unit_id', extensionBU.id)
+            .eq('active', true)
+            .eq('invoice_date', invoiceDate);
+
+        if (subError) {
+            result.errors.push(`Error fetching Extension subscriptions: ${subError.message}`);
+            return result;
+        }
+
+        if (!subscriptions || subscriptions.length === 0) {
+            console.log(`[Extension] No subscriptions found with invoice_date='${invoiceDate}'`);
+            result.success = true;
+            return result;
+        }
+
+        console.log(`[Extension] Found ${subscriptions.length} subscriptions with invoice_date='${invoiceDate}'`);
+
+        // Use the same invoice generation logic but for filtered subscriptions
+        // Calculate dates based on the invoice_date cycle
+        const schedule = invoiceDate === '15th'
+            ? { generationDay: 10, dueDay: 15, disconnectionDay: 20, disconnectionNextMonth: false }
+            : { generationDay: 25, dueDay: 30, disconnectionDay: 5, disconnectionNextMonth: true };
+
+        // ... Process subscriptions similar to generateInvoicesForBusinessUnit
+        // For now, call the main function with filtered processing
+        // The main function already handles subscription-level processing
+
+        // Actually, we need to process these subscriptions directly
+        // Let me add the processing logic here
+
+        const dates = calculateBillingDates('Extension', year, month, invoiceDate);
+        const smsMessages: Array<{ to: string; message: string }> = [];
+
+        for (const sub of subscriptions) {
+            try {
+                const customer = sub.customers as any;
+                const plan = sub.plans as any;
+
+                if (!customer || !plan) {
+                    result.skipped++;
+                    continue;
+                }
+
+                // Check if invoice already exists for this period
+                const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
+                const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+
+                const { data: existing } = await supabase
+                    .from('invoices')
+                    .select('id')
+                    .eq('subscription_id', sub.id)
+                    .gte('due_date', startDate)
+                    .lte('due_date', endDate)
+                    .limit(1);
+
+                if (existing && existing.length > 0) {
+                    result.skipped++;
+                    continue;
+                }
+
+                // Calculate amount
+                const amount = plan.monthly_fee;
+                const balance = Number(sub.balance) || 0;
+                const finalAmount = amount + (balance > 0 ? balance : 0);
+
+                // Create invoice
+                const { error: invoiceError } = await supabase
+                    .from('invoices')
+                    .insert({
+                        subscription_id: sub.id,
+                        due_date: toISODateString(dates.dueDate),
+                        from_date: toISODateString(dates.fromDate),
+                        to_date: toISODateString(dates.toDate),
+                        amount_due: finalAmount,
+                        original_amount: amount,
+                        payment_status: finalAmount === 0 ? 'Paid' : 'Unpaid',
+                    });
+
+                if (invoiceError) {
+                    result.errors.push(`Failed to create invoice for ${customer.name}: ${invoiceError.message}`);
+                    continue;
+                }
+
+                // Update subscription balance
+                await supabase
+                    .from('subscriptions')
+                    .update({ balance: finalAmount })
+                    .eq('id', sub.id);
+
+                result.generated++;
+
+                // Queue SMS
+                if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
+                    smsMessages.push({
+                        to: customer.mobile_number,
+                        message: SMSTemplates.invoiceGenerated(
+                            customer.name,
+                            finalAmount,
+                            formatDatePH(dates.dueDate),
+                            'Extension'
+                        ),
+                    });
+                }
+            } catch (subErr) {
+                result.errors.push(`Error processing subscription: ${subErr instanceof Error ? subErr.message : 'Unknown'}`);
+            }
+        }
+
+        // Send SMS notifications
+        if (smsMessages.length > 0) {
+            const smsResult = await sendBulkSMS(smsMessages);
+            result.smsSent = smsResult.sent;
+        }
+
+        result.success = true;
+        console.log(`[Extension] Generated ${result.generated} invoices, sent ${result.smsSent} SMS`);
+        return result;
+
+    } catch (error) {
+        result.errors.push(`Error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return result;
+    }
+}
+
+/**
+ * Send due date reminders for Extension subscriptions with a specific billing cycle
+ */
+export async function sendDueDateRemindersForExtension(
+    invoiceDate: '15th' | '30th'
+): Promise<{ sent: number; errors: string[] }> {
+    const supabase = getSupabaseAdmin();
+    const result = { sent: 0, errors: [] as string[] };
+
+    try {
+        // Find Extension business unit
+        const { data: extensionBU } = await supabase
+            .from('business_units')
+            .select('id')
+            .ilike('name', '%extension%')
+            .single();
+
+        if (!extensionBU) {
+            result.errors.push('Extension business unit not found');
+            return result;
+        }
+
+        // Get subscriptions with unpaid invoices due today
+        const today = new Date();
+        const todayStr = toISODateString(today);
+
+        const { data: unpaidInvoices, error } = await supabase
+            .from('invoices')
+            .select(`
+                id,
+                amount_due,
+                due_date,
+                subscriptions!inner (
+                    id,
+                    invoice_date,
+                    business_unit_id,
+                    customers!subscriptions_subscriber_id_fkey (
+                        name,
+                        mobile_number
+                    )
+                )
+            `)
+            .eq('payment_status', 'Unpaid')
+            .eq('due_date', todayStr)
+            .eq('subscriptions.business_unit_id', extensionBU.id)
+            .eq('subscriptions.invoice_date', invoiceDate);
+
+        if (error) {
+            result.errors.push(`Error fetching invoices: ${error.message}`);
+            return result;
+        }
+
+        if (!unpaidInvoices || unpaidInvoices.length === 0) {
+            return result;
+        }
+
+        const smsMessages: Array<{ to: string; message: string }> = [];
+
+        for (const invoice of unpaidInvoices) {
+            const sub = invoice.subscriptions as any;
+            const customer = sub?.customers;
+
+            if (customer?.mobile_number) {
+                smsMessages.push({
+                    to: customer.mobile_number,
+                    message: SMSTemplates.dueDateReminder(
+                        customer.name,
+                        invoice.amount_due,
+                        formatDatePH(new Date(invoice.due_date))
+                    ),
+                });
+            }
+        }
+
+        if (smsMessages.length > 0) {
+            const smsResult = await sendBulkSMS(smsMessages);
+            result.sent = smsResult.sent;
+        }
+
+        return result;
+    } catch (error) {
+        result.errors.push(`Error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return result;
+    }
+}
+
+/**
+ * Send disconnection warnings for Extension subscriptions with a specific billing cycle
+ */
+export async function sendDisconnectionWarningsForExtension(
+    invoiceDate: '15th' | '30th'
+): Promise<{ sent: number; errors: string[] }> {
+    const supabase = getSupabaseAdmin();
+    const result = { sent: 0, errors: [] as string[] };
+
+    try {
+        // Find Extension business unit
+        const { data: extensionBU } = await supabase
+            .from('business_units')
+            .select('id')
+            .ilike('name', '%extension%')
+            .single();
+
+        if (!extensionBU) {
+            result.errors.push('Extension business unit not found');
+            return result;
+        }
+
+        // Calculate the disconnection date based on invoice_date cycle
+        const today = new Date();
+        const todayStr = toISODateString(today);
+
+        // Get subscriptions with unpaid invoices that are overdue
+        const { data: unpaidInvoices, error } = await supabase
+            .from('invoices')
+            .select(`
+                id,
+                amount_due,
+                due_date,
+                subscriptions!inner (
+                    id,
+                    invoice_date,
+                    business_unit_id,
+                    customers!subscriptions_subscriber_id_fkey (
+                        name,
+                        mobile_number
+                    )
+                )
+            `)
+            .eq('payment_status', 'Unpaid')
+            .lt('due_date', todayStr)
+            .eq('subscriptions.business_unit_id', extensionBU.id)
+            .eq('subscriptions.invoice_date', invoiceDate);
+
+        if (error) {
+            result.errors.push(`Error fetching invoices: ${error.message}`);
+            return result;
+        }
+
+        if (!unpaidInvoices || unpaidInvoices.length === 0) {
+            return result;
+        }
+
+        const smsMessages: Array<{ to: string; message: string }> = [];
+
+        for (const invoice of unpaidInvoices) {
+            const sub = invoice.subscriptions as any;
+            const customer = sub?.customers;
+
+            if (customer?.mobile_number) {
+                smsMessages.push({
+                    to: customer.mobile_number,
+                    message: SMSTemplates.disconnectionWarning(
+                        customer.name,
+                        formatDatePH(today)
+                    ),
+                });
+            }
+        }
+
+        if (smsMessages.length > 0) {
+            const smsResult = await sendBulkSMS(smsMessages);
+            result.sent = smsResult.sent;
+        }
+
+        return result;
+    } catch (error) {
+        result.errors.push(`Error: ${error instanceof Error ? error.message : 'Unknown'}`);
+        return result;
+    }
+}
+

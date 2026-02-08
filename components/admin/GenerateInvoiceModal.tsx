@@ -21,6 +21,7 @@ interface GenerateInvoiceModalProps {
 interface SubscriptionPreview {
     id: string;
     customerName: string;
+    customerMobile: string;
     planName: string;
     monthlyFee: number;
     dateInstalled: string | null;
@@ -126,7 +127,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     referral_credit_applied,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
-                        name
+                        name,
+                        mobile_number
                     ),
                     plans (
                         name,
@@ -286,6 +288,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 eligible.push({
                     id: sub.id,
                     customerName: customer?.name || 'Unknown',
+                    customerMobile: customer?.mobile_number || '',
                     planName: plan?.name || 'Unknown',
                     monthlyFee: plan?.monthly_fee || 0,
                     dateInstalled: sub.date_installed,
@@ -397,9 +400,57 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 }
             }
 
-            // TODO: Send SMS notifications if sendSms is true
-            // For now, we'll just track that we would send them
-            const smsSentCount = sendSms ? subsWithBalances.length : 0;
+            // Send SMS notifications if enabled
+            let smsSentCount = 0;
+            if (sendSms) {
+                const unit = businessUnits.find(u => u.id === selectedUnit);
+                const businessUnitName = unit?.name || 'Allstar';
+
+                // Prepare SMS messages for customers with balance > 0
+                const smsMessages = subsWithBalances
+                    .filter(sub => sub.finalAmount > 0 && sub.customerMobile)
+                    .map(sub => ({
+                        to: sub.customerMobile,
+                        template: 'invoiceGenerated',
+                        templateData: {
+                            customerName: sub.customerName,
+                            amount: sub.finalAmount,
+                            dueDate: formatDatePH(dates.dueDate),
+                            businessUnit: businessUnitName
+                        }
+                    }));
+
+                if (smsMessages.length > 0) {
+                    try {
+                        console.log(`[Invoice] Sending ${smsMessages.length} SMS notifications...`);
+
+                        // Send SMS in batches using the API
+                        for (const smsData of smsMessages) {
+                            try {
+                                const response = await fetch('/api/sms/send', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(smsData)
+                                });
+                                const result = await response.json();
+                                if (result.success) {
+                                    smsSentCount++;
+                                } else {
+                                    console.warn(`SMS failed for ${smsData.templateData.customerName}:`, result.error);
+                                }
+                            } catch (smsErr) {
+                                console.error('SMS send error:', smsErr);
+                            }
+                            // Small delay between SMS to avoid rate limiting
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        }
+
+                        console.log(`[Invoice] SMS sent: ${smsSentCount}/${smsMessages.length}`);
+                    } catch (smsError) {
+                        console.error('Error sending SMS notifications:', smsError);
+                    }
+                }
+            }
 
             setGenerationResult({
                 success: true,

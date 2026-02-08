@@ -597,6 +597,35 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
             if (prospectError) throw prospectError;
 
+            // 5. Send welcome SMS to new subscriber
+            if (prospect.mobile_number) {
+                try {
+                    const planInfo = plans[prospect.plan_id];
+                    const smsResponse = await fetch('/api/sms/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            to: prospect.mobile_number,
+                            template: 'newSubscription',
+                            templateData: {
+                                customerName: prospect.name,
+                                planName: planInfo?.name || 'Internet Plan',
+                                amount: planInfo?.monthly_fee || 0
+                            }
+                        })
+                    });
+                    const smsResult = await smsResponse.json();
+                    if (!smsResult.success) {
+                        console.warn('Welcome SMS not sent:', smsResult.error);
+                    } else {
+                        console.log('Welcome SMS sent successfully to', prospect.mobile_number);
+                    }
+                } catch (smsError) {
+                    console.error('Error sending welcome SMS:', smsError);
+                    // Don't fail the operation for SMS errors
+                }
+            }
+
             setShowSuccess(true);
 
         } catch (error) {

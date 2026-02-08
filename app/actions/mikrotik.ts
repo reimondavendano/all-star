@@ -563,13 +563,19 @@ function getBaseMikrotikName(mikrotikName: string): string {
  * - PROMISEDELEON -> Promise Deleon
  * - JOHNSMITH -> John Smith (if we can detect word boundaries)
  * - MARIASANTOS -> Maria Santos
- * - ROGERGABIN2 -> Roger Gabin (strips trailing numbers)
+ * - ROGERGABIN2 -> Roger Gabin 2 (PRESERVES trailing numbers now)
+ * - JOHNDELACRUZ3 -> John Delacruz 3 (PRESERVES trailing numbers now)
  */
 function parseMikrotikName(mikrotikName: string): string {
     if (!mikrotikName) return 'Unknown';
 
-    // First, strip trailing numbers (e.g., ROGERGABIN2 -> ROGERGABIN)
-    let name = getBaseMikrotikName(mikrotikName).toUpperCase();
+    // Extract trailing numbers (e.g., "ROGERGABIN2" -> name: "ROGERGABIN", suffix: "2")
+    const match = mikrotikName.match(/^(.+?)(\d+)$/);
+    const nameWithoutNumber = match ? match[1] : mikrotikName;
+    const numberSuffix = match ? match[2] : '';
+
+    // Process the name without numbers
+    let name = nameWithoutNumber.toUpperCase();
 
     // Common Filipino surnames to help with splitting
     const commonSurnames = [
@@ -622,7 +628,9 @@ function parseMikrotikName(mikrotikName: string): string {
     const formattedFirst = toTitleCase(firstName);
     const formattedLast = formatSurname(lastName);
 
-    return formattedLast ? `${formattedFirst} ${formattedLast}`.trim() : formattedFirst;
+    // Build the final name with the number suffix if it exists
+    const baseName = formattedLast ? `${formattedFirst} ${formattedLast}`.trim() : formattedFirst;
+    return numberSuffix ? `${baseName} ${numberSuffix}` : baseName;
 }
 
 
@@ -696,7 +704,8 @@ export async function syncMikrotikToDatabase() {
             try {
                 const mikrotikId = secret['.id'] || secret.id;
                 const mikrotikName = secret.name || '';
-                const baseName = getBaseMikrotikName(mikrotikName); // Strip trailing numbers
+                // DISABLED: Duplicate name consolidation - client wants to keep all duplicates separate
+                // const baseName = getBaseMikrotikName(mikrotikName); // Strip trailing numbers
                 const localAddress = secret['local-address'] || secret['remote-address'] || '';
                 const profile = secret.profile || 'default';
                 const service = secret.service || 'any';
@@ -707,10 +716,10 @@ export async function syncMikrotikToDatabase() {
                 // Get plan ID based on MikroTik profile
                 const planId = getPlanIdFromProfile(profile);
 
-                // Parse the name (uses base name, stripping numbers)
+                // Parse the name - now keeps trailing numbers (e.g., "John Dela Cruz 2")
                 const customerName = parseMikrotikName(mikrotikName);
 
-                console.log(`[Sync] Processing: ${mikrotikName} -> ${customerName} (base: ${baseName})`);
+                console.log(`[Sync] Processing: ${mikrotikName} -> ${customerName}`);
 
                 // 3a. Check if this exact PPP secret exists
                 const { data: existingSecret } = await supabaseAdmin
@@ -719,22 +728,9 @@ export async function syncMikrotikToDatabase() {
                     .eq('name', mikrotikName)
                     .single();
 
-                // 3b. If not found, check if base name exists (e.g., ROGERGABIN for ROGERGABIN2)
+                // DISABLED: Base name lookup - client wants each name to be unique customer
+                // No longer checking for base names (e.g., ROGERGABIN for ROGERGABIN2)
                 let existingCustomerId: string | null = existingSecret?.customer_id || null;
-
-                if (!existingCustomerId && baseName !== mikrotikName) {
-                    // This is a numbered variant (like ROGERGABIN2), check if base exists
-                    const { data: baseSecret } = await supabaseAdmin
-                        .from('mikrotik_ppp_secrets')
-                        .select('customer_id')
-                        .eq('name', baseName)
-                        .single();
-
-                    if (baseSecret?.customer_id) {
-                        existingCustomerId = baseSecret.customer_id;
-                        console.log(`[Sync] Found base name ${baseName} customer: ${existingCustomerId}`);
-                    }
-                }
 
                 let customerId: string;
                 let subscriptionId: string;

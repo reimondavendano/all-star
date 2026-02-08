@@ -3,20 +3,25 @@
  * Handles automated billing tasks: invoice generation, due date reminders, and disconnection warnings
  * 
  * Schedule:
- * - 10th of month: Generate invoices for Bulihan & Extension
- * - 15th of month: Due date reminders for Bulihan & Extension
- * - 20th of month: Disconnection warnings for Bulihan & Extension
- * - 25th of month: Generate invoices for Malanggam
- * - 30th of month: Due date reminders for Malanggam
- * - 5th of month: Disconnection warnings for Malanggam
+ * - 10th of month: Generate invoices for Bulihan + Extension (15th cycle)
+ * - 15th of month: Due date reminders for Bulihan + Extension (15th cycle)
+ * - 20th of month: Disconnection warnings for Bulihan + Extension (15th cycle)
+ * - 25th of month: Generate invoices for Malanggam + Extension (30th cycle)
+ * - 30th of month: Due date reminders for Malanggam + Extension (30th cycle)
+ * - 5th of month: Disconnection warnings for Malanggam + Extension (30th cycle)
+ * 
+ * Note: Extension business unit has dynamic billing - each subscription can be on 15th or 30th cycle
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import {
     generateInvoicesForBusinessUnit,
+    generateInvoicesForExtension,
     sendDueDateReminders,
+    sendDueDateRemindersForExtension,
     sendDisconnectionWarnings,
+    sendDisconnectionWarningsForExtension,
     getTodaysTasks,
 } from '@/lib/invoiceService';
 
@@ -110,6 +115,26 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        // 1b. Extension Invoice Generation (dynamic billing cycle)
+        if (tasks.extensionTasks.generateInvoices) {
+            results.tasksExecuted.push(`Invoice Generation: Extension (${tasks.extensionTasks.generateInvoices} cycle)`);
+
+            const extResult = await generateInvoicesForExtension(
+                tasks.extensionTasks.generateInvoices,
+                year,
+                month,
+                true
+            );
+
+            results.invoiceGeneration.push({
+                businessUnit: `Extension (${tasks.extensionTasks.generateInvoices})`,
+                generated: extResult.generated,
+                skipped: extResult.skipped,
+                smsSent: extResult.smsSent,
+                errors: extResult.errors,
+            });
+        }
+
         // 2. Due Date Reminders
         for (const buType of tasks.shouldSendDueReminders) {
             const bu = findBusinessUnit(buType);
@@ -129,6 +154,21 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        // 2b. Extension Due Date Reminders (dynamic billing cycle)
+        if (tasks.extensionTasks.sendDueReminders) {
+            results.tasksExecuted.push(`Due Date Reminder: Extension (${tasks.extensionTasks.sendDueReminders} cycle)`);
+
+            const extReminderResult = await sendDueDateRemindersForExtension(
+                tasks.extensionTasks.sendDueReminders
+            );
+
+            results.dueReminders.push({
+                businessUnit: `Extension (${tasks.extensionTasks.sendDueReminders})`,
+                sent: extReminderResult.sent,
+                errors: extReminderResult.errors,
+            });
+        }
+
         // 3. Disconnection Warnings
         for (const buType of tasks.shouldSendDisconnectionWarnings) {
             const bu = findBusinessUnit(buType);
@@ -145,6 +185,21 @@ export async function GET(request: NextRequest) {
                 businessUnit: bu.name,
                 sent: warningResult.sent,
                 errors: warningResult.errors,
+            });
+        }
+
+        // 3b. Extension Disconnection Warnings (dynamic billing cycle)
+        if (tasks.extensionTasks.sendDisconnectionWarnings) {
+            results.tasksExecuted.push(`Disconnection Warning: Extension (${tasks.extensionTasks.sendDisconnectionWarnings} cycle)`);
+
+            const extWarningResult = await sendDisconnectionWarningsForExtension(
+                tasks.extensionTasks.sendDisconnectionWarnings
+            );
+
+            results.disconnectionWarnings.push({
+                businessUnit: `Extension (${tasks.extensionTasks.sendDisconnectionWarnings})`,
+                sent: extWarningResult.sent,
+                errors: extWarningResult.errors,
             });
         }
 
