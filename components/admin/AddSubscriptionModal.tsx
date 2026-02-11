@@ -123,7 +123,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
             const [customersRes, businessUnitsRes, plansRes] = await Promise.all([
                 supabase.from('customers').select('*').order('name'),
                 supabase.from('business_units').select('*').order('name'),
-                supabase.from('plans').select('*').order('name')
+                supabase.from('plans').select('*').order('monthly_fee', { ascending: true })
             ]);
 
             if (customersRes.data) setCustomers(customersRes.data);
@@ -402,11 +402,30 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
     };
 
     const handleNext = () => {
+        // Validation
+        if (activeStep === 0) {
+            if (!selectedCustomer) {
+                alert('Please select a customer');
+                return;
+            }
+        } else if (activeStep === 1) {
+            if (!formData.label || !formData.barangay || !formData.address || !formData.landmark) {
+                alert('Please fill in all location fields (Location Type, Barangay, Address, Landmark)');
+                return;
+            }
+        } else if (activeStep === 2) {
+            if (!formData.business_unit_id || !formData.plan_id || !formData.date_installed || !formData.invoice_date) {
+                alert('Please fill in Business Unit, Plan, Installation Date, and Billing Period');
+                return;
+            }
+        }
+
         if (activeStep < steps.length - 1) {
             setActiveStep(prev => prev + 1);
         } else {
-            // On final step, show status modal instead of submitting directly
-            setShowStatusModal(true);
+            // On final step, bypass status modal and default to 'Open'
+            setSelectedStatus('Open');
+            setShowConfirmationModal(true);
         }
     };
 
@@ -612,7 +631,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-6">
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-400 mb-2">Location Type</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Location Type <span className="text-red-500">*</span></label>
                                             <input
                                                 type="text"
                                                 value={formData.label}
@@ -622,7 +641,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-400 mb-2">Barangay</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Barangay <span className="text-red-500">*</span></label>
                                             <select
                                                 value={formData.barangay}
                                                 onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
@@ -635,7 +654,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-400 mb-2">Detailed Address</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Detailed Address <span className="text-red-500">*</span></label>
                                             <input
                                                 type="text"
                                                 value={formData.address}
@@ -644,7 +663,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-400 mb-2">Landmark</label>
+                                            <label className="block text-sm font-medium text-gray-400 mb-2">Landmark <span className="text-red-500">*</span></label>
                                             <input
                                                 type="text"
                                                 value={formData.landmark}
@@ -785,23 +804,6 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Active/Connection Toggle */}
-                                    <div
-                                        onClick={() => setFormData({ ...formData, active: !formData.active })}
-                                        className={`p-4 rounded-xl border cursor-pointer transition-all ${formData.active ? 'border-green-500/50 bg-green-500/10' : 'border-gray-800 bg-[#151515]'
-                                            }`}
-                                    >
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className={`font-medium ${formData.active ? 'text-green-400' : 'text-gray-400'}`}>Connection Status</span>
-                                            <div className={`w-10 h-6 rounded-full relative transition-colors ${formData.active ? 'bg-green-500' : 'bg-gray-700'}`}>
-                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.active ? 'left-5' : 'left-1'}`} />
-                                            </div>
-                                        </div>
-                                        <p className="text-sm text-gray-500">
-                                            {formData.active ? 'Service will be active immediately' : 'Service will be installed but inactive'}
-                                        </p>
-                                    </div>
-
                                     {/* Referral Credit Toggle */}
                                     <div
                                         onClick={() => setFormData({ ...formData, referral_credit_applied: !formData.referral_credit_applied })}
@@ -862,8 +864,16 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
 
                     <button
                         onClick={handleNext}
-                        disabled={isLoading || (activeStep === 0 && !selectedCustomer)}
-                        className={`flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 transition-all ${(isLoading || (activeStep === 0 && !selectedCustomer)) ? 'opacity-50 cursor-not-allowed' : ''
+                        disabled={isLoading ||
+                            (activeStep === 0 && !selectedCustomer) ||
+                            (activeStep === 1 && (!formData.label || !formData.barangay || !formData.address || !formData.landmark)) ||
+                            (activeStep === 2 && (!formData.business_unit_id || !formData.plan_id || !formData.date_installed || !formData.invoice_date))
+                        }
+                        className={`flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 transition-all ${(isLoading ||
+                                (activeStep === 0 && !selectedCustomer) ||
+                                (activeStep === 1 && (!formData.label || !formData.barangay || !formData.address || !formData.landmark)) ||
+                                (activeStep === 2 && (!formData.business_unit_id || !formData.plan_id || !formData.date_installed || !formData.invoice_date)))
+                                ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                     >
                         {isLoading ? (

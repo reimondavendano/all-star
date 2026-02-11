@@ -19,11 +19,12 @@ import {
     X,
     RefreshCw,
     Plus,
-    DollarSign,
     Banknote,
     Smartphone,
     Zap,
-    MessageSquare
+    MessageSquare,
+    Info,
+    Wallet
 } from 'lucide-react';
 import { BalanceInline } from '@/components/BalanceDisplay';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
@@ -59,6 +60,7 @@ interface Invoice {
     to_date: string;
     due_date: string;
     amount_due: number;
+    amount_paid: number;
     payment_status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification';
 }
 
@@ -77,6 +79,7 @@ interface GroupedData {
     subscriptions: Array<{
         subscription: Subscription;
         invoices: Invoice[];
+        periodInvoices: Invoice[];
         payments: Payment[];
         totalPaid: number;
         totalDue: number;
@@ -88,7 +91,7 @@ export default function CollectorInvoicesPage() {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-    const [statusTab, setStatusTab] = useState<'Unpaid' | 'Partially Paid' | 'Paid'>('Unpaid');
+    const [statusTab, setStatusTab] = useState<'All' | 'Unpaid' | 'Partially Paid' | 'Paid'>('All');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -103,14 +106,22 @@ export default function CollectorInvoicesPage() {
 
     // Modals
     const [isQuickCollectOpen, setIsQuickCollectOpen] = useState(false);
-    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<{
         invoice: Invoice;
         subscription: Subscription;
         customer: Customer;
     } | null>(null);
-    const [paymentForm, setPaymentForm] = useState({
+
+    // Pay All modal
+    const [payAllData, setPayAllData] = useState<{
+        customer: Customer;
+        subscription: Subscription;
+        invoices: Invoice[];
+        totalAmount: number;
+        invoiceSum?: number;
+    } | null>(null);
+    const [payAllForm, setPayAllForm] = useState({
         amount: '',
         mode: 'Cash' as 'Cash' | 'E-Wallet',
         settlementDate: new Date().toISOString().split('T')[0],
@@ -140,19 +151,61 @@ export default function CollectorInvoicesPage() {
         setBusinessUnits(data || []);
     };
 
+    // Helper: determine due_date range for a billing cycle in a given month
+    const getDueDateRangeForMonth = (
+        businessUnitName: string,
+        year: number,
+        month: number // 1-12
+    ): { rangeStart: Date; rangeEnd: Date } => {
+        const buName = (businessUnitName || '').toLowerCase();
+
+        let is15thCycle: boolean;
+        if (buName.includes('malanggam')) {
+            is15thCycle = false;
+        } else {
+            is15thCycle = true; // Bulihan, Extension (default 15th for now or strictly defined)
+        }
+
+        // NOTE: For extension, we simplified logic here. Admin has more precise check but for display this should suffice
+        // If needed, we can fetch 'invoice_date' from subscription to be precise.
+
+        const prevMonth = month === 1 ? 12 : month - 1;
+        const prevYear = month === 1 ? year - 1 : year;
+
+        if (is15thCycle) {
+            // 15th cycle: For Feb 2026, show invoices with due_date from Jan 16 to Feb 20
+            return {
+                rangeStart: new Date(prevYear, prevMonth - 1, 16),
+                rangeEnd: new Date(year, month - 1, 20),
+            };
+        } else {
+            // 30th cycle: For Feb 2026, show invoices from Feb 1 - Feb 28/29
+            return {
+                rangeStart: new Date(year, month - 1, 1),
+                rangeEnd: new Date(year, month, 5),
+            };
+        }
+    };
+
     const fetchData = async () => {
         setIsLoading(true);
         try {
             const [year, month] = selectedMonth.split('-');
-            const startDate = `${year}-${month}-01`;
-            const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+            const selectedYear = parseInt(year);
+            const selectedMonthNum = parseInt(month);
+
+            // Wide range for fetching to cover 15th cycle (prev month 16th)
+            const prevMonthDate = new Date(selectedYear, selectedMonthNum - 2, 1);
+            const fetchStartDate = prevMonthDate.toISOString().split('T')[0];
+            const fetchEndDate = new Date(selectedYear, selectedMonthNum, 0).toISOString().split('T')[0];
 
             let subscriptionsQuery = supabase
                 .from('subscriptions')
                 .select(`
                     id, subscriber_id, plan_id, business_unit_id, balance, active, label, address,
                     customers!subscriptions_subscriber_id_fkey (id, name, mobile_number),
-                    plans (name, monthly_fee)
+                    plans (name, monthly_fee),
+                    business_units (name)
                 `)
                 .eq('active', true);
 
@@ -164,30 +217,27 @@ export default function CollectorInvoicesPage() {
 
             if (!subscriptions || subscriptions.length === 0) {
                 setGroupedData([]);
+                setCashCollected(0);
+                setEwalletCollected(0);
                 setIsLoading(false);
                 return;
             }
 
             const subIds = subscriptions.map(s => s.id);
 
+            // Fetch ALL unpaid invoices + invoices in the wide date range
             let invoicesQuery = supabase
                 .from('invoices')
                 .select('*')
-                .in('subscription_id', subIds)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .in('subscription_id', subIds);
 
-            if (statusTab === 'Unpaid') {
-                invoicesQuery = invoicesQuery.eq('payment_status', 'Unpaid');
-            } else if (statusTab === 'Partially Paid') {
-                invoicesQuery = invoicesQuery.eq('payment_status', 'Partially Paid');
-            } else if (statusTab === 'Paid') {
-                invoicesQuery = invoicesQuery.eq('payment_status', 'Paid');
-            }
+            // We fetch ALL unpaid to show history, plus current month's paid ones
+            // Logic: status != Paid OR (due_date within wide range)
+            invoicesQuery = invoicesQuery.or(`payment_status.neq.Paid,and(due_date.gte.${fetchStartDate},due_date.lte.${fetchEndDate})`);
 
             const { data: invoices } = await invoicesQuery;
 
-            // Fetch ALL payments for cash tracking (not just by subIds, but for the month)
+            // Fetch ALL payments for cash tracking
             const { data: payments } = await supabase
                 .from('payments')
                 .select('*')
@@ -221,24 +271,62 @@ export default function CollectorInvoicesPage() {
                     customerMap.set(customer.id, { customer, subscriptions: [] });
                 }
 
-                const subInvoices = (invoices || []).filter(inv => inv.subscription_id === sub.id);
-                const subPayments = (payments || []).filter(pay => pay.subscription_id === sub.id);
-                const totalDue = subInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-                const totalPaid = subPayments.reduce((sum, pay) => sum + (pay.amount || 0), 0);
+                const subInvoices = (invoices || []).filter(inv => inv.subscription_id === sub.id)
+                    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
-                if (subInvoices.length > 0) {
-                    customerMap.get(customer.id)!.subscriptions.push({
-                        subscription: sub as Subscription,
-                        invoices: subInvoices,
-                        payments: subPayments,
-                        totalDue,
-                        totalPaid,
-                        balance: sub.balance
-                    });
+                const subPayments = (payments || []).filter(pay => pay.subscription_id === sub.id)
+                    .sort((a, b) => new Date(b.settlement_date).getTime() - new Date(a.settlement_date).getTime());
+
+                // Calculate period invoices
+                const { rangeStart, rangeEnd } = getDueDateRangeForMonth(
+                    sub.business_units?.name || '',
+                    selectedYear,
+                    selectedMonthNum
+                );
+
+                const periodInvoices = subInvoices.filter(inv => {
+                    const dueDate = new Date(inv.due_date + 'T00:00:00');
+                    // Include if in range OR if status matches filter (handled in render usually, but here we define 'period' view)
+                    // The Admin view strictly defines 'periodInvoices' by date range.
+                    return dueDate >= rangeStart && dueDate <= rangeEnd;
+                });
+
+                // Apply status filter if needed
+                let visibleInvoices = subInvoices;
+                if (statusTab === 'Paid') {
+                    visibleInvoices = subInvoices.filter(inv => inv.payment_status === 'Paid');
+                    // Also filter by date for 'Paid' view to strictly show that month's paid? 
+                    // Admin logic: fetch wide, filter based on selection.
+                } else if (statusTab === 'Unpaid') {
+                    visibleInvoices = subInvoices.filter(inv => inv.payment_status === 'Unpaid');
+                } else if (statusTab === 'Partially Paid') {
+                    visibleInvoices = subInvoices.filter(inv => inv.payment_status === 'Partially Paid');
                 }
+
+                // If filter is active, check if subscription has relevant invoices
+                if (statusTab !== 'All' && visibleInvoices.length === 0) return;
+
+                // Adjust periodInvoices if filter is active?
+                // Actually, Admin logic renders 'periodInvoices' specifically for the table.
+                // If filtering by status, we might show valid invoices from history too if Unpaid.
+
+                const totalPaid = subInvoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
+
+                customerMap.get(customer.id)!.subscriptions.push({
+                    subscription: sub as Subscription,
+                    invoices: subInvoices, // All related invoices (history + current)
+                    periodInvoices: periodInvoices, // Just for this month's view
+                    payments: subPayments,
+                    totalDue: Number(sub.balance) || 0,
+                    totalPaid,
+                    balance: sub.balance
+                });
             });
 
-            const grouped = Array.from(customerMap.values()).filter(g => g.subscriptions.length > 0);
+            const grouped = Array.from(customerMap.values())
+                .filter(g => g.subscriptions.length > 0)
+                .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+
             setGroupedData(grouped);
         } catch (error) {
             console.error('Error fetching data:', error);
@@ -247,74 +335,105 @@ export default function CollectorInvoicesPage() {
         }
     };
 
-    const openPaymentModal = (invoice: Invoice, subscription: Subscription, customer: Customer) => {
-        setSelectedInvoice({ invoice, subscription, customer });
-        setPaymentForm({
-            amount: invoice.amount_due.toString(),
+    const openPayAllModal = (customer: Customer, subscription: Subscription, invoices: Invoice[]) => {
+        // Calculate total unpaid amount for the subscription
+        // We use subscription.balance as the total due source of truth
+        const totalAmount = subscription.balance || 0;
+
+        // Sum of invoice amounts for display breakdown (optional validation)
+        const unpaidInvoices = invoices.filter(i => i.payment_status !== 'Paid');
+        const invoiceSum = unpaidInvoices.reduce((sum, inv) => sum + (inv.amount_due - (inv.amount_paid || 0)), 0);
+
+        setPayAllData({
+            customer,
+            subscription,
+            invoices,
+            totalAmount,
+            invoiceSum
+        });
+        setPayAllForm({
+            amount: totalAmount > 0 ? totalAmount.toString() : '0',
             mode: 'Cash',
             settlementDate: new Date().toISOString().split('T')[0],
-            notes: '',
+            notes: ''
         });
-        setIsPaymentModalOpen(true);
     };
 
-    const handleSubmitPayment = async () => {
-        if (!selectedInvoice) return;
+    const handlePayAll = async () => {
+        if (!payAllData) return;
         setIsSubmitting(true);
 
         try {
-            const amount = parseFloat(paymentForm.amount);
+            const amount = parseFloat(payAllForm.amount);
             if (isNaN(amount) || amount <= 0) {
                 alert('Please enter a valid amount');
                 setIsSubmitting(false);
                 return;
             }
 
-            // Insert payment
-            const { error: paymentError } = await supabase.from('payments').insert({
-                subscription_id: selectedInvoice.subscription.id,
-                invoice_id: selectedInvoice.invoice.id,
-                settlement_date: paymentForm.settlementDate,
-                amount: amount,
-                mode: paymentForm.mode,
-                notes: paymentForm.notes
-            });
+            const { subscription, invoices } = payAllData;
 
-            if (paymentError) throw paymentError;
+            // 1. Distribute payment across oldest unpaid invoices first
+            const unpaidInvoices = invoices
+                .filter(i => i.payment_status !== 'Paid')
+                .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
-            // Get current amount_paid from invoice (if tracking partial payments)
-            const { data: invoiceData } = await supabase
-                .from('invoices')
-                .select('amount_paid')
-                .eq('id', selectedInvoice.invoice.id)
-                .single();
+            let remainingAmount = amount;
+            let transactionCount = 0;
 
-            const currentAmountPaid = invoiceData?.amount_paid || 0;
-            const newAmountPaid = currentAmountPaid + amount;
-            const isFullyPaid = newAmountPaid >= selectedInvoice.invoice.amount_due;
+            for (const invoice of unpaidInvoices) {
+                if (remainingAmount <= 0) break;
 
-            // Update invoice status and amount_paid
-            await supabase
-                .from('invoices')
-                .update({
-                    payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
-                    amount_paid: newAmountPaid
-                })
-                .eq('id', selectedInvoice.invoice.id);
+                const currentPaid = invoice.amount_paid || 0;
+                const balance = invoice.amount_due - currentPaid;
+                const paymentForInvoice = Math.min(remainingAmount, balance);
 
-            // Update subscription balance
-            const newBalance = (selectedInvoice.subscription.balance || 0) - amount;
+                if (paymentForInvoice > 0) {
+                    // Record payment
+                    await supabase.from('payments').insert({
+                        subscription_id: subscription.id,
+                        invoice_id: invoice.id,
+                        settlement_date: payAllForm.settlementDate,
+                        amount: paymentForInvoice,
+                        mode: payAllForm.mode,
+                        notes: `Pay All - ${payAllForm.notes || 'Full Settlement'}`
+                    });
+
+                    // Update invoice
+                    const newPaid = currentPaid + paymentForInvoice;
+                    const isFullyPaid = newPaid >= invoice.amount_due;
+                    // Floating point safety: if newPaid is very close to amount_due, mark paid
+                    // or rely on >= logic.
+
+                    await supabase.from('invoices').update({
+                        payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+                        amount_paid: newPaid
+                    }).eq('id', invoice.id);
+
+                    remainingAmount -= paymentForInvoice;
+                    transactionCount++;
+                }
+            }
+
+            // If there's still remaining amount (overpayment or no invoices matches but balance existed),
+            // just update the balance. The overpayment effectively reduces balance further?
+            // Actually balance is updated below.
+
+            // 2. Update Subscription Balance
+            // New balance = Old Balance - Payment Amount
+            const newBalance = (subscription.balance || 0) - amount;
+
             await supabase
                 .from('subscriptions')
                 .update({ balance: newBalance })
-                .eq('id', selectedInvoice.subscription.id);
+                .eq('id', subscription.id);
 
-            setIsPaymentModalOpen(false);
-            setSelectedInvoice(null);
-            fetchData();
+            setPayAllData(null);
+            fetchData(); // Refresh
+
         } catch (error) {
-            console.error('Error submitting payment:', error);
-            alert('Failed to submit payment');
+            console.error('Error processing Pay All:', error);
+            alert('Failed to process payment');
         } finally {
             setIsSubmitting(false);
         }
@@ -439,6 +558,16 @@ export default function CollectorInvoicesPage() {
                     {/* Status Tabs */}
                     <div className="flex gap-2">
                         <button
+                            onClick={() => { setStatusTab('All'); setCurrentPage(1); }}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'All'
+                                ? 'bg-purple-600 text-white shadow-lg'
+                                : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+                                }`}
+                        >
+                            <FileText className="w-4 h-4" />
+                            All
+                        </button>
+                        <button
                             onClick={() => { setStatusTab('Unpaid'); setCurrentPage(1); }}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'Unpaid'
                                 ? 'bg-red-600 text-white shadow-lg'
@@ -525,14 +654,14 @@ export default function CollectorInvoicesPage() {
                             if (buName) {
                                 return (
                                     <>
-                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab.toLowerCase()}</span> invoices found</p>
+                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab === 'All' ? '' : statusTab.toLowerCase()}</span> invoices found</p>
                                         <p className="text-sm mt-1">for <span className="text-purple-400">{buName}</span> in <span className="text-purple-400">{monthLabel}</span></p>
                                     </>
                                 );
                             } else {
                                 return (
                                     <>
-                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab.toLowerCase()}</span> invoices found</p>
+                                        <p className="text-gray-400">No <span className="text-white font-medium">{statusTab === 'All' ? '' : statusTab.toLowerCase()}</span> invoices found</p>
                                         <p className="text-sm mt-1">for <span className="text-purple-400">{monthLabel}</span></p>
                                     </>
                                 );
@@ -568,97 +697,174 @@ export default function CollectorInvoicesPage() {
 
                                 {/* Expanded Subscriptions */}
                                 {expandedCustomers.has(group.customer.id) && (
-                                    <div className="bg-[#080808] border-t border-gray-800/50">
-                                        {group.subscriptions.map(({ subscription, invoices, payments, balance }) => (
-                                            <div key={subscription.id} className="border-b border-gray-800/50 last:border-b-0">
-                                                {/* Subscription Header */}
-                                                <div
-                                                    className="p-4 pl-12 hover:bg-[#0d0d0d] cursor-pointer flex items-center gap-3 transition-colors"
-                                                    onClick={() => toggleSubscription(subscription.id)}
-                                                >
-                                                    {expandedSubscriptions.has(subscription.id) ? (
-                                                        <ChevronDown className="w-4 h-4 text-gray-500" />
-                                                    ) : (
-                                                        <ChevronRight className="w-4 h-4 text-gray-500" />
-                                                    )}
-                                                    <Wifi className="w-4 h-4 text-purple-400" />
-                                                    <div className="flex-1">
-                                                        <span className="text-white font-medium">{subscription.plans?.name}</span>
-                                                        <span className="text-gray-500 ml-2 text-sm">{subscription.address}</span>
-                                                    </div>
-                                                    <BalanceInline balance={balance} />
-                                                </div>
+                                    <div className="bg-[#0a0a0a]">
+                                        {group.subscriptions.map(({ subscription, invoices, periodInvoices, payments, totalPaid, totalDue, balance }) => {
+                                            // Calculate invoice status summary for this period
+                                            const hasInvoices = periodInvoices && periodInvoices.length > 0;
 
-                                                {/* Invoices for this subscription */}
-                                                {expandedSubscriptions.has(subscription.id) && (
-                                                    <div className="pl-20 pr-4 pb-4 space-y-2">
-                                                        {invoices.map((invoice) => (
-                                                            <div key={invoice.id} className="bg-[#0f0f0f] rounded-xl p-4 border border-gray-800">
-                                                                <div className="flex items-center justify-between">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className={`px-2 py-1 rounded-lg text-xs font-medium border ${getStatusStyle(invoice.payment_status)}`}>
-                                                                            {getStatusIcon(invoice.payment_status)}
-                                                                            <span className="ml-1">{invoice.payment_status}</span>
-                                                                        </div>
-                                                                        <div className="text-sm text-gray-400">
-                                                                            {new Date(invoice.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(invoice.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-4">
-                                                                        <div className="text-right">
-                                                                            <div className="text-lg font-bold text-white">₱{invoice.amount_due.toFixed(2)}</div>
-                                                                            <div className="text-xs text-gray-500">Due: {new Date(invoice.due_date).toLocaleDateString()}</div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <button
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setSelectedInvoice({ invoice, subscription, customer: group.customer });
-                                                                                    setIsNotesModalOpen(true);
-                                                                                }}
-                                                                                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm font-medium transition-colors"
-                                                                                title="Add/View Notes"
-                                                                            >
-                                                                                <MessageSquare className="w-4 h-4" />
-                                                                            </button>
-                                                                            {invoice.payment_status !== 'Paid' && (
-                                                                                <button
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        openPaymentModal(invoice, subscription, group.customer);
-                                                                                    }}
-                                                                                    className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg text-sm font-medium transition-colors"
-                                                                                >
-                                                                                    <CreditCard className="w-4 h-4 inline mr-1" />
-                                                                                    Pay
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                            // Determine overall status based on period invoices
+                                            let statusText = 'No Invoice';
+                                            let statusClass = 'bg-gray-800 text-gray-500 border-gray-700';
 
-                                                        {/* Recent Payments for this subscription */}
-                                                        {payments.length > 0 && (
-                                                            <div className="mt-3 pt-3 border-t border-gray-800/50">
-                                                                <div className="text-xs text-gray-500 uppercase mb-2">Recent Payments</div>
-                                                                <div className="space-y-1">
-                                                                    {payments.slice(0, 3).map(pay => (
-                                                                        <div key={pay.id} className="flex items-center justify-between text-sm">
-                                                                            <span className="text-gray-400">
-                                                                                {new Date(pay.settlement_date).toLocaleDateString()} - {pay.mode}
-                                                                            </span>
-                                                                            <span className="text-emerald-400 font-medium">+₱{pay.amount.toLocaleString()}</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
+                                            if (hasInvoices) {
+                                                const paidCount = periodInvoices.filter(i => i.payment_status === 'Paid').length;
+                                                const unpaidCount = periodInvoices.filter(i => i.payment_status === 'Unpaid').length;
+                                                const partialCount = periodInvoices.filter(i => i.payment_status === 'Partially Paid').length;
+                                                const pendingCount = periodInvoices.filter(i => i.payment_status === 'Pending Verification').length;
+
+                                                if (paidCount === periodInvoices.length) {
+                                                    statusText = 'Paid';
+                                                    statusClass = 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50';
+                                                } else if (unpaidCount === periodInvoices.length && periodInvoices.length > 0) {
+                                                    statusText = 'Unpaid';
+                                                    statusClass = 'bg-red-900/30 text-red-400 border-red-700/50';
+                                                } else if (pendingCount > 0) {
+                                                    statusText = 'Pending';
+                                                    statusClass = 'bg-violet-900/30 text-violet-400 border-violet-700/50';
+                                                } else {
+                                                    statusText = 'Partial';
+                                                    statusClass = 'bg-amber-900/30 text-amber-400 border-amber-700/50';
+                                                }
+                                            }
+
+                                            return (
+                                                <div key={subscription.id} className="border-l-2 border-gray-800 ml-6">
+                                                    {/* Subscription Header */}
+                                                    <div
+                                                        className="p-3 hover:bg-[#151515] cursor-pointer flex items-center gap-3 transition-colors"
+                                                        onClick={() => toggleSubscription(subscription.id)}
+                                                    >
+                                                        {expandedSubscriptions.has(subscription.id) ? (
+                                                            <ChevronDown className="w-4 h-4 text-gray-500" />
+                                                        ) : (
+                                                            <ChevronRight className="w-4 h-4 text-gray-500" />
                                                         )}
+                                                        <Wifi className="w-4 h-4 text-purple-500" />
+                                                        <div className="flex-1">
+                                                            <div className="text-sm text-white">
+                                                                {subscription.plans?.name || 'Unknown Plan'}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                {subscription.label || subscription.address || 'No location'}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Summary & Pay All */}
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="text-right">
+                                                                <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
+                                                                <div className="text-xs text-gray-500">{invoices.filter(i => i.payment_status !== 'Paid').length} invoice(s)</div>
+                                                            </div>
+
+                                                            {/* Pay All button */}
+                                                            {invoices.some(i => i.payment_status !== 'Paid') && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openPayAllModal(group.customer, subscription, invoices);
+                                                                    }}
+                                                                    className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded-lg transition-colors flex items-center gap-1"
+                                                                >
+                                                                    <Wallet className="w-3 h-3" />
+                                                                    Pay All
+                                                                </button>
+                                                            )}
+                                                            <span className={`px-2 py-1 rounded text-xs font-medium border ${statusClass}`}>
+                                                                {statusText}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                )}
-                                            </div>
-                                        ))}
+
+                                                    {/* Invoices Table */}
+                                                    {expandedSubscriptions.has(subscription.id) && (
+                                                        <div className="mx-4 mb-4 rounded-lg overflow-hidden border border-gray-800">
+                                                            <table className="w-full text-sm">
+                                                                <thead className="bg-[#1a1a1a]">
+                                                                    <tr className="text-gray-400 text-xs">
+                                                                        <th className="text-left p-3">Due Date</th>
+                                                                        <th className="text-left p-3">Period</th>
+                                                                        <th className="text-right p-3">Amount</th>
+                                                                        <th className="text-center p-3">Status</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-gray-800/50">
+                                                                    {(() => {
+                                                                        // Reminder Row Logic
+                                                                        const hiddenUnpaidInvoices = invoices.filter(inv =>
+                                                                            inv.payment_status !== 'Paid' &&
+                                                                            !periodInvoices?.some(p => p.id === inv.id)
+                                                                        );
+
+                                                                        if (hiddenUnpaidInvoices.length > 0) {
+                                                                            const hiddenTotal = hiddenUnpaidInvoices.reduce((sum, inv) => sum + (inv.amount_due - (inv.amount_paid || 0)), 0);
+                                                                            return (
+                                                                                <tr className="bg-amber-950/20 hover:bg-amber-950/30 transition-colors">
+                                                                                    <td colSpan={4} className="p-3 text-center border-b border-gray-800/50">
+                                                                                        <div className="flex items-center justify-center gap-2 text-amber-500/90 text-xs">
+                                                                                            <AlertCircle className="w-3 h-3" />
+                                                                                            <span>
+                                                                                                Reminder: You have <span className="font-bold">{hiddenUnpaidInvoices.length} overdue invoice(s)</span> from previous months
+                                                                                                totalling <span className="font-bold">₱{Math.round(hiddenTotal).toLocaleString()}</span>.
+                                                                                                Use "Pay All" to settle balance.
+                                                                                            </span>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        }
+                                                                        return null;
+                                                                    })()}
+
+                                                                    {(!periodInvoices || periodInvoices.length === 0) ? (
+                                                                        <tr>
+                                                                            <td colSpan={4} className="p-4 text-center text-gray-500">
+                                                                                No invoices for this period
+                                                                            </td>
+                                                                        </tr>
+                                                                    ) : (
+                                                                        periodInvoices.map(invoice => (
+                                                                            <tr key={invoice.id} className="hover:bg-[#151515]">
+                                                                                <td className="p-3 text-white">
+                                                                                    {new Date(invoice.due_date).toLocaleDateString()}
+                                                                                </td>
+                                                                                <td className="p-3 text-gray-400">
+                                                                                    {new Date(invoice.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(invoice.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                                                </td>
+                                                                                <td className="p-3 text-right text-white font-medium">
+                                                                                    ₱{invoice.amount_due.toFixed(2)}
+                                                                                </td>
+                                                                                <td className="p-3 text-center">
+                                                                                    <div className="flex items-center justify-end gap-2">
+                                                                                        {/* Note Button */}
+                                                                                        <button
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setSelectedInvoice({ invoice, subscription, customer: group.customer });
+                                                                                                setIsNotesModalOpen(true);
+                                                                                            }}
+                                                                                            className="p-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs"
+                                                                                            title="Notes"
+                                                                                        >
+                                                                                            <MessageSquare className="w-3.5 h-3.5" />
+                                                                                        </button>
+
+                                                                                        {/* Removed Individual Pay Button as requested */}
+
+                                                                                        <span className={`px-2 py-1 rounded text-xs font-medium border ${getStatusStyle(invoice.payment_status)}`}>
+                                                                                            {invoice.payment_status}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </td>
+                                                                            </tr>
+                                                                        ))
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
@@ -764,54 +970,70 @@ export default function CollectorInvoicesPage() {
                 )}
             </div>
 
-            {/* Payment Modal */}
-            {isPaymentModalOpen && selectedInvoice && (
+            {/* Pay All Modal */}
+            {payAllData && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsPaymentModalOpen(false)} />
-                    <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-purple-900/50 rounded-2xl shadow-[0_0_60px_rgba(139,92,246,0.15)] w-full max-w-md overflow-hidden">
-                        <div className="relative p-6 border-b border-gray-800/50">
-                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-600/10 via-green-600/10 to-teal-600/10" />
-                            <div className="relative flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center shadow-lg">
-                                    <CreditCard className="w-6 h-6 text-white" />
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-bold text-white">Record Payment</h2>
-                                    <p className="text-sm text-gray-400">{selectedInvoice.customer.name}</p>
-                                </div>
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPayAllData(null)} />
+                    <div className="relative bg-[#0a0a0a] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div className="p-6 border-b border-gray-800/50 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-xl font-bold text-white">Pay All Balance</h2>
+                                <p className="text-sm text-gray-400">{payAllData.customer.name}</p>
                             </div>
-                            <button onClick={() => setIsPaymentModalOpen(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white">
+                            <button
+                                onClick={() => setPayAllData(null)}
+                                className="p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors"
+                            >
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        <div className="p-6 space-y-4">
-                            {/* Invoice Details */}
-                            <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-gray-400">Invoice Amount</span>
-                                    <span className="text-xl font-bold text-white">₱{selectedInvoice.invoice.amount_due.toLocaleString()}</span>
+                        <div className="p-6 space-y-6">
+                            <div className="bg-amber-950/10 rounded-xl p-4 border border-amber-900/20">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-amber-500/80 text-sm">Total Outstanding</span>
+                                    <span className="text-xl font-bold text-amber-500">₱{Math.round(payAllData.totalAmount).toLocaleString()}</span>
                                 </div>
-                                <div className="flex justify-between items-center mt-2 text-sm">
-                                    <span className="text-gray-500">Period</span>
-                                    <span className="text-gray-300">
-                                        {new Date(selectedInvoice.invoice.from_date).toLocaleDateString()} - {new Date(selectedInvoice.invoice.to_date).toLocaleDateString()}
-                                    </span>
-                                </div>
+
+                                {(() => {
+                                    // Calculate breakdown
+                                    const subtotal = payAllData.invoiceSum || 0;
+                                    const totalToPay = payAllData.totalAmount;
+                                    const creditAmount = subtotal - totalToPay;
+                                    const penaltyAmount = totalToPay - subtotal;
+
+                                    return (
+                                        <div className="space-y-1 text-xs text-gray-400">
+                                            <div className="flex justify-between">
+                                                <span>Invoice Sum</span>
+                                                <span>₱{Math.round(subtotal).toLocaleString()}</span>
+                                            </div>
+                                            {creditAmount > 0 && Math.abs(creditAmount) > 1 && (
+                                                <div className="flex justify-between text-emerald-400">
+                                                    <span>Credits / Adjustments</span>
+                                                    <span>-₱{Math.round(creditAmount).toLocaleString()}</span>
+                                                </div>
+                                            )}
+                                            {penaltyAmount > 0 && Math.abs(penaltyAmount) > 1 && (
+                                                <div className="flex justify-between text-amber-500">
+                                                    <span>Other Charges</span>
+                                                    <span>+₱{Math.round(penaltyAmount).toLocaleString()}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
 
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Amount (₱)</label>
-                                <div className="relative">
-                                    <DollarSign className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                                    <input
-                                        type="number"
-                                        value={paymentForm.amount}
-                                        onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                                        placeholder="0.00"
-                                    />
-                                </div>
+                                <input
+                                    type="number"
+                                    value={payAllForm.amount}
+                                    onChange={(e) => setPayAllForm({ ...payAllForm, amount: e.target.value })}
+                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                    placeholder="0.00"
+                                />
                             </div>
 
                             <div>
@@ -819,16 +1041,22 @@ export default function CollectorInvoicesPage() {
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         type="button"
-                                        onClick={() => setPaymentForm({ ...paymentForm, mode: 'Cash' })}
-                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${paymentForm.mode === 'Cash' ? 'bg-purple-900/30 border-purple-700/50 text-purple-400' : 'bg-gray-900/50 border-gray-700 text-gray-400'}`}
+                                        onClick={() => setPayAllForm({ ...payAllForm, mode: 'Cash' })}
+                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'Cash'
+                                            ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
+                                            : 'bg-gray-900/50 border-gray-700 text-gray-400'
+                                            }`}
                                     >
                                         <Banknote className="w-4 h-4" />
                                         Cash
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => setPaymentForm({ ...paymentForm, mode: 'E-Wallet' })}
-                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${paymentForm.mode === 'E-Wallet' ? 'bg-purple-900/30 border-purple-700/50 text-purple-400' : 'bg-gray-900/50 border-gray-700 text-gray-400'}`}
+                                        onClick={() => setPayAllForm({ ...payAllForm, mode: 'E-Wallet' })}
+                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'E-Wallet'
+                                            ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
+                                            : 'bg-gray-900/50 border-gray-700 text-gray-400'
+                                            }`}
                                     >
                                         <Smartphone className="w-4 h-4" />
                                         E-Wallet
@@ -840,34 +1068,37 @@ export default function CollectorInvoicesPage() {
                                 <label className="block text-sm text-gray-400 mb-2">Settlement Date</label>
                                 <input
                                     type="date"
-                                    value={paymentForm.settlementDate}
-                                    onChange={(e) => setPaymentForm({ ...paymentForm, settlementDate: e.target.value })}
-                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
+                                    value={payAllForm.settlementDate}
+                                    onChange={(e) => setPayAllForm({ ...payAllForm, settlementDate: e.target.value })}
+                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
                                 />
                             </div>
 
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Notes (optional)</label>
                                 <textarea
-                                    value={paymentForm.notes}
-                                    onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 h-20 resize-none"
+                                    value={payAllForm.notes}
+                                    onChange={(e) => setPayAllForm({ ...payAllForm, notes: e.target.value })}
+                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 h-20 resize-none"
                                     placeholder="Add notes..."
                                 />
                             </div>
-                        </div>
 
-                        <div className="p-6 border-t border-gray-800/50 flex justify-end gap-3">
-                            <button onClick={() => setIsPaymentModalOpen(false)} className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium">
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSubmitPayment}
-                                disabled={isSubmitting || !paymentForm.amount}
-                                className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl font-medium shadow-lg disabled:opacity-50"
-                            >
-                                {isSubmitting ? 'Processing...' : 'Confirm Payment'}
-                            </button>
+                            <div className="pt-4 flex gap-3">
+                                <button
+                                    onClick={() => setPayAllData(null)}
+                                    className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium w-full"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handlePayAll}
+                                    disabled={isSubmitting || !payAllForm.amount}
+                                    className="px-6 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-medium shadow-lg w-full disabled:opacity-50"
+                                >
+                                    {isSubmitting ? 'Processing...' : 'Pay Now'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

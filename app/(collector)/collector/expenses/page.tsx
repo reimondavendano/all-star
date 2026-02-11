@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Search, ChevronLeft, ChevronRight, Plus, RefreshCw, ChevronDown, Calendar, FileText, Receipt, User, Building2 } from 'lucide-react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import AddExpenseModal from '@/components/collector/AddExpenseModal';
 
 interface Expense {
     id: string;
@@ -29,6 +30,7 @@ export default function CollectorExpensesPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     const itemsPerPage = 10;
 
@@ -123,10 +125,26 @@ export default function CollectorExpensesPage() {
                             <button onClick={fetchExpenses} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                             </button>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white rounded-lg font-medium transition-all shadow-lg shadow-purple-900/20 text-sm"
+                            >
+                                <Plus className="w-4 h-4" />
+                                Add Expense
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <AddExpenseModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onSuccess={() => {
+                    fetchExpenses();
+                    setIsAddModalOpen(false);
+                }}
+            />
 
             {/* List */}
             <div className="glass-card overflow-hidden">

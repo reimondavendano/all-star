@@ -42,7 +42,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
     const [mikrotikData, setMikrotikData] = useState<MikrotikData>({
         enabled: true,
         name: '',
-        password: '',
+        password: '1111',
         service: 'pppoe',
         profile: subscription.plan_name || '100MBPS',
         comment: `Activated: ${subscription.customer_name}`,
@@ -237,7 +237,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                     </div>
                     <div>
                         <h3 className="text-lg font-bold text-white">
-                            {step === 'mikrotik' ? 'Create MikroTik Account' : 'Activate Subscription'}
+                            {step === 'mikrotik' ? 'Create MikroTik Account' : 'Enable this subscription?'}
                         </h3>
                         <p className="text-sm text-gray-400 mt-1">
                             {subscription.customer_name} • {subscription.business_unit_name}
@@ -301,7 +301,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                     type="text"
                                     value={mikrotikData.password}
                                     onChange={(e) => setMikrotikData({ ...mikrotikData, password: e.target.value })}
-                                    placeholder="e.g., 1111"
+                                    placeholder="1111"
                                     className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors font-mono"
                                 />
                             </div>
@@ -391,7 +391,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
 
                             <div className="bg-gray-900/50 border border-gray-800 rounded-lg p-4">
                                 <p className="text-sm text-gray-300 mb-4">
-                                    You are about to activate this subscription. This will enable the service immediately.
+                                    Are you sure you want to enable this subscription? This will activate the service immediately.
                                 </p>
 
                                 <div className="space-y-3">

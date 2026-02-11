@@ -33,7 +33,7 @@ export default function MikrotikInputModal({
     const [formData, setFormData] = useState<MikrotikData>({
         enabled: true,
         name: suggestedUsername || '',
-        password: '',
+        password: '1111',
         service: 'pppoe',
         profile: '100MBPS',
         comment: `Converted from prospect: ${customerName}`,
@@ -152,7 +152,7 @@ export default function MikrotikInputModal({
                             type="text"
                             value={formData.password}
                             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                            placeholder="e.g., 1111"
+                            placeholder="1111"
                             className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
                         />
                     </div>

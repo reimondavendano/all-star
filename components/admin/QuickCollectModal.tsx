@@ -2,22 +2,22 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp, Minus } from 'lucide-react';
+import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp, Minus, MessageSquare } from 'lucide-react';
+import InvoiceNotesModal from '@/components/collector/InvoiceNotesModal';
 
-interface UnpaidInvoice {
-    id: string;
-    subscription_id: string;
-    from_date: string;
-    to_date: string;
-    due_date: string;
-    amount_due: number;
-    amount_paid: number;  // Track how much has been paid
-    payment_status: string;
+interface DebtorSubscription {
+    id: string; // subscription_id
+    customer_id: string;
     customer_name: string;
     mobile_number: string;
     plan_name: string;
     business_unit_name: string;
     label?: string;
+    total_due: number;
+    billing_period_start?: string; // Latest invoice period for display context
+    billing_period_end?: string;
+    latest_due_date?: string;
+    unpaid_invoice_count: number;
 }
 
 interface QuickCollectModalProps {
@@ -29,7 +29,7 @@ interface QuickCollectModalProps {
 const ITEMS_PER_PAGE = 15;
 
 export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickCollectModalProps) {
-    const [unpaidInvoices, setUnpaidInvoices] = useState<UnpaidInvoice[]>([]);
+    const [debtors, setDebtors] = useState<DebtorSubscription[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [processingBatch, setProcessingBatch] = useState(false);
@@ -44,10 +44,14 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     const [partialPaymentId, setPartialPaymentId] = useState<string | null>(null);
     const [partialAmount, setPartialAmount] = useState<string>('');
 
+    // Notes Modal State (using subscription ID for simplicity in this context, or pass null invoice)
+    // We might disable notes for now or adapt modal if needed, keeping simple.
+    // For Quick Collect, notes usually go to the payment record.
+
     useEffect(() => {
         if (isOpen) {
             fetchBusinessUnits();
-            fetchUnpaidInvoices();
+            fetchDebtors();
             setSuccessIds(new Set());
             setCurrentPage(1);
             setTotalCollectedAmount(0);
@@ -56,7 +60,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
 
     useEffect(() => {
         if (isOpen) {
-            fetchUnpaidInvoices();
+            fetchDebtors();
             setCurrentPage(1);
         }
     }, [selectedBusinessUnit]);
@@ -73,130 +77,158 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         setBusinessUnits(data || []);
     };
 
-    const fetchUnpaidInvoices = async () => {
+    const fetchDebtors = async () => {
         setIsLoading(true);
         try {
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-
+            // Fetch subscriptions with positive balance
             let query = supabase
-                .from('invoices')
+                .from('subscriptions')
                 .select(`
                     id,
-                    subscription_id,
-                    from_date,
-                    to_date,
-                    due_date,
-                    amount_due,
-                    amount_paid,
-                    payment_status,
-                    subscriptions!inner (
+                    balance,
+                    label,
+                    business_units (
                         id,
-                        label,
-                        business_unit_id,
-                        customers!subscriptions_subscriber_id_fkey (
-                            name,
-                            mobile_number
-                        ),
-                        plans (
-                            name
-                        ),
-                        business_units (
-                            id,
-                            name
-                        )
+                        name
+                    ),
+                    customers:customers!subscriptions_subscriber_id_fkey (
+                        id,
+                        name,
+                        mobile_number
+                    ),
+                    plans (
+                        name
+                    ),
+                    invoices (
+                        id,
+                        due_date,
+                        from_date,
+                        to_date,
+                        payment_status
                     )
                 `)
-                .in('payment_status', ['Unpaid', 'Partially Paid'])
-                .gte('due_date', startOfMonth)
-                .lte('due_date', endOfMonth)
-                .order('due_date', { ascending: true });
+                .gt('balance', 0); // Only those who owe money
+
+            if (selectedBusinessUnit !== 'all') {
+                query = query.eq('business_unit_id', selectedBusinessUnit);
+            }
 
             const { data, error } = await query;
 
-            if (error) throw error;
+            if (error) {
+                console.error('Data fetch error:', error);
+                throw error;
+            }
 
-            const invoices: UnpaidInvoice[] = (data || [])
-                .filter((inv: any) => {
-                    if (selectedBusinessUnit !== 'all') {
-                        return inv.subscriptions?.business_units?.id === selectedBusinessUnit;
-                    }
-                    return true;
+            const mappedDebtors: DebtorSubscription[] = (data || [])
+                .filter((sub: any) => sub.customers && sub.business_units) // Ensure relations exist
+                .map((sub: any) => {
+                    // Get unpaid invoices info for display context
+                    const unpaidInvoices = sub.invoices?.filter((inv: any) => inv.payment_status !== 'Paid') || [];
+                    const latestInvoice = unpaidInvoices.sort((a: any, b: any) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime())[0];
+
+                    return {
+                        id: sub.id,
+                        customer_id: sub.customers?.id,
+                        customer_name: sub.customers?.name || 'Unknown',
+                        mobile_number: sub.customers?.mobile_number || '',
+                        plan_name: sub.plans?.name || 'Unknown Plan',
+                        business_unit_name: sub.business_units?.name || '',
+                        label: sub.label,
+                        total_due: sub.balance,
+                        billing_period_start: latestInvoice?.from_date,
+                        billing_period_end: latestInvoice?.to_date,
+                        latest_due_date: latestInvoice?.due_date,
+                        unpaid_invoice_count: unpaidInvoices.length
+                    };
                 })
-                .map((inv: any) => ({
-                    id: inv.id,
-                    subscription_id: inv.subscription_id,
-                    from_date: inv.from_date,
-                    to_date: inv.to_date,
-                    due_date: inv.due_date,
-                    amount_due: inv.amount_due,
-                    amount_paid: inv.amount_paid || 0,
-                    payment_status: inv.payment_status,
-                    customer_name: inv.subscriptions?.customers?.name || 'Unknown',
-                    mobile_number: inv.subscriptions?.customers?.mobile_number || '',
-                    plan_name: inv.subscriptions?.plans?.name || 'Unknown Plan',
-                    business_unit_name: inv.subscriptions?.business_units?.name || '',
-                    label: inv.subscriptions?.label || ''
-                }));
+                // Sort by due date (if available) or balance descending
+                .sort((a, b) => {
+                    if (a.latest_due_date && b.latest_due_date) {
+                        return new Date(a.latest_due_date).getTime() - new Date(b.latest_due_date).getTime();
+                    }
+                    return b.total_due - a.total_due;
+                });
 
-            setUnpaidInvoices(invoices);
+            setDebtors(mappedDebtors);
         } catch (error) {
-            console.error('Error fetching unpaid invoices:', error);
+            console.error('Error fetching debtors:', error);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleQuickCollect = async (invoice: UnpaidInvoice) => {
-        setProcessingId(invoice.id);
+    const handleQuickCollect = async (debtor: DebtorSubscription) => {
+        setProcessingId(debtor.id);
 
         try {
+            const amount = debtor.total_due; // Pay full balance
+
+            // We need to fetch unpaid invoices first to distribute payment appropriately
+            const { data: invoices, error: invError } = await supabase
+                .from('invoices')
+                .select('*')
+                .eq('subscription_id', debtor.id)
+                .neq('payment_status', 'Paid')
+                .order('due_date', { ascending: true }); // Oldest first
+
+            if (invError) throw invError;
+
+            // Distribute payment
             const now = new Date();
             const settlementDate = now.toISOString().split('T')[0];
-            // Use remaining balance for partially paid invoices
-            const remainingBalance = invoice.amount_due - invoice.amount_paid;
-            const amount = remainingBalance;
+            let remainingAmount = amount;
 
-            const { error: paymentError } = await supabase.from('payments').insert({
-                subscription_id: invoice.subscription_id,
-                invoice_id: invoice.id,
-                settlement_date: settlementDate,
-                amount: amount,
-                mode: 'Cash',
-                notes: 'Quick Collect - Full Payment'
-            });
+            // Process payments for each invoice
+            if (invoices && invoices.length > 0) {
+                for (const invoice of invoices) {
+                    if (remainingAmount <= 0) break;
 
-            if (paymentError) throw paymentError;
+                    const currentPaid = invoice.amount_paid || 0;
+                    const remaining = invoice.amount_due - currentPaid;
+                    const paymentForInvoice = Math.min(remainingAmount, remaining);
 
-            // Update invoice to Paid and set amount_paid to full amount
-            const { error: invoiceError } = await supabase
-                .from('invoices')
-                .update({
-                    payment_status: 'Paid',
-                    amount_paid: invoice.amount_due  // Full amount
-                })
-                .eq('id', invoice.id);
+                    if (paymentForInvoice > 0) {
+                        // Insert payment record
+                        await supabase.from('payments').insert({
+                            subscription_id: debtor.id,
+                            invoice_id: invoice.id,
+                            settlement_date: settlementDate,
+                            amount: paymentForInvoice,
+                            mode: 'Cash',
+                            notes: 'Quick Collect - Full Balance'
+                        });
 
-            if (invoiceError) throw invoiceError;
+                        // Update invoice
+                        const newPaid = currentPaid + paymentForInvoice;
+                        const isFullyPaid = newPaid >= invoice.amount_due;
 
-            const { data: subData } = await supabase
-                .from('subscriptions')
-                .select('balance')
-                .eq('id', invoice.subscription_id)
-                .single();
+                        await supabase.from('invoices').update({
+                            payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+                            amount_paid: newPaid
+                        }).eq('id', invoice.id);
 
-            const currentBalance = subData?.balance || 0;
+                        remainingAmount -= paymentForInvoice;
+                    }
+                }
+            } else {
+                // No specific invoices to pay (orphan balance?), just clear the balance? 
+                // Or maybe just insert a general payment (less common for this app structure)
+                // For now, if there are no invoices but balance > 0, we might just update balance,
+                // but ideally there should be invoices.
+            }
+
+            // Update subscription balance to 0 (or remaining if any left, which shouldn't happen on full pay)
             await supabase
                 .from('subscriptions')
-                .update({ balance: currentBalance - amount })
-                .eq('id', invoice.subscription_id);
+                .update({ balance: Math.max(0, remainingAmount) })
+                .eq('id', debtor.id);
 
-            setSuccessIds(prev => new Set(prev).add(invoice.id));
+            setSuccessIds(prev => new Set(prev).add(debtor.id));
             setTotalCollectedAmount(prev => prev + amount);
 
             setTimeout(() => {
-                setUnpaidInvoices(prev => prev.filter(inv => inv.id !== invoice.id));
+                setDebtors(prev => prev.filter(d => d.id !== debtor.id));
             }, 800);
 
         } catch (error) {
@@ -208,118 +240,104 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     };
 
     // Handle Partial Payment
-    const handlePartialCollect = async (invoice: UnpaidInvoice) => {
-        const amount = parseFloat(partialAmount);
-        const remainingBalance = invoice.amount_due - invoice.amount_paid;
+    // const handlePartialCollect = async (invoice: UnpaidInvoice) => {
+    //     const amount = parseFloat(partialAmount);
+    //     const remainingBalance = invoice.amount_due - invoice.amount_paid;
 
-        if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid amount');
-            return;
-        }
+    //     if (isNaN(amount) || amount <= 0) {
+    //         alert('Please enter a valid amount');
+    //         return;
+    //     }
 
-        // Allow slight overpayment (rounding up) - cap at remaining balance
-        // If paying more than remaining, we'll just record the remaining amount
-        const actualPayment = Math.min(amount, remainingBalance);
+    //     // Allow slight overpayment (rounding up) - cap at remaining balance
+    //     // If paying more than remaining, we'll just record the remaining amount
+    //     const actualPayment = Math.min(amount, remainingBalance);
 
-        setProcessingId(invoice.id);
+    //     setProcessingId(invoice.id);
 
-        try {
-            const now = new Date();
-            const settlementDate = now.toISOString().split('T')[0];
-            const newTotalPaid = invoice.amount_paid + actualPayment;
-            const isFullyPaid = newTotalPaid >= invoice.amount_due;
+    //     try {
+    //         const now = new Date();
+    //         const settlementDate = now.toISOString().split('T')[0];
+    //         const newTotalPaid = invoice.amount_paid + actualPayment;
+    //         const isFullyPaid = newTotalPaid >= invoice.amount_due;
 
-            // Insert payment record
-            const { error: paymentError } = await supabase.from('payments').insert({
-                subscription_id: invoice.subscription_id,
-                invoice_id: invoice.id,
-                settlement_date: settlementDate,
-                amount: actualPayment,
-                mode: 'Cash',
-                notes: `Quick Collect - Partial Payment (₱${actualPayment} of ₱${invoice.amount_due})`
-            });
+    //         // Insert payment record
+    //         const { error: paymentError } = await supabase.from('payments').insert({
+    //             subscription_id: invoice.subscription_id,
+    //             invoice_id: invoice.id,
+    //             settlement_date: settlementDate,
+    //             amount: actualPayment,
+    //             mode: 'Cash',
+    //             notes: `Quick Collect - Partial Payment (₱${actualPayment} of ₱${invoice.amount_due})`
+    //         });
 
-            if (paymentError) throw paymentError;
+    //         if (paymentError) throw paymentError;
 
-            // Update invoice with new amount_paid and status
-            const { error: invoiceError } = await supabase
-                .from('invoices')
-                .update({
-                    payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
-                    amount_paid: newTotalPaid
-                })
-                .eq('id', invoice.id);
+    //         // Update invoice with new amount_paid and status
+    //         const { error: invoiceError } = await supabase
+    //             .from('invoices')
+    //             .update({
+    //                 payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
+    //                 amount_paid: newTotalPaid
+    //             })
+    //             .eq('id', invoice.id);
 
-            if (invoiceError) throw invoiceError;
+    //         if (invoiceError) throw invoiceError;
 
-            // Update subscription balance
-            const { data: subData } = await supabase
-                .from('subscriptions')
-                .select('balance')
-                .eq('id', invoice.subscription_id)
-                .single();
+    //         // Update subscription balance
+    //         const { data: subData } = await supabase
+    //             .from('subscriptions')
+    //             .select('balance')
+    //             .eq('id', invoice.subscription_id)
+    //             .single();
 
-            const currentBalance = subData?.balance || 0;
-            await supabase
-                .from('subscriptions')
-                .update({ balance: currentBalance - actualPayment })
-                .eq('id', invoice.subscription_id);
+    //         const currentBalance = subData?.balance || 0;
+    //         await supabase
+    //             .from('subscriptions')
+    //             .update({ balance: currentBalance - actualPayment })
+    //             .eq('id', invoice.subscription_id);
 
-            setTotalCollectedAmount(prev => prev + actualPayment);
+    //         setTotalCollectedAmount(prev => prev + actualPayment);
 
-            if (isFullyPaid) {
-                // Fully paid - remove from list
-                setSuccessIds(prev => new Set(prev).add(invoice.id));
-                setTimeout(() => {
-                    setUnpaidInvoices(prev => prev.filter(inv => inv.id !== invoice.id));
-                }, 800);
-            } else {
-                // Partially paid - update the invoice in the list
-                setUnpaidInvoices(prev => prev.map(inv =>
-                    inv.id === invoice.id
-                        ? { ...inv, amount_paid: newTotalPaid, payment_status: 'Partially Paid' }
-                        : inv
-                ));
-            }
+    //         if (isFullyPaid) {
+    //             // Fully paid - remove from list
+    //             setSuccessIds(prev => new Set(prev).add(invoice.id));
+    //             setTimeout(() => {
+    //                 setUnpaidInvoices(prev => prev.filter(inv => inv.id !== invoice.id));
+    //             }, 800);
+    //         } else {
+    //             // Partially paid - update the invoice in the list
+    //             setUnpaidInvoices(prev => prev.map(inv =>
+    //                 inv.id === invoice.id
+    //                     ? { ...inv, amount_paid: newTotalPaid, payment_status: 'Partially Paid' }
+    //                     : inv
+    //             ));
+    //         }
 
-            // Reset partial payment state
-            setPartialPaymentId(null);
-            setPartialAmount('');
+    //         // Reset partial payment state
+    //         setPartialPaymentId(null);
+    //         setPartialAmount('');
 
-        } catch (error) {
-            console.error('Error processing partial payment:', error);
-            alert('Failed to process partial payment');
-        } finally {
-            setProcessingId(null);
-        }
-    };
-
-    const handleCollectAllOnPage = async () => {
-        const pageInvoices = paginatedInvoices.filter(inv => !successIds.has(inv.id));
-        if (pageInvoices.length === 0) return;
-
-        setProcessingBatch(true);
-
-        for (const invoice of pageInvoices) {
-            await handleQuickCollect(invoice);
-            // Small delay between requests
-            await new Promise(resolve => setTimeout(resolve, 200));
-        }
-
-        setProcessingBatch(false);
-    };
+    //     } catch (error) {
+    //         console.error('Error processing partial payment:', error);
+    //         alert('Failed to process partial payment');
+    //     } finally {
+    //         setProcessingId(null);
+    //     }
+    // };
 
     // Filter by search
-    const filteredInvoices = unpaidInvoices.filter(inv =>
-        inv.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        inv.mobile_number.includes(searchQuery) ||
-        inv.plan_name.toLowerCase().includes(searchQuery.toLowerCase())
+    const filteredDebtors = debtors.filter(d =>
+        d.customer_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.mobile_number.includes(searchQuery) ||
+        d.plan_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.business_unit_name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     // Pagination
-    const totalPages = Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE);
+    const totalPages = Math.ceil(filteredDebtors.length / ITEMS_PER_PAGE);
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const paginatedInvoices = filteredInvoices.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    const paginatedDebtors = filteredDebtors.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
     const handleClose = () => {
         if (successIds.size > 0) {
@@ -328,9 +346,24 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         onClose();
     };
 
-    // Calculate remaining balance for each invoice
-    const totalAmount = filteredInvoices.reduce((sum, inv) => sum + (inv.amount_due - inv.amount_paid), 0);
-    const pageAmount = paginatedInvoices.reduce((sum, inv) => sum + (inv.amount_due - inv.amount_paid), 0);
+    const handleCollectAllOnPage = async () => {
+        const pageDebtors = paginatedDebtors.filter(d => !successIds.has(d.id));
+        if (pageDebtors.length === 0) return;
+
+        setProcessingBatch(true);
+
+        for (const debtor of pageDebtors) {
+            await handleQuickCollect(debtor);
+            // Small delay between requests
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        setProcessingBatch(false);
+    };
+
+    // Calculate total amount
+    const totalAmount = filteredDebtors.reduce((sum, d) => sum + d.total_due, 0);
+    const pageAmount = paginatedDebtors.reduce((sum, d) => sum + d.total_due, 0);
 
     if (!isOpen) return null;
 
@@ -349,7 +382,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                             </div>
                             <div>
                                 <h2 className="text-lg font-bold text-white">Quick Collect</h2>
-                                <p className="text-xs text-gray-400">One-tap payment collection</p>
+                                <p className="text-xs text-gray-400">One-tap payment collection (Full Balance)</p>
                             </div>
                         </div>
                         <button onClick={handleClose} className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
@@ -361,12 +394,12 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                 {/* Stats Bar */}
                 <div className="relative px-5 py-3 bg-[#0d0d0d] border-b border-gray-800/50">
                     <div className="flex items-center gap-4 flex-wrap">
-                        {/* Total Unpaid */}
+                        {/* Total Debtors */}
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-red-900/20 rounded-lg border border-red-800/30">
                             <Users className="w-4 h-4 text-red-400" />
                             <div>
-                                <div className="text-[10px] text-red-400 uppercase tracking-wider">Total Unpaid</div>
-                                <div className="text-sm font-bold text-red-300">{filteredInvoices.length} invoices</div>
+                                <div className="text-[10px] text-red-400 uppercase tracking-wider">Total Debtors</div>
+                                <div className="text-sm font-bold text-red-300">{filteredDebtors.length} accounts</div>
                             </div>
                         </div>
 
@@ -375,7 +408,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                             <Banknote className="w-4 h-4 text-amber-400" />
                             <div>
                                 <div className="text-[10px] text-amber-400 uppercase tracking-wider">To Collect</div>
-                                <div className="text-sm font-bold text-amber-300">₱{totalAmount.toFixed(2)}</div>
+                                <div className="text-sm font-bold text-amber-300">₱{totalAmount.toLocaleString()}</div>
                             </div>
                         </div>
 
@@ -385,7 +418,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                                 <div>
                                     <div className="text-[10px] text-emerald-400 uppercase tracking-wider">Collected Today</div>
-                                    <div className="text-sm font-bold text-emerald-300">₱{totalCollectedAmount.toFixed(2)} ({successIds.size})</div>
+                                    <div className="text-sm font-bold text-emerald-300">₱{totalCollectedAmount.toLocaleString()} ({successIds.size})</div>
                                 </div>
                             </div>
                         )}
@@ -398,9 +431,20 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
                             >
                                 <option value="all">All Units</option>
-                                {businessUnits.map(bu => (
-                                    <option key={bu.id} value={bu.id}>{bu.name}</option>
-                                ))}
+                                {/* Sort and map business units */}
+                                {[...businessUnits]
+                                    .sort((a, b) => {
+                                        const priorities = ['Malanggam', 'Bulihan', 'Extension'];
+                                        const idxA = priorities.findIndex(p => a.name.includes(p));
+                                        const idxB = priorities.findIndex(p => b.name.includes(p));
+                                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                                        if (idxA !== -1) return -1;
+                                        if (idxB !== -1) return 1;
+                                        return a.name.localeCompare(b.name);
+                                    })
+                                    .map(bu => (
+                                        <option key={bu.id} value={bu.id}>{bu.name}</option>
+                                    ))}
                             </select>
 
                             <div className="relative">
@@ -411,11 +455,12 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     className="w-40 bg-[#1a1a1a] border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+                                    autoFocus
                                 />
                             </div>
 
                             <button
-                                onClick={fetchUnpaidInvoices}
+                                onClick={fetchDebtors}
                                 className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
                             >
                                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -429,29 +474,29 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                     {isLoading ? (
                         <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                             <Loader2 className="w-10 h-10 animate-spin mb-3 text-amber-500" />
-                            <span className="text-sm">Loading unpaid invoices...</span>
+                            <span className="text-sm">Loading debtors...</span>
                         </div>
-                    ) : filteredInvoices.length === 0 ? (
+                    ) : filteredDebtors.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-16">
                             <div className="w-16 h-16 rounded-full bg-emerald-900/30 flex items-center justify-center mb-4">
                                 <CheckCircle className="w-8 h-8 text-emerald-500" />
                             </div>
                             <span className="text-lg font-semibold text-white">All Caught Up!</span>
-                            <span className="text-sm text-gray-500 mt-1">No unpaid invoices for this period</span>
+                            <span className="text-sm text-gray-500 mt-1">No outstanding balances found</span>
                         </div>
                     ) : (
                         <>
                             {/* Page Header with Collect All */}
                             <div className="flex items-center justify-between mb-3">
                                 <div className="text-xs text-gray-500">
-                                    Showing {startIndex + 1}-{Math.min(startIndex + ITEMS_PER_PAGE, filteredInvoices.length)} of {filteredInvoices.length}
+                                    Showing {startIndex + 1}-{Math.min(startIndex + ITEMS_PER_PAGE, filteredDebtors.length)} of {filteredDebtors.length}
                                     <span className="mx-2 text-gray-700">|</span>
-                                    <span className="text-amber-400">Page total: ₱{pageAmount.toFixed(2)}</span>
+                                    <span className="text-amber-400">Page total: ₱{pageAmount.toLocaleString()}</span>
                                 </div>
 
                                 <button
                                     onClick={handleCollectAllOnPage}
-                                    disabled={processingBatch || paginatedInvoices.filter(inv => !successIds.has(inv.id)).length === 0}
+                                    disabled={processingBatch || paginatedDebtors.filter(d => !successIds.has(d.id)).length === 0}
                                     className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white text-xs rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {processingBatch ? (
@@ -462,26 +507,24 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                     ) : (
                                         <>
                                             <Zap className="w-3.5 h-3.5" />
-                                            Collect All on Page ({paginatedInvoices.filter(inv => !successIds.has(inv.id)).length})
+                                            Collect All on Page ({paginatedDebtors.filter(d => !successIds.has(d.id)).length})
                                         </>
                                     )}
                                 </button>
                             </div>
 
-                            {/* Invoice List */}
+                            {/* List */}
                             <div className="space-y-2">
-                                {paginatedInvoices.map((invoice) => {
-                                    const isProcessing = processingId === invoice.id;
-                                    const isSuccess = successIds.has(invoice.id);
+                                {paginatedDebtors.map((debtor) => {
+                                    const isProcessing = processingId === debtor.id;
+                                    const isSuccess = successIds.has(debtor.id);
 
                                     return (
                                         <div
-                                            key={invoice.id}
+                                            key={debtor.id}
                                             className={`bg-gray-900/50 border rounded-lg p-3 transition-all duration-300 ${isSuccess
                                                 ? 'border-emerald-500/50 bg-emerald-900/20 opacity-60'
-                                                : invoice.payment_status === 'Partially Paid'
-                                                    ? 'border-yellow-500/30 bg-yellow-900/10'
-                                                    : 'border-gray-800 hover:border-gray-700'
+                                                : 'border-gray-800 hover:border-gray-700'
                                                 }`}
                                         >
                                             <div className="flex items-center gap-3">
@@ -493,46 +536,30 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                 {/* Customer Info */}
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-white text-sm truncate">{invoice.customer_name}</span>
-                                                        {invoice.label && (
+                                                        <span className="font-medium text-white text-sm truncate">{debtor.customer_name}</span>
+                                                        {debtor.label && (
                                                             <span className="px-1.5 py-0.5 bg-purple-900/30 text-purple-400 text-[10px] rounded">
-                                                                {invoice.label}
-                                                            </span>
-                                                        )}
-                                                        {invoice.payment_status === 'Partially Paid' && (
-                                                            <span className="px-1.5 py-0.5 bg-yellow-900/30 text-yellow-400 text-[10px] rounded">
-                                                                Partial
+                                                                {debtor.label}
                                                             </span>
                                                         )}
                                                     </div>
                                                     <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5">
-                                                        <span>{invoice.plan_name}</span>
+                                                        <span>{debtor.plan_name}</span>
                                                         <span className="text-gray-700">•</span>
-                                                        <span>{invoice.business_unit_name}</span>
+                                                        <span>{debtor.business_unit_name}</span>
+                                                        <span className="text-gray-700">•</span>
+                                                        <span>{debtor.unpaid_invoice_count} unpaid invoices</span>
                                                     </div>
                                                 </div>
 
                                                 {/* Amount */}
                                                 <div className="text-right flex-shrink-0 mr-2">
-                                                    {invoice.amount_paid > 0 ? (
-                                                        <>
-                                                            <div className="text-base font-bold text-yellow-400">
-                                                                ₱{(invoice.amount_due - invoice.amount_paid).toFixed(2)}
-                                                            </div>
-                                                            <div className="text-[10px] text-gray-500">
-                                                                of ₱{invoice.amount_due.toFixed(2)}
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <div className="text-base font-bold text-white">
-                                                                ₱{invoice.amount_due.toFixed(2)}
-                                                            </div>
-                                                            <div className="text-[10px] text-gray-500">
-                                                                Due {new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                    <div className="text-base font-bold text-white">
+                                                        ₱{debtor.total_due.toLocaleString()}
+                                                    </div>
+                                                    <div className="text-[10px] text-gray-500">
+                                                        Total Due
+                                                    </div>
                                                 </div>
 
                                                 {/* Action Buttons */}
@@ -542,59 +569,19 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                             <CheckCircle className="w-3.5 h-3.5" />
                                                             <span className="text-xs font-medium">Done</span>
                                                         </div>
-                                                    ) : partialPaymentId === invoice.id ? (
-                                                        /* Partial Payment Input Mode */
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="relative">
-                                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">₱</span>
-                                                                <input
-                                                                    type="number"
-                                                                    value={partialAmount}
-                                                                    onChange={(e) => setPartialAmount(e.target.value)}
-                                                                    placeholder="Amount"
-                                                                    className="w-24 bg-gray-800 border border-gray-600 rounded-lg pl-6 pr-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-500"
-                                                                    autoFocus
-                                                                />
-                                                            </div>
-                                                            <button
-                                                                onClick={() => handlePartialCollect(invoice)}
-                                                                disabled={isProcessing}
-                                                                className="px-2.5 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg text-xs font-medium disabled:opacity-50"
-                                                            >
-                                                                {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'OK'}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => { setPartialPaymentId(null); setPartialAmount(''); }}
-                                                                className="px-2 py-1.5 text-gray-400 hover:text-white text-xs"
-                                                            >
-                                                                ✕
-                                                            </button>
-                                                        </div>
                                                     ) : (
-                                                        /* Normal Buttons */
-                                                        <>
-                                                            <button
-                                                                onClick={() => { setPartialPaymentId(invoice.id); setPartialAmount(''); }}
-                                                                disabled={isProcessing || processingBatch}
-                                                                className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs transition-all disabled:opacity-50"
-                                                                title="Record partial payment"
-                                                            >
-                                                                <Minus className="w-3 h-3" />
-                                                                <span>Partial</span>
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleQuickCollect(invoice)}
-                                                                disabled={isProcessing || processingBatch}
-                                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
-                                                            >
-                                                                {isProcessing ? (
-                                                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                                ) : (
-                                                                    <CreditCard className="w-3.5 h-3.5" />
-                                                                )}
-                                                                <span>{isProcessing ? 'Wait...' : 'Collect'}</span>
-                                                            </button>
-                                                        </>
+                                                        <button
+                                                            onClick={() => handleQuickCollect(debtor)}
+                                                            disabled={isProcessing || processingBatch}
+                                                            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
+                                                        >
+                                                            {isProcessing ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <CreditCard className="w-3.5 h-3.5" />
+                                                            )}
+                                                            <span>{isProcessing ? 'Wait...' : 'Collect'}</span>
+                                                        </button>
                                                     )}
                                                 </div>
                                             </div>
@@ -682,6 +669,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                         </button>
                     </div>
                 </div>
+
             </div>
         </div>
     );
