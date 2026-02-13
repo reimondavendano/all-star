@@ -456,6 +456,25 @@ export default function CollectorInvoicesPage() {
         setExpandedSubscriptions(newSet);
     };
 
+    // Dynamically determine effective status based on actual amounts
+    const getEffectiveStatus = (invoice: Invoice): Invoice['payment_status'] => {
+        // Use the period amount (original_amount) if available, otherwise fall back to amount_due
+        const effectiveAmount = (invoice.original_amount && invoice.original_amount > 0)
+            ? Math.max(0, invoice.original_amount - (invoice.discount_applied || 0) - (invoice.credits_applied || 0))
+            : invoice.amount_due;
+
+        const paid = Math.round(invoice.amount_paid * 100);
+        const due = Math.round(effectiveAmount * 100);
+
+        if (paid >= due && due > 0) {
+            return 'Paid';
+        }
+        if (paid > 0 && paid < due) {
+            return 'Partially Paid';
+        }
+        return invoice.payment_status;
+    };
+
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'Paid': return <CheckCircle className="w-4 h-4 text-emerald-400" />;
@@ -712,10 +731,10 @@ export default function CollectorInvoicesPage() {
                                             let statusClass = 'bg-gray-800 text-gray-500 border-gray-700';
 
                                             if (hasInvoices) {
-                                                const paidCount = periodInvoices.filter(i => i.payment_status === 'Paid').length;
-                                                const unpaidCount = periodInvoices.filter(i => i.payment_status === 'Unpaid').length;
-                                                const partialCount = periodInvoices.filter(i => i.payment_status === 'Partially Paid').length;
-                                                const pendingCount = periodInvoices.filter(i => i.payment_status === 'Pending Verification').length;
+                                                const paidCount = periodInvoices.filter(i => getEffectiveStatus(i) === 'Paid').length;
+                                                const unpaidCount = periodInvoices.filter(i => getEffectiveStatus(i) === 'Unpaid').length;
+                                                const partialCount = periodInvoices.filter(i => getEffectiveStatus(i) === 'Partially Paid').length;
+                                                const pendingCount = periodInvoices.filter(i => getEffectiveStatus(i) === 'Pending Verification').length;
 
                                                 if (paidCount === periodInvoices.length) {
                                                     statusText = 'Paid';
@@ -756,13 +775,15 @@ export default function CollectorInvoicesPage() {
 
                                                         {/* Summary & Pay All */}
                                                         <div className="flex items-center gap-2">
-                                                            <div className="text-right">
-                                                                <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
-                                                                <div className="text-xs text-gray-500">{invoices.filter(i => i.payment_status !== 'Paid').length} invoice(s)</div>
-                                                            </div>
+                                                            {totalDue > 0 && (
+                                                                <div className="text-right">
+                                                                    <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
+                                                                    <div className="text-xs text-gray-500">{invoices.filter(i => getEffectiveStatus(i) !== 'Paid').length} invoice(s)</div>
+                                                                </div>
+                                                            )}
 
                                                             {/* Pay All button */}
-                                                            {invoices.some(i => i.payment_status !== 'Paid') && (
+                                                            {totalDue > 0 && invoices.some(i => getEffectiveStatus(i) !== 'Paid') && (
                                                                 <button
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
@@ -796,12 +817,20 @@ export default function CollectorInvoicesPage() {
                                                                     {(() => {
                                                                         // Reminder Row Logic
                                                                         const hiddenUnpaidInvoices = invoices.filter(inv =>
-                                                                            inv.payment_status !== 'Paid' &&
+                                                                            getEffectiveStatus(inv) !== 'Paid' &&
                                                                             !periodInvoices?.some(p => p.id === inv.id)
                                                                         );
 
                                                                         if (hiddenUnpaidInvoices.length > 0) {
-                                                                            const hiddenTotal = hiddenUnpaidInvoices.reduce((sum, inv) => sum + (inv.amount_due - (inv.amount_paid || 0)), 0);
+                                                                            const hiddenTotal = hiddenUnpaidInvoices.reduce((sum, inv) => {
+                                                                                const amount = (inv.original_amount && inv.original_amount > 0)
+                                                                                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                                                                                    : inv.amount_due;
+                                                                                return sum + (amount - (inv.amount_paid || 0));
+                                                                            }, 0);
+
+                                                                            if (hiddenTotal <= 0) return null;
+
                                                                             return (
                                                                                 <tr className="bg-amber-950/20 hover:bg-amber-950/30 transition-colors">
                                                                                     <td colSpan={4} className="p-3 text-center border-b border-gray-800/50">
@@ -858,8 +887,8 @@ export default function CollectorInvoicesPage() {
 
                                                                                         {/* Removed Individual Pay Button as requested */}
 
-                                                                                        <span className={`px-2 py-1 rounded text-xs font-medium border ${getStatusStyle(invoice.payment_status)}`}>
-                                                                                            {invoice.payment_status}
+                                                                                        <span className={`px-2 py-1 rounded text-xs font-medium border ${getStatusStyle(getEffectiveStatus(invoice))}`}>
+                                                                                            {getEffectiveStatus(invoice)}
                                                                                         </span>
                                                                                     </div>
                                                                                 </td>

@@ -579,6 +579,25 @@ export default function InvoicesPaymentsPage() {
         }
     };
 
+    // Dynamically determine effective status based on actual amounts
+    const getEffectiveStatus = (invoice: Invoice): Invoice['payment_status'] => {
+        // Use the period amount (original_amount) if available, otherwise fall back to amount_due
+        const effectiveAmount = (invoice.original_amount && invoice.original_amount > 0)
+            ? Math.max(0, invoice.original_amount - (invoice.discount_applied || 0) - (invoice.credits_applied || 0))
+            : invoice.amount_due;
+
+        const paid = Math.round(invoice.amount_paid * 100);
+        const due = Math.round(effectiveAmount * 100);
+
+        if (paid >= due && due > 0) {
+            return 'Paid';
+        }
+        if (paid > 0 && paid < due) {
+            return 'Partially Paid';
+        }
+        return invoice.payment_status;
+    };
+
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'Paid':
@@ -831,13 +850,15 @@ export default function InvoicesPaymentsPage() {
                                             {group.subscriptions.length} subscription(s) • {group.customer.mobile_number || 'No phone'}
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="text-sm text-gray-400">
-                                            Total Due: <span className="text-white font-medium">
-                                                ₱{Math.round(group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0)).toLocaleString()}
-                                            </span>
+                                    {group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0) > 0 && (
+                                        <div className="text-right">
+                                            <div className="text-sm text-gray-400">
+                                                Total Due: <span className="text-white font-medium">
+                                                    ₱{Math.round(group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0)).toLocaleString()}
+                                                </span>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
 
                                 {/* Subscriptions */}
@@ -846,9 +867,9 @@ export default function InvoicesPaymentsPage() {
                                         {group.subscriptions.map(({ subscription, invoices, periodInvoices, payments, totalPaid, totalDue, balance }) => {
                                             // Calculate invoice status summary
                                             const hasInvoices = invoices.length > 0;
-                                            const paidInvoices = invoices.filter(i => i.payment_status === 'Paid').length;
-                                            const unpaidInvoices = invoices.filter(i => i.payment_status === 'Unpaid').length;
-                                            const pendingInvoices = invoices.filter(i => i.payment_status === 'Pending Verification').length;
+                                            const paidInvoices = invoices.filter(i => getEffectiveStatus(i) === 'Paid').length;
+                                            const unpaidInvoices = invoices.filter(i => getEffectiveStatus(i) === 'Unpaid').length;
+                                            const pendingInvoices = invoices.filter(i => getEffectiveStatus(i) === 'Pending Verification').length;
 
                                             // Determine overall status
                                             let statusText = 'No Invoice';
@@ -900,10 +921,12 @@ export default function InvoicesPaymentsPage() {
                                                         <div className="flex items-center gap-2">
                                                             {hasInvoices ? (
                                                                 <>
-                                                                    <div className="text-right">
-                                                                        <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
-                                                                        <div className="text-xs text-gray-500">{invoices.filter(i => i.payment_status !== 'Paid').length} invoice(s)</div>
-                                                                    </div>
+                                                                    {totalDue > 0 && (
+                                                                        <div className="text-right">
+                                                                            <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
+                                                                            <div className="text-xs text-gray-500">{invoices.filter(i => getEffectiveStatus(i) !== 'Paid').length} invoice(s)</div>
+                                                                        </div>
+                                                                    )}
                                                                     {/* Breakdown icon */}
                                                                     <button
                                                                         onClick={(e) => {
@@ -915,8 +938,8 @@ export default function InvoicesPaymentsPage() {
                                                                     >
                                                                         <Info className="w-4 h-4" />
                                                                     </button>
-                                                                    {/* Pay All button */}
-                                                                    {invoices.some(i => i.payment_status !== 'Paid') && (
+                                                                    {/* Pay All button - only show when there's balance due */}
+                                                                    {totalDue > 0 && invoices.some(i => getEffectiveStatus(i) !== 'Paid') && (
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
@@ -956,12 +979,20 @@ export default function InvoicesPaymentsPage() {
                                                                     {(() => {
                                                                         // Calculate hidden unpaid invoices (unpaid history not shown in current period view)
                                                                         const hiddenUnpaidInvoices = invoices.filter(inv =>
-                                                                            inv.payment_status !== 'Paid' &&
+                                                                            getEffectiveStatus(inv) !== 'Paid' &&
                                                                             !periodInvoices.some(p => p.id === inv.id)
                                                                         );
 
                                                                         if (hiddenUnpaidInvoices.length > 0) {
-                                                                            const hiddenTotal = hiddenUnpaidInvoices.reduce((sum, inv) => sum + (inv.amount_due - (inv.amount_paid || 0)), 0);
+                                                                            const hiddenTotal = hiddenUnpaidInvoices.reduce((sum, inv) => {
+                                                                                const amount = (inv.original_amount && inv.original_amount > 0)
+                                                                                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                                                                                    : inv.amount_due;
+                                                                                return sum + (amount - (inv.amount_paid || 0));
+                                                                            }, 0);
+
+                                                                            if (hiddenTotal <= 0) return null;
+
                                                                             return (
                                                                                 <tr className="bg-amber-950/20 hover:bg-amber-950/30 transition-colors">
                                                                                     <td colSpan={4} className="p-3 text-center border-b border-gray-800/50">
@@ -1004,9 +1035,9 @@ export default function InvoicesPaymentsPage() {
                                                                                     ).toFixed(2)}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
-                                                                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(invoice.payment_status)}`}>
-                                                                                        {getStatusIcon(invoice.payment_status)}
-                                                                                        {invoice.payment_status}
+                                                                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(getEffectiveStatus(invoice))}`}>
+                                                                                        {getStatusIcon(getEffectiveStatus(invoice))}
+                                                                                        {getEffectiveStatus(invoice)}
                                                                                     </span>
                                                                                 </td>
                                                                             </tr>
