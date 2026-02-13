@@ -268,8 +268,9 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
 
                 // Calculate final amount
                 const amountAfterDiscount = Math.max(0, calculatedAmount - referralDiscount);
-                const amountAfterCredits = Math.max(0, amountAfterDiscount - creditsApplied);
-                const finalAmount = amountAfterCredits + outstandingBalance;
+                const finalAmount = Math.max(0, amountAfterDiscount - creditsApplied);
+                // We do NOT add outstandingBalance to the invoice amount_due anymore.
+                // Each invoice should represent only the current period's charges.
 
                 // Filter: Only eligible if installed on or before the end of the billing period
                 // If installed after the billing period end date, they should be billed in the NEXT cycle
@@ -351,13 +352,35 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 });
 
                 // Calculate new balance
+                // New logic: Balance = Previous Balance + New Invoice Amount
                 let newBalance: number;
+                const outstandingBalance = sub.currentBalance > 0 ? sub.currentBalance : 0;
+
                 if (sub.currentBalance < 0) {
-                    // Had credits - apply them and set new balance to remaining amount
-                    newBalance = sub.finalAmount;
+                    // If negative balance (credits), sub.finalAmount already deducted credits (if applied)
+                    // But sub.currentBalance contains the FULL credit.
+                    // The logic above: creditsApplied = Math.min(availableCredit, calculatedAmount)
+                    // finalAmount = amount - creditsApplied.
+                    // So we need to update balance to: (currentBalance + creditsApplied) + finalAmount? No.
+                    // currentBalance is e.g. -500. applied 200. final amount 0 (if bill 200).
+                    // New balance should be -300.
+                    // -500 + 200 (charge) = -300.
+                    // Wait, we are adding the CHARGE.
+                    // So newBalance = sub.currentBalance + sub.finalAmount ??
+                    // If finalAmount is net of credits, then we double count credit usage if we just add it?
+                    // No. 
+                    // Case: Balance -500. Bill 200.
+                    // creditsApplied = 200. finalAmount = 0.
+                    // newBalance = -500 + 0 = -500. WRONG. We utilized 200 credit.
+                    // Correct math: newBalance = currentBalance + (original_charge_after_referral).
+                    // OR: newBalance = (currentBalance + creditsApplied) + finalAmount.
+                    // -500 + 200 + 0 = -300. Correct.
+
+                    newBalance = sub.currentBalance + sub.creditsApplied + sub.finalAmount;
                 } else {
-                    // No credits or had debt - new balance is the final amount
-                    newBalance = sub.finalAmount;
+                    // Positive balance (debt) or zero.
+                    // newBalance = currentBalance + finalAmount
+                    newBalance = sub.currentBalance + sub.finalAmount;
                 }
 
                 const update: { id: string; balance: number; referral_credit_applied?: boolean } = {

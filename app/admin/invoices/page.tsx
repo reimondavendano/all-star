@@ -70,6 +70,9 @@ interface Invoice {
     payment_status: 'Paid' | 'Unpaid' | 'Partially Paid' | 'Pending Verification';
     is_prorated?: boolean;
     prorated_days?: number;
+    original_amount?: number;
+    discount_applied?: number;
+    credits_applied?: number;
 }
 
 interface Payment {
@@ -995,7 +998,10 @@ export default function InvoicesPaymentsPage() {
                                                                                     )}
                                                                                 </td>
                                                                                 <td className="p-3 text-right text-white font-medium">
-                                                                                    ₱{invoice.amount_due.toFixed(2)}
+                                                                                    ₱{((invoice.original_amount && invoice.original_amount > 0)
+                                                                                        ? Math.max(0, invoice.original_amount - (invoice.discount_applied || 0) - (invoice.credits_applied || 0))
+                                                                                        : invoice.amount_due
+                                                                                    ).toFixed(2)}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
                                                                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(invoice.payment_status)}`}>
