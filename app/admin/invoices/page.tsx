@@ -154,6 +154,13 @@ export default function InvoicesPaymentsPage() {
         notes: '',
     });
 
+    // Stats for the selected month
+    const [monthlyStats, setMonthlyStats] = useState({
+        billed: 0,
+        collected: 0,
+        unpaidCount: 0
+    });
+
     useEffect(() => {
         fetchBusinessUnits();
     }, []);
@@ -324,6 +331,38 @@ export default function InvoicesPaymentsPage() {
                 .in('subscription_id', subIds)
                 .gte('settlement_date', fetchStartDate)
                 .lte('settlement_date', fetchEndDate);
+
+            // Calculate Monthly Stats (Strict Calendar Month)
+            const statsBilled = (invoices || []).reduce((sum, inv) => {
+                if (inv.due_date.startsWith(selectedMonth)) {
+                    const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                        ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                        : inv.amount_due;
+                    return sum + effectiveAmount;
+                }
+                return sum;
+            }, 0);
+
+            const statsCollected = (payments || []).reduce((sum, p) => {
+                if (p.settlement_date.startsWith(selectedMonth)) {
+                    return sum + p.amount;
+                }
+                return sum;
+            }, 0);
+
+            const statsUnpaidCount = (invoices || []).filter(inv => {
+                if (!inv.due_date.startsWith(selectedMonth)) return false;
+
+                const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                    : inv.amount_due;
+
+                const paid = Math.round(inv.amount_paid * 100);
+                const due = Math.round(effectiveAmount * 100);
+                return !(paid >= due && due > 0);
+            }).length;
+
+            setMonthlyStats({ billed: statsBilled, collected: statsCollected, unpaidCount: statsUnpaidCount });
 
             // Group by customer
             const customerMap = new Map<string, GroupedData>();
@@ -649,9 +688,10 @@ export default function InvoicesPaymentsPage() {
     const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
 
     // Stats
-    const totalDue = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.totalDue, 0), 0);
-    const totalPaid = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.totalPaid, 0), 0);
-    const unpaidCount = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.invoices.filter(i => i.payment_status === 'Unpaid').length, 0), 0);
+    // Stats are now computed in fetchData and stored in monthlyStats state
+    // const totalDue = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.totalDue, 0), 0);
+    // const totalPaid = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.totalPaid, 0), 0);
+    // const unpaidCount = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.invoices.filter(i => i.payment_status === 'Unpaid').length, 0), 0);
 
     return (
         <div className="space-y-6">
@@ -670,15 +710,15 @@ export default function InvoicesPaymentsPage() {
                         {/* Stats */}
                         <div className="px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
                             <div className="text-xs text-purple-400">Total Billed</div>
-                            <div className="text-lg font-bold text-purple-300">₱{Math.round(totalDue).toLocaleString()}</div>
+                            <div className="text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
                         </div>
                         <div className="px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
                             <div className="text-xs text-emerald-400">Collected</div>
-                            <div className="text-lg font-bold text-emerald-300">₱{Math.round(totalPaid).toLocaleString()}</div>
+                            <div className="text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
                         </div>
                         <div className="px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
                             <div className="text-xs text-red-400">Unpaid</div>
-                            <div className="text-lg font-bold text-red-300">{unpaidCount}</div>
+                            <div className="text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
                         </div>
 
                         <button
