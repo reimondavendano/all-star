@@ -65,8 +65,8 @@ export default function InvoiceNotesModal({
                         note: note.note,
                         created_at: note.created_at,
                         users: {
-                            full_name: userProfile?.full_name || 'Unknown User',
-                            role: userProfile?.role || 'user'
+                            full_name: userProfile?.full_name || 'Collector',
+                            role: userProfile?.role || 'collector'
                         }
                     };
                 });
@@ -87,14 +87,18 @@ export default function InvoiceNotesModal({
 
         setIsSaving(true);
         try {
+            // Try to get authenticated user, but don't fail if not available
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
+            
+            // Use a default system user ID if no authenticated user
+            // This UUID should be created in your database as a system user
+            const userId = user?.id || '00000000-0000-0000-0000-000000000000';
 
             const { error } = await supabase
                 .from('invoice_notes')
                 .insert({
                     invoice_id: invoiceId,
-                    user_id: user.id,
+                    user_id: userId,
                     note: newNote.trim()
                 });
 
@@ -210,7 +214,7 @@ export default function InvoiceNotesModal({
                                                 <p className="text-white text-sm mb-2">{note.note}</p>
                                                 <div className="flex items-center gap-2 text-xs text-gray-500">
                                                     <span className="text-purple-400">
-                                                        {(note.users as any)?.full_name || 'Unknown'}
+                                                        {(note.users as any)?.full_name || 'Collector'}
                                                     </span>
                                                     <span>•</span>
                                                     <span>

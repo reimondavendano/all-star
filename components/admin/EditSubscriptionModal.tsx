@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy, Globe, Hash, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
+import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
 import dynamic from 'next/dynamic';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
@@ -448,7 +448,13 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                                             type="checkbox"
                                                             className="sr-only peer"
                                                             checked={formData.active}
-                                                            onChange={(e) => {
+                                                            onChange={async (e) => {
+                                                                // Check MikroTik status first
+                                                                const status = await checkMikrotikStatus();
+                                                                if (!status.online) {
+                                                                    alert('MikroTik router is offline. Please ensure the router is online before changing subscription status.');
+                                                                    return;
+                                                                }
                                                                 setPendingActiveStatus(e.target.checked);
                                                                 setShowStatusConfirm(true);
                                                             }}

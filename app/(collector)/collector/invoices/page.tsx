@@ -218,8 +218,8 @@ export default function CollectorInvoicesPage() {
                     customers!subscriptions_subscriber_id_fkey (id, name, mobile_number),
                     plans (name, monthly_fee),
                     business_units (name)
-                `)
-                .eq('active', true);
+                `);
+                // Removed .eq('active', true) to show all subscriptions regardless of status
 
             if (selectedBusinessUnit !== 'all') {
                 subscriptionsQuery = subscriptionsQuery.eq('business_unit_id', selectedBusinessUnit);

@@ -44,10 +44,6 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     const [partialPaymentId, setPartialPaymentId] = useState<string | null>(null);
     const [partialAmount, setPartialAmount] = useState<string>('');
 
-    // Notes Modal State (using subscription ID for simplicity in this context, or pass null invoice)
-    // We might disable notes for now or adapt modal if needed, keeping simple.
-    // For Quick Collect, notes usually go to the payment record.
-
     useEffect(() => {
         if (isOpen) {
             fetchBusinessUnits();
@@ -158,11 +154,27 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         }
     };
 
-    const handleQuickCollect = async (debtor: DebtorSubscription) => {
+    const handleQuickCollect = async (debtor: DebtorSubscription, isPartial: boolean = false) => {
         setProcessingId(debtor.id);
 
         try {
-            const amount = debtor.total_due; // Pay full balance
+            let amount: number;
+            
+            if (isPartial) {
+                amount = parseFloat(partialAmount);
+                if (isNaN(amount) || amount <= 0) {
+                    alert('Please enter a valid amount');
+                    setProcessingId(null);
+                    return;
+                }
+                if (amount > debtor.total_due) {
+                    alert(`Amount cannot exceed total due (₱${debtor.total_due.toLocaleString()})`);
+                    setProcessingId(null);
+                    return;
+                }
+            } else {
+                amount = debtor.total_due; // Pay full balance
+            }
 
             // We need to fetch unpaid invoices first to distribute payment appropriately
             const { data: invoices, error: invError } = await supabase
@@ -196,7 +208,9 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                             settlement_date: settlementDate,
                             amount: paymentForInvoice,
                             mode: 'Cash',
-                            notes: 'Quick Collect - Full Balance'
+                            notes: isPartial 
+                                ? `Quick Collect - Partial Payment (₱${amount.toLocaleString()} of ₱${debtor.total_due.toLocaleString()})`
+                                : 'Quick Collect - Full Balance'
                         });
 
                         // Update invoice
@@ -211,25 +225,35 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                         remainingAmount -= paymentForInvoice;
                     }
                 }
-            } else {
-                // No specific invoices to pay (orphan balance?), just clear the balance? 
-                // Or maybe just insert a general payment (less common for this app structure)
-                // For now, if there are no invoices but balance > 0, we might just update balance,
-                // but ideally there should be invoices.
             }
 
-            // Update subscription balance to 0 (or remaining if any left, which shouldn't happen on full pay)
+            // Update subscription balance
+            const newBalance = Math.max(0, debtor.total_due - amount);
             await supabase
                 .from('subscriptions')
-                .update({ balance: Math.max(0, remainingAmount) })
+                .update({ balance: newBalance })
                 .eq('id', debtor.id);
 
             setSuccessIds(prev => new Set(prev).add(debtor.id));
             setTotalCollectedAmount(prev => prev + amount);
 
-            setTimeout(() => {
-                setDebtors(prev => prev.filter(d => d.id !== debtor.id));
-            }, 800);
+            // Reset partial payment state
+            setPartialPaymentId(null);
+            setPartialAmount('');
+
+            if (newBalance === 0) {
+                // Fully paid - remove from list after animation
+                setTimeout(() => {
+                    setDebtors(prev => prev.filter(d => d.id !== debtor.id));
+                }, 800);
+            } else {
+                // Partially paid - update the debtor in the list
+                setDebtors(prev => prev.map(d => 
+                    d.id === debtor.id 
+                        ? { ...d, total_due: newBalance }
+                        : d
+                ));
+            }
 
         } catch (error) {
             console.error('Error processing payment:', error);
@@ -238,93 +262,6 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
             setProcessingId(null);
         }
     };
-
-    // Handle Partial Payment
-    // const handlePartialCollect = async (invoice: UnpaidInvoice) => {
-    //     const amount = parseFloat(partialAmount);
-    //     const remainingBalance = invoice.amount_due - invoice.amount_paid;
-
-    //     if (isNaN(amount) || amount <= 0) {
-    //         alert('Please enter a valid amount');
-    //         return;
-    //     }
-
-    //     // Allow slight overpayment (rounding up) - cap at remaining balance
-    //     // If paying more than remaining, we'll just record the remaining amount
-    //     const actualPayment = Math.min(amount, remainingBalance);
-
-    //     setProcessingId(invoice.id);
-
-    //     try {
-    //         const now = new Date();
-    //         const settlementDate = now.toISOString().split('T')[0];
-    //         const newTotalPaid = invoice.amount_paid + actualPayment;
-    //         const isFullyPaid = newTotalPaid >= invoice.amount_due;
-
-    //         // Insert payment record
-    //         const { error: paymentError } = await supabase.from('payments').insert({
-    //             subscription_id: invoice.subscription_id,
-    //             invoice_id: invoice.id,
-    //             settlement_date: settlementDate,
-    //             amount: actualPayment,
-    //             mode: 'Cash',
-    //             notes: `Quick Collect - Partial Payment (₱${actualPayment} of ₱${invoice.amount_due})`
-    //         });
-
-    //         if (paymentError) throw paymentError;
-
-    //         // Update invoice with new amount_paid and status
-    //         const { error: invoiceError } = await supabase
-    //             .from('invoices')
-    //             .update({
-    //                 payment_status: isFullyPaid ? 'Paid' : 'Partially Paid',
-    //                 amount_paid: newTotalPaid
-    //             })
-    //             .eq('id', invoice.id);
-
-    //         if (invoiceError) throw invoiceError;
-
-    //         // Update subscription balance
-    //         const { data: subData } = await supabase
-    //             .from('subscriptions')
-    //             .select('balance')
-    //             .eq('id', invoice.subscription_id)
-    //             .single();
-
-    //         const currentBalance = subData?.balance || 0;
-    //         await supabase
-    //             .from('subscriptions')
-    //             .update({ balance: currentBalance - actualPayment })
-    //             .eq('id', invoice.subscription_id);
-
-    //         setTotalCollectedAmount(prev => prev + actualPayment);
-
-    //         if (isFullyPaid) {
-    //             // Fully paid - remove from list
-    //             setSuccessIds(prev => new Set(prev).add(invoice.id));
-    //             setTimeout(() => {
-    //                 setUnpaidInvoices(prev => prev.filter(inv => inv.id !== invoice.id));
-    //             }, 800);
-    //         } else {
-    //             // Partially paid - update the invoice in the list
-    //             setUnpaidInvoices(prev => prev.map(inv =>
-    //                 inv.id === invoice.id
-    //                     ? { ...inv, amount_paid: newTotalPaid, payment_status: 'Partially Paid' }
-    //                     : inv
-    //             ));
-    //         }
-
-    //         // Reset partial payment state
-    //         setPartialPaymentId(null);
-    //         setPartialAmount('');
-
-    //     } catch (error) {
-    //         console.error('Error processing partial payment:', error);
-    //         alert('Failed to process partial payment');
-    //     } finally {
-    //         setProcessingId(null);
-    //     }
-    // };
 
     // Filter by search
     const filteredDebtors = debtors.filter(d =>
@@ -382,7 +319,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                             </div>
                             <div>
                                 <h2 className="text-lg font-bold text-white">Quick Collect</h2>
-                                <p className="text-xs text-gray-400">One-tap payment collection (Full Balance)</p>
+                                <p className="text-xs text-gray-400">One-tap payment collection (Full or Partial)</p>
                             </div>
                         </div>
                         <button onClick={handleClose} className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
@@ -569,19 +506,72 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                             <CheckCircle className="w-3.5 h-3.5" />
                                                             <span className="text-xs font-medium">Done</span>
                                                         </div>
+                                                    ) : partialPaymentId === debtor.id ? (
+                                                        // Partial Payment Input Mode
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="relative">
+                                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 text-xs">₱</span>
+                                                                <input
+                                                                    type="number"
+                                                                    value={partialAmount}
+                                                                    onChange={(e) => setPartialAmount(e.target.value)}
+                                                                    placeholder="Amount"
+                                                                    className="w-24 bg-[#1a1a1a] border border-gray-700 rounded-lg pl-5 pr-2 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+                                                                    autoFocus
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            handleQuickCollect(debtor, true);
+                                                                        } else if (e.key === 'Escape') {
+                                                                            setPartialPaymentId(null);
+                                                                            setPartialAmount('');
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleQuickCollect(debtor, true)}
+                                                                disabled={isProcessing || !partialAmount}
+                                                                className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white rounded-lg font-medium text-xs disabled:opacity-50"
+                                                            >
+                                                                {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Pay'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setPartialPaymentId(null);
+                                                                    setPartialAmount('');
+                                                                }}
+                                                                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                                                            >
+                                                                <X className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
                                                     ) : (
-                                                        <button
-                                                            onClick={() => handleQuickCollect(debtor)}
-                                                            disabled={isProcessing || processingBatch}
-                                                            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
-                                                        >
-                                                            {isProcessing ? (
-                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                            ) : (
-                                                                <CreditCard className="w-3.5 h-3.5" />
-                                                            )}
-                                                            <span>{isProcessing ? 'Wait...' : 'Collect'}</span>
-                                                        </button>
+                                                        // Normal Mode - Full and Partial buttons
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleQuickCollect(debtor, false)}
+                                                                disabled={isProcessing || processingBatch}
+                                                                className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
+                                                            >
+                                                                {isProcessing ? (
+                                                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <CreditCard className="w-3.5 h-3.5" />
+                                                                )}
+                                                                <span>{isProcessing ? 'Wait...' : 'Full'}</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setPartialPaymentId(debtor.id);
+                                                                    setPartialAmount('');
+                                                                }}
+                                                                disabled={isProcessing || processingBatch}
+                                                                className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white rounded-lg font-medium transition-all disabled:opacity-50 text-xs"
+                                                            >
+                                                                <Minus className="w-3.5 h-3.5" />
+                                                                <span>Partial</span>
+                                                            </button>
+                                                        </>
                                                     )}
                                                 </div>
                                             </div>

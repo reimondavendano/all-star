@@ -78,7 +78,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
         subscriber_id: '',
         business_unit_id: '',
         plan_id: '',
-        active: true,
+        active: false, // Default to inactive - subscription becomes active only after provisioning
         date_installed: new Date().toISOString().split('T')[0],
         address: '',
         barangay: '',
@@ -377,7 +377,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
             subscriber_id: '',
             business_unit_id: '',
             plan_id: '',
-            active: true,
+            active: false, // Default to inactive
             date_installed: new Date().toISOString().split('T')[0],
             address: '',
             barangay: '',
@@ -908,6 +908,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                     onContinue={handleMikrotikContinue}
                     customerName={selectedCustomer.name}
                     suggestedUsername={selectedCustomer.name.split(' ')[0].toUpperCase()}
+                    planName={plans.find(p => p.id === formData.plan_id)?.name}
                 />
             )}
 

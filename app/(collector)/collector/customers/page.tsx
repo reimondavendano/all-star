@@ -7,7 +7,7 @@ import {
     User, Wifi, Server, Edit, Check, Phone, MapPin, Calendar,
     Building2, DollarSign, Hash, Shield, Globe, Save
 } from 'lucide-react';
-import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
+import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import DisconnectionModal from '@/components/admin/DisconnectionModal';
@@ -169,8 +169,15 @@ export default function CollectorCustomersPage() {
         }
     };
 
-    const handleToggleActive = (customer: Customer, subscription: Subscription, e: React.MouseEvent) => {
+    const handleToggleActive = async (customer: Customer, subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
+
+        // Check MikroTik status first
+        const status = await checkMikrotikStatus();
+        if (!status.online) {
+            alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
+            return;
+        }
 
         // If disabling (subscription is currently active), show disconnection modal with invoice option
         if (subscription.active) {

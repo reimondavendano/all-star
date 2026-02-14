@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, FileText, AlertTriangle, Globe, ChevronRight } from 'lucide-react';
+import { Loader2, CheckCircle, FileText, AlertTriangle, Globe, ChevronRight, WifiOff } from 'lucide-react';
 import { processActivation } from '@/app/actions/activation';
 import { supabase } from '@/lib/supabase';
-import { addPppSecret } from '@/app/actions/mikrotik';
+import { addPppSecret, checkMikrotikStatus } from '@/app/actions/mikrotik';
 
 interface ActivationModalProps {
     isOpen: boolean;
@@ -37,6 +37,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
     const [error, setError] = useState<string | null>(null);
     const [hasMikrotikAccount, setHasMikrotikAccount] = useState(false);
     const [profiles, setProfiles] = useState<string[]>([]);
+    const [mikrotikOnline, setMikrotikOnline] = useState<boolean | null>(null);
 
     // MikroTik form data
     const [mikrotikData, setMikrotikData] = useState<MikrotikData>({
@@ -54,6 +55,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
         if (isOpen) {
             checkExistingMikrotikAccount();
             fetchProfiles();
+            checkRouterStatus();
             // Reset step when modal opens
             setStep('mikrotik');
             setError(null);
@@ -69,6 +71,19 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
             }
         }
     }, [isOpen, subscription]);
+
+    const checkRouterStatus = async () => {
+        try {
+            const status = await checkMikrotikStatus();
+            setMikrotikOnline(status.online);
+            if (!status.online) {
+                setError('MikroTik router is offline. Please ensure the router is online before activating.');
+            }
+        } catch (error) {
+            setMikrotikOnline(false);
+            setError('Unable to check MikroTik status. Please try again.');
+        }
+    };
 
     const checkExistingMikrotikAccount = async () => {
         try {
@@ -107,6 +122,12 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
     };
 
     const handleMikrotikContinue = () => {
+        // Check MikroTik status first
+        if (mikrotikOnline === false) {
+            setError('MikroTik router is offline. Cannot proceed with activation.');
+            return;
+        }
+
         // Validation
         if (!mikrotikData.name.trim()) {
             setError('Username is required');
@@ -121,6 +142,12 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
     };
 
     const handleActivate = async () => {
+        // Check MikroTik status before proceeding
+        if (mikrotikOnline === false) {
+            setError('MikroTik router is offline. Cannot activate subscription.');
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         try {
@@ -250,6 +277,31 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                     {/* MikroTik Step */}
                     {step === 'mikrotik' && (
                         <div className="space-y-5">
+                            {/* MikroTik Status Indicator */}
+                            {mikrotikOnline !== null && (
+                                <div className={`p-4 rounded-lg border flex items-center gap-3 ${
+                                    mikrotikOnline 
+                                        ? 'bg-green-900/20 border-green-900/50' 
+                                        : 'bg-red-900/20 border-red-900/50'
+                                }`}>
+                                    {mikrotikOnline ? (
+                                        <Globe className="w-5 h-5 text-green-500" />
+                                    ) : (
+                                        <WifiOff className="w-5 h-5 text-red-500" />
+                                    )}
+                                    <div className="flex-1">
+                                        <p className={`text-sm font-medium ${mikrotikOnline ? 'text-green-400' : 'text-red-400'}`}>
+                                            MikroTik Router: {mikrotikOnline ? 'Online' : 'Offline'}
+                                        </p>
+                                        {!mikrotikOnline && (
+                                            <p className="text-xs text-red-300 mt-1">
+                                                Please ensure the router is online before proceeding with activation.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {error && (
                                 <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg flex items-start gap-3">
                                     <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -300,10 +352,11 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                 <input
                                     type="text"
                                     value={mikrotikData.password}
-                                    onChange={(e) => setMikrotikData({ ...mikrotikData, password: e.target.value })}
+                                    readOnly
                                     placeholder="1111"
-                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors font-mono"
+                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed font-mono"
                                 />
+                                <p className="text-xs text-gray-600 mt-1">Default password is set to 1111</p>
                             </div>
 
                             {/* Service */}
@@ -311,8 +364,8 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                 <label className="block text-sm font-medium text-gray-400 mb-2">Service</label>
                                 <select
                                     value={mikrotikData.service}
-                                    onChange={(e) => setMikrotikData({ ...mikrotikData, service: e.target.value })}
-                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors"
+                                    disabled
+                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed"
                                 >
                                     <option value="any">Any</option>
                                     <option value="pppoe">PPPoE</option>
@@ -320,20 +373,19 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                     <option value="l2tp">L2TP</option>
                                     <option value="sstp">SSTP</option>
                                 </select>
+                                <p className="text-xs text-gray-600 mt-1">Service type is set to PPPoE</p>
                             </div>
 
                             {/* Profile */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">Profile</label>
-                                <select
+                                <input
+                                    type="text"
                                     value={mikrotikData.profile}
-                                    onChange={(e) => setMikrotikData({ ...mikrotikData, profile: e.target.value })}
-                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500 transition-colors"
-                                >
-                                    {profiles.map(profile => (
-                                        <option key={profile} value={profile}>{profile}</option>
-                                    ))}
-                                </select>
+                                    readOnly
+                                    className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed font-mono"
+                                />
+                                <p className="text-xs text-gray-600 mt-1">Profile is automatically set from the selected plan</p>
                             </div>
 
                             {/* Add to Router Checkbox */}

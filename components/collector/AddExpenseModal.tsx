@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Receipt, Loader2, Save, Calendar, FileText, Banknote, User, Wifi, Building2 } from 'lucide-react';
+import { X, Receipt, Loader2, Save, Calendar, FileText, Banknote, User, Wifi } from 'lucide-react';
 
 interface AddExpenseModalProps {
     isOpen: boolean;
@@ -34,13 +34,11 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
         reason: '',
         notes: '',
         date: new Date().toISOString().split('T')[0],
-        subscription_id: '',
-        business_unit_id: ''
+        subscription_id: ''
     });
 
     // Data State
     const [customers, setCustomers] = useState<Customer[]>([]);
-    const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [customerSubscriptions, setCustomerSubscriptions] = useState<Subscription[]>([]);
 
     // UI State
@@ -55,15 +53,13 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
     useEffect(() => {
         if (isOpen) {
             fetchCustomers();
-            fetchBusinessUnits();
             // Reset form when opened
             setFormData({
                 amount: '',
                 reason: '',
                 notes: '',
                 date: new Date().toISOString().split('T')[0],
-                subscription_id: '',
-                business_unit_id: ''
+                subscription_id: ''
             });
             setSelectedCustomer(null);
             setCustomerSearch('');
@@ -90,15 +86,6 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
             setCustomers(data || []);
         } catch (error) {
             console.error('Error fetching customers:', error);
-        }
-    };
-
-    const fetchBusinessUnits = async () => {
-        try {
-            const { data } = await supabase.from('business_units').select('id, name').order('name');
-            setBusinessUnits(data || []);
-        } catch (error) {
-            console.error('Error fetching business units:', error);
         }
     };
 
@@ -141,7 +128,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
     const clearCustomer = () => {
         setSelectedCustomer(null);
         setCustomerSearch('');
-        setFormData(prev => ({ ...prev, subscription_id: '', business_unit_id: '' }));
+        setFormData(prev => ({ ...prev, subscription_id: '' }));
         setCustomerSubscriptions([]);
     };
 
@@ -153,27 +140,21 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
     }, [customers, customerSearch]);
 
     const handleSubmit = async () => {
-        if (!formData.amount || !formData.reason || !formData.date || (!selectedCustomer && !formData.business_unit_id)) {
-            alert('Please fill in all required fields');
+        if (!formData.amount || !formData.reason || !formData.date) {
+            alert('Please fill in all required fields (Amount, Reason, Date)');
             return;
         }
 
         setIsLoading(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-
-            if (!user) throw new Error('Not authenticated');
-
             const { error } = await supabase
                 .from('expenses')
                 .insert({
                     amount: parseFloat(formData.amount),
                     reason: formData.reason,
-                    notes: formData.notes,
+                    notes: formData.notes || null,
                     date: formData.date,
-                    user_id: user.id,
-                    subscription_id: formData.subscription_id || null,
-                    business_unit_id: formData.business_unit_id || null
+                    subscription_id: formData.subscription_id || null
                 });
 
             if (error) throw error;
@@ -231,7 +212,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                                     if (!e.target.value) {
                                         setSelectedCustomer(null);
                                         setCustomerSubscriptions([]);
-                                        setFormData(prev => ({ ...prev, subscription_id: '', business_unit_id: '' }));
+                                        setFormData(prev => ({ ...prev, subscription_id: '' }));
                                     }
                                 }}
                                 onFocus={() => setShowCustomerDropdown(true)}
@@ -292,8 +273,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                                                 onChange={(e) => {
                                                     setFormData(prev => ({
                                                         ...prev,
-                                                        subscription_id: e.target.value,
-                                                        business_unit_id: sub.business_unit_id // Auto-select BU
+                                                        subscription_id: e.target.value
                                                     }));
                                                 }}
                                                 className="sr-only"
@@ -312,31 +292,6 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                             </div>
                         </div>
                     )}
-
-                    {/* Business Unit Select */}
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-2">
-                            Business Unit
-                            {!selectedCustomer && <span className="text-red-500 ml-1">*</span>}
-                        </label>
-                        <div className="relative">
-                            <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                            <select
-                                value={formData.business_unit_id}
-                                onChange={(e) => setFormData(prev => ({ ...prev, business_unit_id: e.target.value }))}
-                                disabled={!!formData.subscription_id}
-                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors appearance-none"
-                            >
-                                <option value="">Select Business Unit...</option>
-                                {businessUnits.map(unit => (
-                                    <option key={unit.id} value={unit.id}>{unit.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        {formData.subscription_id && (
-                            <p className="text-xs text-gray-500 mt-1">Automatically set based on selected subscription</p>
-                        )}
-                    </div>
 
                     {/* Date */}
                     <div>
@@ -401,7 +356,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                             isLoading ||
                             !formData.reason ||
                             !formData.amount ||
-                            (!selectedCustomer && !formData.business_unit_id)
+                            !formData.date
                         }
                         className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     >

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, AlertTriangle, FileText } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Loader2, AlertTriangle, FileText, WifiOff, Globe } from 'lucide-react';
 import { processDisconnection } from '@/app/actions/disconnection';
+import { checkMikrotikStatus } from '@/app/actions/mikrotik';
 
 interface DisconnectionModalProps {
     isOpen: boolean;
@@ -23,10 +24,35 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
     const [isLoading, setIsLoading] = useState(false);
     const [generateInvoice, setGenerateInvoice] = useState(true);
     const [disconnectionDate, setDisconnectionDate] = useState(new Date().toISOString().split('T')[0]);
-
     const [error, setError] = useState<string | null>(null);
+    const [mikrotikOnline, setMikrotikOnline] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            checkRouterStatus();
+        }
+    }, [isOpen]);
+
+    const checkRouterStatus = async () => {
+        try {
+            const status = await checkMikrotikStatus();
+            setMikrotikOnline(status.online);
+            if (!status.online) {
+                setError('MikroTik router is offline. Please ensure the router is online before deactivating.');
+            }
+        } catch (error) {
+            setMikrotikOnline(false);
+            setError('Unable to check MikroTik status. Please try again.');
+        }
+    };
 
     const handleDisconnect = async () => {
+        // Check MikroTik status before proceeding
+        if (mikrotikOnline === false) {
+            setError('MikroTik router is offline. Cannot deactivate subscription.');
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         try {
@@ -78,6 +104,31 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                 <div className="p-6 space-y-6">
                     {step === 'confirm' && (
                         <div className="space-y-4">
+                            {/* MikroTik Status Indicator */}
+                            {mikrotikOnline !== null && (
+                                <div className={`p-4 rounded-lg border flex items-center gap-3 ${
+                                    mikrotikOnline 
+                                        ? 'bg-green-900/20 border-green-900/50' 
+                                        : 'bg-red-900/20 border-red-900/50'
+                                }`}>
+                                    {mikrotikOnline ? (
+                                        <Globe className="w-5 h-5 text-green-500" />
+                                    ) : (
+                                        <WifiOff className="w-5 h-5 text-red-500" />
+                                    )}
+                                    <div className="flex-1">
+                                        <p className={`text-sm font-medium ${mikrotikOnline ? 'text-green-400' : 'text-red-400'}`}>
+                                            MikroTik Router: {mikrotikOnline ? 'Online' : 'Offline'}
+                                        </p>
+                                        {!mikrotikOnline && (
+                                            <p className="text-xs text-red-300 mt-1">
+                                                Please ensure the router is online before proceeding with deactivation.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {error && (
                                 <div className="p-4 bg-red-900/20 border border-red-900/50 rounded-lg flex items-start gap-3">
                                     <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -167,7 +218,7 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                             </button>
                             <button
                                 onClick={handleDisconnect}
-                                disabled={isLoading}
+                                disabled={isLoading || mikrotikOnline === false}
                                 className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
                             >
                                 {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}

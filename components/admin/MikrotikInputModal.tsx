@@ -10,6 +10,7 @@ interface MikrotikInputModalProps {
     onContinue: (mikrotikData: MikrotikData) => void;
     customerName: string;
     suggestedUsername?: string;
+    planName?: string; // Add plan name to auto-populate profile
 }
 
 export interface MikrotikData {
@@ -27,7 +28,8 @@ export default function MikrotikInputModal({
     onClose,
     onContinue,
     customerName,
-    suggestedUsername
+    suggestedUsername,
+    planName
 }: MikrotikInputModalProps) {
     const [profiles, setProfiles] = useState<string[]>([]);
     const [formData, setFormData] = useState<MikrotikData>({
@@ -35,7 +37,7 @@ export default function MikrotikInputModal({
         name: suggestedUsername || '',
         password: '1111',
         service: 'pppoe',
-        profile: '100MBPS',
+        profile: planName || '100MBPS',
         comment: `Converted from prospect: ${customerName}`,
         addToRouter: false
     });
@@ -43,16 +45,17 @@ export default function MikrotikInputModal({
     useEffect(() => {
         if (isOpen) {
             fetchProfiles();
-            // Set suggested username if provided
-            if (suggestedUsername) {
+            // Set suggested username and plan name if provided
+            if (suggestedUsername || planName) {
                 setFormData(prev => ({
                     ...prev,
-                    name: suggestedUsername,
+                    name: suggestedUsername || prev.name,
+                    profile: planName || prev.profile,
                     comment: `Converted from prospect: ${customerName}`
                 }));
             }
         }
-    }, [isOpen, suggestedUsername, customerName]);
+    }, [isOpen, suggestedUsername, customerName, planName]);
 
     const fetchProfiles = async () => {
         try {
@@ -151,10 +154,11 @@ export default function MikrotikInputModal({
                         <input
                             type="text"
                             value={formData.password}
-                            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                            readOnly
                             placeholder="1111"
-                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors font-mono"
+                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed font-mono"
                         />
+                        <p className="text-xs text-gray-600 mt-1">Default password is set to 1111</p>
                     </div>
 
                     {/* Service */}
@@ -162,8 +166,8 @@ export default function MikrotikInputModal({
                         <label className="block text-sm font-medium text-gray-400 mb-2">Service</label>
                         <select
                             value={formData.service}
-                            onChange={(e) => setFormData({ ...formData, service: e.target.value })}
-                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                            disabled
+                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed"
                         >
                             <option value="any">Any</option>
                             <option value="pppoe">PPPoE</option>
@@ -171,20 +175,19 @@ export default function MikrotikInputModal({
                             <option value="l2tp">L2TP</option>
                             <option value="sstp">SSTP</option>
                         </select>
+                        <p className="text-xs text-gray-600 mt-1">Service type is set to PPPoE</p>
                     </div>
 
                     {/* Profile */}
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-2">Profile</label>
-                        <select
+                        <input
+                            type="text"
                             value={formData.profile}
-                            onChange={(e) => setFormData({ ...formData, profile: e.target.value })}
-                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
-                        >
-                            {profiles.map(profile => (
-                                <option key={profile} value={profile}>{profile}</option>
-                            ))}
-                        </select>
+                            readOnly
+                            className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-gray-500 focus:outline-none cursor-not-allowed font-mono"
+                        />
+                        <p className="text-xs text-gray-600 mt-1">Profile is automatically set from the selected plan</p>
                     </div>
 
                     {/* Comment */}

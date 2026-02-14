@@ -1183,19 +1183,13 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             {/* Profile */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Profile</label>
-                                <select
+                                <input
+                                    type="text"
                                     value={pppForm.profile}
-                                    onChange={(e) => setPppForm({ ...pppForm, profile: e.target.value })}
-                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
-                                >
-                                    <option value="default">default</option>
-                                    <option value="50MBPS">50MBPS</option>
-                                    <option value="50MBPS-2">50MBPS-2</option>
-                                    <option value="100MBPS">100MBPS</option>
-                                    <option value="100MBPS-2">100MBPS-2</option>
-                                    <option value="130MBPS">130MBPS</option>
-                                    <option value="150MBPS">150MBPS</option>
-                                </select>
+                                    readOnly
+                                    className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-gray-500 cursor-not-allowed opacity-75 font-mono"
+                                />
+                                <p className="text-xs text-gray-600 mt-1">Profile is automatically set from the selected plan</p>
                             </div>
 
                             {/* Comment */}

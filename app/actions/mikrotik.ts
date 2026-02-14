@@ -188,6 +188,19 @@ export async function getMikrotikData() {
     }
 }
 
+/**
+ * Check if MikroTik router is online and accessible
+ * Returns true if online, false if offline
+ */
+export async function checkMikrotikStatus(): Promise<{ online: boolean; error?: string }> {
+    try {
+        const result = await getMikrotikData();
+        return { online: result.success };
+    } catch (error: any) {
+        return { online: false, error: error.message };
+    }
+}
+
 
 // --- ADD NEW FUNCTIONS ---
 

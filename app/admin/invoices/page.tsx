@@ -285,8 +285,8 @@ export default function InvoicesPaymentsPage() {
                         name,
                         profile
                     )
-                `)
-                .eq('active', true);
+                `);
+                // Removed .eq('active', true) to show all subscriptions regardless of status
 
             if (selectedBusinessUnit !== 'all') {
                 subscriptionsQuery = subscriptionsQuery.eq('business_unit_id', selectedBusinessUnit);

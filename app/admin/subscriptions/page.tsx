@@ -11,7 +11,7 @@ import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 import AddSubscriptionModal from '@/components/admin/AddSubscriptionModal';
 import DisconnectionModal from '@/components/admin/DisconnectionModal';
 import ActivationModal from '@/components/admin/ActivationModal';
-import { syncSubscriptionToMikrotik } from '@/app/actions/mikrotik';
+import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface Subscription {
@@ -136,6 +136,13 @@ export default function SubscriptionsPage() {
 
     const handleToggleActive = async (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
+
+        // Check MikroTik status first
+        const status = await checkMikrotikStatus();
+        if (!status.online) {
+            alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
+            return;
+        }
 
         // If currently active (true) -> User wants to disconnect (false)
         if (subscription.active) {
