@@ -131,6 +131,7 @@ export function calculateDailyRate(monthlyFee: number): number {
 
 /**
  * Calculate pro-rated amount for new customers
+ * All amounts are rounded to whole numbers for easier computation
  */
 export function calculateProratedAmount(
     monthlyFee: number,
@@ -149,7 +150,10 @@ export function calculateProratedAmount(
 
     // Don't allow negative or more than 30 days
     const effectiveDays = Math.max(0, Math.min(30, daysUsed));
-    const proratedAmount = Math.round(dailyRate * effectiveDays * 100) / 100;
+    
+    // Round to whole number for easier computation
+    // 799.47 -> 799, 599.60 -> 600
+    const proratedAmount = Math.round(dailyRate * effectiveDays);
 
     return {
         proratedAmount,

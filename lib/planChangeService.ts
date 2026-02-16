@@ -105,13 +105,15 @@ export function getBillingPeriodEnd(invoiceDate: string, referenceDate: Date): D
 
 /**
  * Calculate prorated amount for a given period
+ * All amounts are rounded to whole numbers for easier computation
  */
 export function calculateProratedAmountForDays(
     monthlyFee: number,
     days: number
 ): { amount: number; dailyRate: number } {
     const dailyRate = calculateDailyRate(monthlyFee);
-    const amount = Math.round(dailyRate * days * 100) / 100;
+    // Round to whole number: 799.47 -> 799, 599.60 -> 600
+    const amount = Math.round(dailyRate * days);
     return { amount, dailyRate };
 }
 
