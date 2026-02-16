@@ -439,10 +439,10 @@ export default function ExpensesPage() {
                                             -₱{expense.amount.toLocaleString()}
                                         </span>
                                         <div className="flex items-center gap-1">
-                                            <button onClick={(e) => openEdit(expense, e)} className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors">
+                                            <button onClick={(e) => openEdit(expense, e)} className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors" title="Edit Expenses">
                                                 <Edit className="w-4 h-4" />
                                             </button>
-                                            <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(expense.id); }} className="p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors">
+                                            <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(expense.id); }} className="p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors" title="Delete Expense">
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                         </div>
