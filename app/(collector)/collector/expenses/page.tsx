@@ -19,7 +19,7 @@ interface Expense {
         address: string;
         barangay: string;
         business_unit: { name: string } | null;
-        customer: { name: string } | null;
+        customer: { id: string; name: string } | null;
         plan: { name: string } | null;
     };
 }
@@ -55,7 +55,7 @@ export default function CollectorExpensesPage() {
                     subscription:subscriptions(
                         id, address, barangay,
                         business_unit:business_units(name),
-                        customer:customers!subscriptions_subscriber_id_fkey(name),
+                        customer:customers!subscriptions_subscriber_id_fkey(id, name),
                         plan:plans(name)
                     )
                 `)

@@ -436,7 +436,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
                             !formData.amount ||
                             !formData.date ||
                             !formData.notes ||
-                            (selectedCustomer && !formData.subscription_id)
+                            Boolean(selectedCustomer && !formData.subscription_id)
                         }
                         className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
