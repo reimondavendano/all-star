@@ -901,10 +901,10 @@ export default function CollectorInvoicesPage() {
                                                                                     {new Date(invoice.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(invoice.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                                                                 </td>
                                                                                 <td className="p-3 text-right text-white font-medium">
-                                                                                    ₱{((invoice.original_amount && invoice.original_amount > 0)
+                                                                                    ₱{Math.round((invoice.original_amount && invoice.original_amount > 0)
                                                                                         ? Math.max(0, invoice.original_amount - (invoice.discount_applied || 0) - (invoice.credits_applied || 0))
                                                                                         : invoice.amount_due
-                                                                                    ).toFixed(2)}
+                                                                                    ).toLocaleString()}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
                                                                                     <div className="flex items-center justify-end gap-2">

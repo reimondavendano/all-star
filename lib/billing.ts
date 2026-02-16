@@ -262,7 +262,7 @@ export function calculateNewBalance(
     // New Balance = Current Balance - Payment Amount
     // Positive balance = amount owed (debt)
     // Negative balance = credits (advance payment)
-    return currentBalance - paymentAmount;
+    return Math.round(currentBalance - paymentAmount);
 }
 
 /**

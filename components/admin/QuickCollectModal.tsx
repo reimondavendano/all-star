@@ -345,7 +345,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                             <Banknote className="w-4 h-4 text-amber-400" />
                             <div>
                                 <div className="text-[10px] text-amber-400 uppercase tracking-wider">To Collect</div>
-                                <div className="text-sm font-bold text-amber-300">₱{totalAmount.toLocaleString()}</div>
+                                <div className="text-sm font-bold text-amber-300">₱{Math.round(totalAmount).toLocaleString()}</div>
                             </div>
                         </div>
 
@@ -355,7 +355,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                                 <div>
                                     <div className="text-[10px] text-emerald-400 uppercase tracking-wider">Collected Today</div>
-                                    <div className="text-sm font-bold text-emerald-300">₱{totalCollectedAmount.toLocaleString()} ({successIds.size})</div>
+                                    <div className="text-sm font-bold text-emerald-300">₱{Math.round(totalCollectedAmount).toLocaleString()} ({successIds.size})</div>
                                 </div>
                             </div>
                         )}
@@ -428,7 +428,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 <div className="text-xs text-gray-500">
                                     Showing {startIndex + 1}-{Math.min(startIndex + ITEMS_PER_PAGE, filteredDebtors.length)} of {filteredDebtors.length}
                                     <span className="mx-2 text-gray-700">|</span>
-                                    <span className="text-amber-400">Page total: ₱{pageAmount.toLocaleString()}</span>
+                                    <span className="text-amber-400">Page total: ₱{Math.round(pageAmount).toLocaleString()}</span>
                                 </div>
 
                                 <button
@@ -492,7 +492,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                 {/* Amount */}
                                                 <div className="text-right flex-shrink-0 mr-2">
                                                     <div className="text-base font-bold text-white">
-                                                        ₱{debtor.total_due.toLocaleString()}
+                                                        ₱{Math.round(debtor.total_due).toLocaleString()}
                                                     </div>
                                                     <div className="text-[10px] text-gray-500">
                                                         Total Due
@@ -590,7 +590,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                         <div className="text-sm text-gray-500">
                             {successIds.size > 0 ? (
                                 <span className="text-emerald-400 font-medium">
-                                    ✓ {successIds.size} payment(s) • ₱{totalCollectedAmount.toFixed(2)} collected
+                                    ✓ {successIds.size} payment(s) • ₱{Math.round(totalCollectedAmount).toLocaleString()} collected
                                 </span>
                             ) : (
                                 <span className="text-gray-600">Ready to collect</span>

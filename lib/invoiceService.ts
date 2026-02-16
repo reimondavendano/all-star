@@ -238,7 +238,7 @@ export async function generateInvoicesForBusinessUnit(
 
             if (isFirstSubscription && hasReferrer && !sub.referral_credit_applied) {
                 const discount = 300; // ₱300 referral discount
-                amountDue = Math.max(0, amountDue - discount);
+                amountDue = Math.round(Math.max(0, amountDue - discount));
 
                 // Mark referral credit as applied
                 await supabase
@@ -252,10 +252,10 @@ export async function generateInvoicesForBusinessUnit(
             if (currentBalance < 0) {
                 const credit = Math.abs(currentBalance);
                 if (credit >= amountDue) {
-                    currentBalance = currentBalance + amountDue;
+                    currentBalance = Math.round(currentBalance + amountDue);
                     amountDue = 0;
                 } else {
-                    amountDue = amountDue - credit;
+                    amountDue = Math.round(amountDue - credit);
                     currentBalance = 0;
                 }
                 subscriptionUpdates.push({ id: sub.id, balance: currentBalance });
@@ -263,7 +263,7 @@ export async function generateInvoicesForBusinessUnit(
 
             // Calculate final amount (add any outstanding balance from previous)
             const outstandingBalance = currentBalance > 0 ? currentBalance : 0;
-            const totalAmountDue = amountDue + outstandingBalance;
+            const totalAmountDue = Math.round(amountDue + outstandingBalance);
 
             // Update subscription balance to reflect new invoice
             const newBalance = totalAmountDue;

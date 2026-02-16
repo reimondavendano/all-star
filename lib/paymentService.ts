@@ -103,7 +103,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
 
         // 3. Calculate new balance
         // New Balance = Previous Balance - Payment Amount
-        const newBalance = calculateNewBalance(previousBalance, paymentAmount);
+        const newBalance = Math.round(calculateNewBalance(previousBalance, paymentAmount));
 
         // 4. Update subscription balance
         const { error: updateError } = await supabase
@@ -407,7 +407,7 @@ export async function recalculateBalance(subscriptionId: string): Promise<{
         const totalPaid = payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
 
         // Calculate correct balance
-        const newBalance = totalInvoiced - totalPaid;
+        const newBalance = Math.round(totalInvoiced - totalPaid);
 
         // Update subscription
         await supabase

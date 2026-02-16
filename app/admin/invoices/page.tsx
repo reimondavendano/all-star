@@ -456,7 +456,7 @@ export default function InvoicesPaymentsPage() {
     const openPaymentModal = (invoice: Invoice, subscription: Subscription, customer: Customer) => {
         setSelectedInvoice({ invoice, subscription, customer });
         setPaymentForm({
-            amount: invoice.amount_due.toString(),
+            amount: Math.round(invoice.amount_due).toString(),
             mode: 'Cash',
             settlementDate: new Date().toISOString().split('T')[0],
             notes: '',
@@ -1072,10 +1072,10 @@ export default function InvoicesPaymentsPage() {
                                                                                     )}
                                                                                 </td>
                                                                                 <td className="p-3 text-right text-white font-medium">
-                                                                                    ₱{((invoice.original_amount && invoice.original_amount > 0)
+                                                                                    ₱{Math.round((invoice.original_amount && invoice.original_amount > 0)
                                                                                         ? Math.max(0, invoice.original_amount - (invoice.discount_applied || 0) - (invoice.credits_applied || 0))
                                                                                         : invoice.amount_due
-                                                                                    ).toFixed(2)}
+                                                                                    ).toLocaleString()}
                                                                                 </td>
                                                                                 <td className="p-3 text-center">
                                                                                     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${getStatusBadgeClass(getEffectiveStatus(invoice))}`}>
@@ -1107,7 +1107,7 @@ export default function InvoicesPaymentsPage() {
                                                                                         )}
                                                                                     </span>
                                                                                     <span className={isPending ? 'text-violet-400' : 'text-emerald-400'}>
-                                                                                        +₱{payment.amount.toFixed(2)}
+                                                                                        +₱{Math.round(payment.amount).toLocaleString()}
                                                                                     </span>
                                                                                 </div>
                                                                             );
@@ -1272,7 +1272,7 @@ export default function InvoicesPaymentsPage() {
                             <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50">
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">Invoice Amount</span>
-                                    <span className="text-xl font-bold text-white">₱{selectedInvoice.invoice.amount_due.toLocaleString()}</span>
+                                    <span className="text-xl font-bold text-white">₱{Math.round(selectedInvoice.invoice.amount_due).toLocaleString()}</span>
                                 </div>
                                 <div className="flex justify-between items-center mt-2 text-sm">
                                     <span className="text-gray-500">Period</span>
@@ -1394,7 +1394,7 @@ export default function InvoicesPaymentsPage() {
                                 .filter(inv => inv.payment_status !== 'Paid')
                                 .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
                                 .map((invoice, idx) => {
-                                    const remaining = invoice.amount_due - (invoice.amount_paid || 0);
+                                    const remaining = Math.round(invoice.amount_due - (invoice.amount_paid || 0));
                                     return (
                                         <div key={invoice.id} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-xl border border-gray-800/50">
                                             <div>
@@ -1407,9 +1407,9 @@ export default function InvoicesPaymentsPage() {
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <div className="text-sm font-medium text-white">₱{remaining.toFixed(2)}</div>
+                                                <div className="text-sm font-medium text-white">₱{Math.round(remaining).toLocaleString()}</div>
                                                 {(invoice.amount_paid || 0) > 0 && (
-                                                    <div className="text-xs text-emerald-400">Paid: ₱{(invoice.amount_paid || 0).toFixed(2)}</div>
+                                                    <div className="text-xs text-emerald-400">Paid: ₱{Math.round(invoice.amount_paid || 0).toLocaleString()}</div>
                                                 )}
                                             </div>
                                         </div>
@@ -1472,7 +1472,7 @@ export default function InvoicesPaymentsPage() {
                                             <span className="text-gray-400">
                                                 {new Date(inv.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(inv.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                             </span>
-                                            <span className="text-white">₱{(inv.amount_due - (inv.amount_paid || 0)).toFixed(2)}</span>
+                                            <span className="text-white">₱{Math.round(inv.amount_due - (inv.amount_paid || 0)).toLocaleString()}</span>
                                         </div>
                                     ))}
 
