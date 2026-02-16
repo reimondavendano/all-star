@@ -76,6 +76,13 @@ export default function ExpensesPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
 
+    // Filter state
+    const [filterBusinessUnit, setFilterBusinessUnit] = useState<string>('');
+    const [filterMonth, setFilterMonth] = useState<string>(() => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    });
+
     // Form state
     const [formData, setFormData] = useState({
         date: '',
@@ -320,14 +327,45 @@ export default function ExpensesPage() {
         ).slice(0, 10);
     }, [customers, customerSearch]);
 
-    const filteredExpenses = expenses.filter(e =>
-        e.reason?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.subscription?.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // Helper to get business unit ID from expense
+    const getExpenseBusinessUnitId = (expense: Expense): string | null => {
+        if (expense.business_unit_id) return expense.business_unit_id;
+        if (expense.subscription?.business_unit) {
+            // This is tricky - we need the ID, but subscription query only returns name
+            // We'll match by name from businessUnits array
+            const buName = Array.isArray(expense.subscription.business_unit) 
+                ? expense.subscription.business_unit[0]?.name 
+                : expense.subscription.business_unit?.name;
+            const bu = businessUnits.find(b => b.name === buName);
+            return bu?.id || null;
+        }
+        return null;
+    };
+
+    // Helper to get expense month (YYYY-MM format)
+    const getExpenseMonth = (expense: Expense): string => {
+        const dateStr = expense.date || expense.created_at;
+        return dateStr.substring(0, 7); // Extract YYYY-MM
+    };
+
+    const filteredExpenses = expenses.filter(e => {
+        // Search filter
+        const matchesSearch = e.reason?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            e.subscription?.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+        
+        // Business unit filter
+        const matchesBusinessUnit = !filterBusinessUnit || getExpenseBusinessUnitId(e) === filterBusinessUnit;
+        
+        // Month filter
+        const matchesMonth = !filterMonth || getExpenseMonth(e) === filterMonth;
+        
+        return matchesSearch && matchesBusinessUnit && matchesMonth;
+    });
+    
     const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const currentExpenses = filteredExpenses.slice(startIndex, startIndex + itemsPerPage);
-    const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalAmount = filteredExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
     // Helper to get display info
     const getSubscriptionInfo = (expense: Expense) => {
@@ -363,6 +401,30 @@ export default function ExpensesPage() {
                             <div className="text-lg font-bold text-purple-300">₱{totalAmount.toLocaleString()}</div>
                         </div>
                         <div className="flex items-center gap-3">
+                            {/* Business Unit Filter */}
+                            <div className="relative">
+                                <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <select
+                                    value={filterBusinessUnit}
+                                    onChange={(e) => { setFilterBusinessUnit(e.target.value); setCurrentPage(1); }}
+                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-8 py-2 text-sm text-white focus:outline-none focus:border-purple-500 appearance-none cursor-pointer"
+                                >
+                                    <option value="">All Business Units</option>
+                                    {businessUnits.map(bu => (
+                                        <option key={bu.id} value={bu.id}>{bu.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {/* Month Filter */}
+                            <div className="relative">
+                                <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => { setFilterMonth(e.target.value); setCurrentPage(1); }}
+                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                                />
+                            </div>
                             <div className="relative">
                                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                 <input
