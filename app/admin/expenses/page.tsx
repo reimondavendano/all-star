@@ -27,6 +27,7 @@ interface Expense {
     amount: number;
     notes: string;
     subscription_id: string | null;
+    business_unit_id: string | null;
     created_at: string;
     subscription?: {
         id: string;
@@ -36,6 +37,7 @@ interface Expense {
         customer: { name: string } | null;
         plan: { name: string } | null;
     };
+    business_unit?: { name: string } | null;
 }
 
 // Add useRef for click outside handling
@@ -117,7 +119,8 @@ export default function ExpensesPage() {
                         business_unit:business_units(name),
                         customer:customers!subscriptions_subscriber_id_fkey(name),
                         plan:plans(name)
-                    )
+                    ),
+                    business_unit:business_units!expenses_business_unit_id_fkey(name)
                 `)
                 .order('created_at', { ascending: false });
             if (error) throw error;
@@ -189,12 +192,23 @@ export default function ExpensesPage() {
 
     const handleSave = async () => {
         try {
+            // Determine business_unit_id
+            let businessUnitId = formData.business_unit_id;
+            
+            // If subscription is selected, get business_unit_id from the subscription
+            if (formData.subscription_id) {
+                const selectedSub = customerSubscriptions.find(s => s.id === formData.subscription_id);
+                if (selectedSub) {
+                    businessUnitId = selectedSub.business_unit_id;
+                }
+            }
+
             const payload: any = {
                 reason: formData.reason,
                 amount: parseFloat(formData.amount) || 0,
                 notes: formData.notes,
                 subscription_id: formData.subscription_id || null,
-                business_unit_id: formData.business_unit_id || null
+                business_unit_id: businessUnitId || null
             };
 
             // Add date if the column exists
@@ -234,7 +248,7 @@ export default function ExpensesPage() {
             amount: expense.amount.toString(),
             notes: expense.notes || '',
             subscription_id: expense.subscription_id || '',
-            business_unit_id: ''  // Will be set via subscription if linked
+            business_unit_id: expense.business_unit_id || ''
         });
 
         // If expense has subscription, set the customer
@@ -251,6 +265,11 @@ export default function ExpensesPage() {
                     fetchCustomerSubscriptions(customer.id);
                 }
             }
+        } else {
+            // No customer, just business unit expense
+            setSelectedCustomer(null);
+            setCustomerSubscriptions([]);
+            setCustomerSearch('');
         }
 
         setIsEditModalOpen(true);
@@ -312,12 +331,18 @@ export default function ExpensesPage() {
 
     // Helper to get display info
     const getSubscriptionInfo = (expense: Expense) => {
-        if (!expense.subscription) return null;
-        const sub = expense.subscription;
-        const customerName = Array.isArray(sub.customer) ? sub.customer[0]?.name : sub.customer?.name;
-        const buName = Array.isArray(sub.business_unit) ? sub.business_unit[0]?.name : sub.business_unit?.name;
-        const planName = Array.isArray(sub.plan) ? sub.plan[0]?.name : sub.plan?.name;
-        return { customerName, buName, planName, address: sub.address, barangay: sub.barangay };
+        if (expense.subscription) {
+            const sub = expense.subscription;
+            const customerName = Array.isArray(sub.customer) ? sub.customer[0]?.name : sub.customer?.name;
+            const buName = Array.isArray(sub.business_unit) ? sub.business_unit[0]?.name : sub.business_unit?.name;
+            const planName = Array.isArray(sub.plan) ? sub.plan[0]?.name : sub.plan?.name;
+            return { customerName, buName, planName, address: sub.address, barangay: sub.barangay, isCustomerExpense: true };
+        } else if (expense.business_unit) {
+            // Expense linked directly to business unit (no customer)
+            const buName = Array.isArray(expense.business_unit) ? expense.business_unit[0]?.name : expense.business_unit?.name;
+            return { customerName: null, buName, planName: null, address: null, barangay: null, isCustomerExpense: false };
+        }
+        return null;
     };
 
     return (
@@ -393,12 +418,19 @@ export default function ExpensesPage() {
                                                 {expense.date ? new Date(expense.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : new Date(expense.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                                                 {subInfo && (
                                                     <>
-                                                        <span className="text-gray-600">•</span>
-                                                        <User className="w-3 h-3" />
-                                                        <span className="text-purple-400">{subInfo.customerName}</span>
+                                                        {subInfo.customerName && (
+                                                            <>
+                                                                <span className="text-gray-600">•</span>
+                                                                <User className="w-3 h-3" />
+                                                                <span className="text-purple-400">{subInfo.customerName}</span>
+                                                            </>
+                                                        )}
                                                         <span className="text-gray-600">•</span>
                                                         <Building2 className="w-3 h-3" />
                                                         <span>{subInfo.buName}</span>
+                                                        {!subInfo.customerName && (
+                                                            <span className="text-xs px-2 py-0.5 bg-amber-900/30 text-amber-400 rounded">General Expense</span>
+                                                        )}
                                                     </>
                                                 )}
                                             </div>
@@ -418,12 +450,19 @@ export default function ExpensesPage() {
 
                                     {expandedRows.has(expense.id) && (
                                         <div className="bg-[#080808] border-t border-gray-800/50 p-4 pl-16">
-                                            {subInfo && (
+                                            {subInfo && subInfo.customerName && (
                                                 <div className="mb-3 p-3 bg-purple-900/20 rounded-lg border border-purple-700/30">
                                                     <div className="text-xs text-gray-500 uppercase mb-2 flex items-center gap-2"><User className="w-3 h-3" /> Customer & Subscription</div>
                                                     <p className="text-purple-300 font-medium">{subInfo.customerName}</p>
                                                     <p className="text-gray-400 text-sm">{subInfo.planName} • {subInfo.address}, {subInfo.barangay}</p>
                                                     <p className="text-gray-500 text-xs mt-1">Business Unit: {subInfo.buName}</p>
+                                                </div>
+                                            )}
+                                            {subInfo && !subInfo.customerName && (
+                                                <div className="mb-3 p-3 bg-amber-900/20 rounded-lg border border-amber-700/30">
+                                                    <div className="text-xs text-gray-500 uppercase mb-2 flex items-center gap-2"><Building2 className="w-3 h-3" /> Business Unit Expense</div>
+                                                    <p className="text-amber-300 font-medium">{subInfo.buName}</p>
+                                                    <p className="text-gray-400 text-sm">General expense not linked to a specific customer</p>
                                                 </div>
                                             )}
                                             {expense.notes && (
@@ -561,10 +600,11 @@ export default function ExpensesPage() {
                                                         value={sub.id}
                                                         checked={formData.subscription_id === sub.id}
                                                         onChange={(e) => {
+                                                            const selectedSub = customerSubscriptions.find(s => s.id === e.target.value);
                                                             setFormData({
                                                                 ...formData,
                                                                 subscription_id: e.target.value,
-                                                                business_unit_id: sub.business_unit_id // Auto-select BU
+                                                                business_unit_id: selectedSub?.business_unit_id || '' // Auto-set BU from subscription
                                                             });
                                                         }}
                                                         className="sr-only"
@@ -584,30 +624,28 @@ export default function ExpensesPage() {
                                 </div>
                             )}
 
-                            {/* Business Unit Select - Required if no customer/subscription selected */}
-                            <div>
-                                <label className="block text-sm text-gray-400 mb-2">
-                                    Business Unit
-                                    {!selectedCustomer && <span className="text-red-500 ml-1">*</span>}
-                                </label>
-                                <div className="relative">
-                                    <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                                    <select
-                                        value={formData.business_unit_id}
-                                        onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
-                                        disabled={!!formData.subscription_id} // Disable if subscription selected (it determines BU)
-                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        <option value="">Select Business Unit...</option>
-                                        {businessUnits.map(unit => (
-                                            <option key={unit.id} value={unit.id}>{unit.name}</option>
-                                        ))}
-                                    </select>
+                            {/* Business Unit Select - Shows subscription's BU when customer selected, otherwise required */}
+                            {!selectedCustomer && (
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">
+                                        Business Unit <span className="text-red-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                        <select
+                                            value={formData.business_unit_id}
+                                            onChange={(e) => setFormData({ ...formData, business_unit_id: e.target.value })}
+                                            className="w-full bg-gray-900/50 border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500"
+                                        >
+                                            <option value="">Select business unit...</option>
+                                            {businessUnits.map(unit => (
+                                                <option key={unit.id} value={unit.id}>{unit.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">Required for expenses not linked to a customer</p>
                                 </div>
-                                {formData.subscription_id && (
-                                    <p className="text-xs text-gray-500 mt-1">Automatically set based on selected subscription</p>
-                                )}
-                            </div>
+                            )}
 
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Date</label>

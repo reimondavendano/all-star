@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Receipt, Loader2, Save, Calendar, FileText, Banknote, User, Wifi } from 'lucide-react';
+import { X, Receipt, Loader2, Save, Calendar, FileText, Banknote, User, Wifi, Building2 } from 'lucide-react';
 
 interface AddExpenseModalProps {
     isOpen: boolean;
@@ -53,12 +53,14 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
         reason: '',
         notes: '',
         date: new Date().toISOString().split('T')[0],
-        subscription_id: ''
+        subscription_id: '',
+        business_unit_id: ''
     });
 
     // Data State
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [customerSubscriptions, setCustomerSubscriptions] = useState<Subscription[]>([]);
+    const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
 
     // UI State
     const [customerSearch, setCustomerSearch] = useState('');
@@ -72,6 +74,7 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
     useEffect(() => {
         if (isOpen) {
             fetchCustomers();
+            fetchBusinessUnits();
             
             // If editing, populate form with expense data
             if (expense) {
@@ -80,7 +83,8 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
                     reason: expense.reason,
                     notes: expense.notes || '',
                     date: expense.date || new Date().toISOString().split('T')[0],
-                    subscription_id: expense.subscription_id || ''
+                    subscription_id: expense.subscription_id || '',
+                    business_unit_id: ''
                 });
 
                 // If expense has a subscription, set the customer
@@ -102,7 +106,8 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
                     reason: '',
                     notes: '',
                     date: new Date().toISOString().split('T')[0],
-                    subscription_id: ''
+                    subscription_id: '',
+                    business_unit_id: ''
                 });
                 setSelectedCustomer(null);
                 setCustomerSearch('');
@@ -130,6 +135,15 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
             setCustomers(data || []);
         } catch (error) {
             console.error('Error fetching customers:', error);
+        }
+    };
+
+    const fetchBusinessUnits = async () => {
+        try {
+            const { data } = await supabase.from('business_units').select('id, name').order('name');
+            setBusinessUnits(data || []);
+        } catch (error) {
+            console.error('Error fetching business units:', error);
         }
     };
 
@@ -201,14 +215,32 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
             return;
         }
 
+        // If no customer selected, business unit must be selected
+        if (!selectedCustomer && !formData.business_unit_id) {
+            alert('Please select a business unit for this expense.');
+            return;
+        }
+
         setIsLoading(true);
         try {
+            // Determine business_unit_id
+            let businessUnitId = formData.business_unit_id;
+            
+            // If subscription is selected, get business_unit_id from the subscription
+            if (formData.subscription_id) {
+                const selectedSub = customerSubscriptions.find(s => s.id === formData.subscription_id);
+                if (selectedSub) {
+                    businessUnitId = selectedSub.business_unit_id;
+                }
+            }
+
             const expenseData = {
                 amount: parseFloat(formData.amount),
                 reason: formData.reason,
                 notes: formData.notes,
                 date: formData.date,
-                subscription_id: formData.subscription_id || null
+                subscription_id: formData.subscription_id || null,
+                business_unit_id: businessUnitId || null
             };
 
             if (isEditMode && expense) {
@@ -367,6 +399,29 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
                         </div>
                     )}
 
+                    {/* Business Unit Select - Shows when no customer selected */}
+                    {!selectedCustomer && (
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-2">
+                                Business Unit <span className="text-red-400">*</span>
+                            </label>
+                            <div className="relative">
+                                <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <select
+                                    value={formData.business_unit_id}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, business_unit_id: e.target.value }))}
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors appearance-none"
+                                >
+                                    <option value="">Select business unit...</option>
+                                    {businessUnits.map(unit => (
+                                        <option key={unit.id} value={unit.id}>{unit.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">Required for expenses not linked to a customer</p>
+                        </div>
+                    )}
+
                     {/* Date */}
                     <div>
                         <label className="block text-sm text-gray-400 mb-2">Date</label>
@@ -436,7 +491,8 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }:
                             !formData.amount ||
                             !formData.date ||
                             !formData.notes ||
-                            Boolean(selectedCustomer && !formData.subscription_id)
+                            Boolean(selectedCustomer && !formData.subscription_id) ||
+                            Boolean(!selectedCustomer && !formData.business_unit_id)
                         }
                         className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
