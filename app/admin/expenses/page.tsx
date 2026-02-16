@@ -416,24 +416,25 @@ export default function ExpensesPage() {
                                             <div className="text-xs text-gray-500 flex items-center gap-2">
                                                 <Calendar className="w-3 h-3" />
                                                 {expense.date ? new Date(expense.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : new Date(expense.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                                                {subInfo && subInfo.customerName && (
+                                                {subInfo && (
                                                     <>
                                                         <span className="text-gray-600">•</span>
-                                                        <User className="w-3 h-3" />
-                                                        <span className="text-purple-400">{subInfo.customerName}</span>
+                                                        <Building2 className="w-3 h-3" />
+                                                        <span>{subInfo.buName}</span>
+                                                        {subInfo.customerName && (
+                                                            <>
+                                                                <span className="text-gray-600">•</span>
+                                                                <User className="w-3 h-3" />
+                                                                <span className="text-purple-400">{subInfo.customerName}</span>
+                                                            </>
+                                                        )}
+                                                        {!subInfo.customerName && (
+                                                            <span className="text-xs px-2 py-0.5 bg-amber-900/30 text-amber-400 rounded">General</span>
+                                                        )}
                                                     </>
                                                 )}
                                             </div>
                                         </div>
-                                        {subInfo && (
-                                            <div className="flex items-center gap-2 mr-4">
-                                                <Building2 className="w-4 h-4 text-gray-500" />
-                                                <span className="text-sm text-gray-400">{subInfo.buName}</span>
-                                                {!subInfo.customerName && (
-                                                    <span className="text-xs px-2 py-0.5 bg-amber-900/30 text-amber-400 rounded ml-2">General</span>
-                                                )}
-                                            </div>
-                                        )}
                                         <span className="px-4 py-2 rounded-xl text-lg font-bold text-red-400">
                                             -₱{expense.amount.toLocaleString()}
                                         </span>
