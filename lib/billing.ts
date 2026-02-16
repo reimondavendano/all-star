@@ -290,3 +290,12 @@ export function formatBalanceDisplay(balance: number): {
         display: `₱${Math.abs(roundedBalance).toLocaleString()}`,
     };
 }
+
+/**
+ * Round amount to whole number for display
+ * Ensures all monetary values are shown without decimals
+ * Examples: 799.47 -> 799, 599.60 -> 600
+ */
+export function roundAmount(amount: number): number {
+    return Math.round(amount);
+}
