@@ -583,7 +583,7 @@ export default function ExpensesPage() {
                             {/* Subscription Select (shows after customer selected) */}
                             {selectedCustomer && (
                                 <div>
-                                    <label className="block text-sm text-gray-400 mb-2">Subscription</label>
+                                    <label className="block text-sm text-gray-400 mb-2">Subscription <span className="text-red-400">*</span></label>
                                     <div className="space-y-2">
                                         {customerSubscriptions.length > 0 ? (
                                             customerSubscriptions.map(sub => (
@@ -628,7 +628,7 @@ export default function ExpensesPage() {
                             {!selectedCustomer && (
                                 <div>
                                     <label className="block text-sm text-gray-400 mb-2">
-                                        Business Unit <span className="text-red-500">*</span>
+                                        Business Unit <span className="text-red-400">*</span>
                                     </label>
                                     <div className="relative">
                                         <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
@@ -684,13 +684,15 @@ export default function ExpensesPage() {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-sm text-gray-400 mb-2">Notes (optional)</label>
+                                <label className="block text-sm text-gray-400 mb-2">Notes <span className="text-red-400">*</span></label>
                                 <textarea
                                     value={formData.notes}
                                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                                     className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 h-24 resize-none"
-                                    placeholder="Additional notes..."
+                                    placeholder="Provide details about this expense..."
+                                    required
                                 />
+                                <p className="text-xs text-gray-500 mt-1">Required: Describe the purpose and details of this expense</p>
                             </div>
                         </div>
 
@@ -701,6 +703,9 @@ export default function ExpensesPage() {
                                 disabled={
                                     !formData.reason ||
                                     !formData.amount ||
+                                    !formData.notes ||
+                                    !formData.notes.trim() ||
+                                    (selectedCustomer && !formData.subscription_id) || // Required if customer selected
                                     (!selectedCustomer && !formData.business_unit_id) // Required if no customer
                                 }
                                 className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
