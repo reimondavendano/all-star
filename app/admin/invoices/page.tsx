@@ -345,7 +345,10 @@ export default function InvoicesPaymentsPage() {
 
             const statsCollected = (payments || []).reduce((sum, p) => {
                 if (p.settlement_date.startsWith(selectedMonth)) {
-                    return sum + p.amount;
+                    // Exclude "Referral Credit" payments from collected value
+                    if (p.mode !== 'Referral Credit') {
+                        return sum + p.amount;
+                    }
                 }
                 return sum;
             }, 0);

@@ -293,9 +293,10 @@ export async function generateInvoicesForBusinessUnit(
                     to: customer.mobile_number,
                     message: SMSTemplates.invoiceGenerated(
                         customer.name,
-                        totalAmountDue,
+                        amountDue, // Current invoice amount
                         formatDatePH(dates.dueDate),
-                        buName
+                        buName,
+                        outstandingBalance > 0 ? outstandingBalance : undefined // Previous unpaid balance
                     ),
                 });
             }
@@ -513,7 +514,8 @@ export async function generateDisconnectionInvoice(
         }
 
         // 5. Update subscription balance
-        const newBalance = (Number(subscription.balance) || 0) + prorated.proratedAmount;
+        const previousBalance = Number(subscription.balance) || 0;
+        const newBalance = previousBalance + prorated.proratedAmount;
         await supabase
             .from('subscriptions')
             .update({ balance: newBalance })
@@ -523,13 +525,15 @@ export async function generateDisconnectionInvoice(
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const buName = (subscription.business_units as any)?.name || '';
+            const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.invoiceGenerated(
                     customer.name,
                     prorated.proratedAmount,
                     formatDatePH(disconnectionDate),
-                    buName
+                    buName,
+                    outstandingBalance > 0 ? outstandingBalance : undefined
                 )
             });
         }
@@ -667,7 +671,8 @@ export async function generateActivationInvoice(
         }
 
         // 5. Update subscription balance
-        const newBalance = (Number(subscription.balance) || 0) + prorated.proratedAmount;
+        const previousBalance = Number(subscription.balance) || 0;
+        const newBalance = previousBalance + prorated.proratedAmount;
         await supabase
             .from('subscriptions')
             .update({ balance: newBalance })
@@ -676,13 +681,15 @@ export async function generateActivationInvoice(
         // 6. Send SMS notification (optional)
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
+            const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.invoiceGenerated(
                     customer.name,
                     prorated.proratedAmount,
                     formatDatePH(nextBillingDate),
-                    buName
+                    buName,
+                    outstandingBalance > 0 ? outstandingBalance : undefined
                 )
             });
         }
@@ -987,7 +994,8 @@ export async function generateInvoicesForExtension(
                 // Calculate amount
                 const amount = plan.monthly_fee;
                 const balance = Number(sub.balance) || 0;
-                const finalAmount = amount + (balance > 0 ? balance : 0);
+                const outstandingBalance = balance > 0 ? balance : 0;
+                const finalAmount = amount + outstandingBalance;
 
                 // Create invoice
                 const { error: invoiceError } = await supabase
@@ -1021,9 +1029,10 @@ export async function generateInvoicesForExtension(
                         to: customer.mobile_number,
                         message: SMSTemplates.invoiceGenerated(
                             customer.name,
-                            finalAmount,
+                            amount, // Current invoice amount
                             formatDatePH(dates.dueDate),
-                            'Extension'
+                            'Extension',
+                            outstandingBalance > 0 ? outstandingBalance : undefined // Previous unpaid balance
                         ),
                     });
                 }

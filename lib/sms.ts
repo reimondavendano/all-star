@@ -126,20 +126,80 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
  * SMS Templates
  */
 export const SMSTemplates = {
-    invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string) =>
-        `Hi ${customerName}! Your ${businessUnit} internet bill of P${amount.toLocaleString()} is now ready. Due: ${dueDate}. Please pay on time to avoid disconnection. Thank you! - Allstar`,
+    invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string, unpaidBalance?: number) => {
+        let message = `Hi ${customerName}!\n\n`;
+        message += `Your ${businessUnit} internet bill is ready:\n`;
+        message += `Amount: P${amount.toLocaleString()}\n`;
+        message += `Due Date: ${dueDate}\n`;
+        
+        if (unpaidBalance && unpaidBalance > 0) {
+            message += `\n⚠️ Outstanding Balance: P${unpaidBalance.toLocaleString()}\n`;
+            message += `Total to Pay: P${(amount + unpaidBalance).toLocaleString()}\n`;
+        }
+        
+        message += `\nPlease pay on time to avoid disconnection.\n`;
+        message += `Thank you! - Allstar`;
+        
+        return message;
+    },
 
-    dueDateReminder: (customerName: string, amount: number, dueDate: string) =>
-        `Reminder: Hi ${customerName}, your internet bill of P${amount.toLocaleString()} is due ${dueDate}. Please settle to avoid service interruption. Thank you! - Allstar`,
+    dueDateReminder: (customerName: string, amount: number, dueDate: string) => {
+        let message = `⏰ REMINDER\n\n`;
+        message += `Hi ${customerName},\n\n`;
+        message += `Your internet bill is due soon:\n`;
+        message += `Amount: P${amount.toLocaleString()}\n`;
+        message += `Due Date: ${dueDate}\n\n`;
+        message += `Please settle to avoid service interruption.\n`;
+        message += `Thank you! - Allstar`;
+        
+        return message;
+    },
 
-    disconnectionWarning: (customerName: string, disconnectionDate: string) =>
-        `URGENT: Hi ${customerName}, your internet will be disconnected on ${disconnectionDate} due to unpaid balance. Please pay immediately to continue service. - Allstar`,
+    disconnectionWarning: (customerName: string, disconnectionDate: string, unpaidAmount?: number) => {
+        let message = `🚨 URGENT NOTICE\n\n`;
+        message += `Hi ${customerName},\n\n`;
+        message += `Your internet service will be disconnected on ${disconnectionDate} due to unpaid balance.\n`;
+        
+        if (unpaidAmount && unpaidAmount > 0) {
+            message += `\nAmount Due: P${unpaidAmount.toLocaleString()}\n`;
+        }
+        
+        message += `\nPlease pay immediately to continue service.\n`;
+        message += `- Allstar`;
+        
+        return message;
+    },
 
-    paymentReceived: (customerName: string, amount: number, newBalance: number) =>
-        `Hi ${customerName}! We received your payment of P${amount.toLocaleString()}. ${newBalance > 0 ? `Remaining balance: P${newBalance.toLocaleString()}.` : newBalance < 0 ? `You have P${Math.abs(newBalance).toLocaleString()} credits.` : 'Your account is fully paid.'} Thank you! - Allstar`,
+    paymentReceived: (customerName: string, amount: number, newBalance: number) => {
+        let message = `✅ PAYMENT RECEIVED\n\n`;
+        message += `Hi ${customerName}!\n\n`;
+        message += `We received your payment:\n`;
+        message += `Amount Paid: P${amount.toLocaleString()}\n\n`;
+        
+        if (newBalance > 0) {
+            message += `Remaining Balance: P${newBalance.toLocaleString()}\n`;
+        } else if (newBalance < 0) {
+            message += `Credit Balance: P${Math.abs(newBalance).toLocaleString()}\n`;
+        } else {
+            message += `✓ Account Fully Paid\n`;
+        }
+        
+        message += `\nThank you! - Allstar`;
+        
+        return message;
+    },
 
-    newSubscription: (customerName: string, planName: string, amount: number) =>
-        `Welcome ${customerName}! Your ${planName} subscription is now active. Monthly fee: P${amount.toLocaleString()}. Thank you for choosing Allstar! - Allstar`,
+    newSubscription: (customerName: string, planName: string, amount: number) => {
+        let message = `🎉 WELCOME!\n\n`;
+        message += `Hi ${customerName}!\n\n`;
+        message += `Your subscription is now active:\n`;
+        message += `Plan: ${planName}\n`;
+        message += `Monthly Fee: P${amount.toLocaleString()}\n\n`;
+        message += `Thank you for choosing Allstar!\n`;
+        message += `- Allstar`;
+        
+        return message;
+    },
 };
 
 /**

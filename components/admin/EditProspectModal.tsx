@@ -578,14 +578,29 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     if (updateError) {
                         console.error('Error updating referrer balance:', updateError);
-                        // alert('Failed to update referrer balance: ' + updateError.message);
                     } else {
                         console.log('Referrer balance updated successfully');
-                        // alert(`Referral credit applied! New Balance: ${newBalance}`);
+                    }
+
+                    // Create expense for the referral incentive (₱300)
+                    // This expense is recorded against the new subscriber's business unit
+                    const { error: expenseError } = await supabase
+                        .from('expenses')
+                        .insert({
+                            subscription_id: newSubscription.id, // New subscriber's subscription
+                            amount: 300,
+                            reason: 'Others',
+                            notes: `Referral incentive paid to referrer for new subscriber: ${prospect.name}`,
+                            date: new Date().toISOString().split('T')[0]
+                        });
+
+                    if (expenseError) {
+                        console.error('Error creating referral expense:', expenseError);
+                    } else {
+                        console.log('Referral expense created successfully');
                     }
                 } else {
                     console.warn('No subscription found for referrer:', selectedReferrerId);
-                    // alert('Referrer has no subscription to apply credit to.');
                 }
             }
 

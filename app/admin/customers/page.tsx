@@ -108,6 +108,7 @@ export default function CustomersSubscriptionsPage() {
     // Disconnect/Activation Modal State
     const [disconnectSub, setDisconnectSub] = useState<Subscription | null>(null);
     const [activateSub, setActivateSub] = useState<Subscription | null>(null);
+    const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
 
     const itemsPerPage = 10;
 
@@ -192,19 +193,25 @@ export default function CustomersSubscriptionsPage() {
         e.stopPropagation();
         console.log('Handle toggle active clicked', subscription.id);
 
-        // Check MikroTik status first
-        const status = await checkMikrotikStatus();
-        if (!status.online) {
-            alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
-            return;
-        }
+        setTogglingSubId(subscription.id);
 
-        // If currently active -> show disconnect modal
-        if (subscription.active) {
-            setDisconnectSub(subscription);
-        } else {
-            // If currently inactive -> show activation modal
-            setActivateSub(subscription);
+        try {
+            // Check MikroTik status first
+            const status = await checkMikrotikStatus();
+            if (!status.online) {
+                alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
+                return;
+            }
+
+            // If currently active -> show disconnect modal
+            if (subscription.active) {
+                setDisconnectSub(subscription);
+            } else {
+                // If currently inactive -> show activation modal
+                setActivateSub(subscription);
+            }
+        } finally {
+            setTogglingSubId(null);
         }
     };
 
@@ -451,12 +458,19 @@ export default function CustomersSubscriptionsPage() {
                                                             <div className="flex items-center gap-2">
                                                                 <button
                                                                     onClick={(e) => handleToggleActive(sub, e)}
-                                                                    className="group relative w-10 h-5 rounded-full transition-colors"
+                                                                    disabled={togglingSubId === sub.id}
+                                                                    className="group relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                                     style={{ background: sub.active ? '#059669' : '#374151' }}
                                                                 >
-                                                                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
+                                                                    {togglingSubId === sub.id ? (
+                                                                        <div className="absolute inset-0 flex items-center justify-center">
+                                                                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
+                                                                    )}
                                                                     <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                                                                        {sub.active ? 'Disable' : 'Enable'} Subscription
+                                                                        {togglingSubId === sub.id ? 'Checking...' : sub.active ? 'Disable' : 'Enable'} Subscription
                                                                     </span>
                                                                 </button>
                                                                 <button

@@ -66,6 +66,7 @@ export default function SubscriptionsPage() {
 
     // Activation Modal State
     const [activateSub, setActivateSub] = useState<Subscription | null>(null);
+    const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
 
     const itemsPerPage = 10;
 
@@ -137,22 +138,28 @@ export default function SubscriptionsPage() {
     const handleToggleActive = async (subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Check MikroTik status first
-        const status = await checkMikrotikStatus();
-        if (!status.online) {
-            alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
-            return;
-        }
+        setTogglingSubId(subscription.id);
 
-        // If currently active (true) -> User wants to disconnect (false)
-        if (subscription.active) {
-            setDisconnectSub(subscription);
-            return;
-        }
+        try {
+            // Check MikroTik status first
+            const status = await checkMikrotikStatus();
+            if (!status.online) {
+                alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
+                return;
+            }
 
-        // If currently inactive (false) -> User wants to activate (true)
-        // Show activation modal with invoice generation option
-        setActivateSub(subscription);
+            // If currently active (true) -> User wants to disconnect (false)
+            if (subscription.active) {
+                setDisconnectSub(subscription);
+                return;
+            }
+
+            // If currently inactive (false) -> User wants to activate (true)
+            // Show activation modal with invoice generation option
+            setActivateSub(subscription);
+        } finally {
+            setTogglingSubId(null);
+        }
     };
 
     const handleActivationSuccess = async () => {
@@ -371,11 +378,18 @@ export default function SubscriptionsPage() {
                                                             {/* Toggle */}
                                                             <button
                                                                 onClick={(e) => handleToggleActive(subscription, e)}
-                                                                className="relative inline-flex items-center cursor-pointer"
-                                                                title={subscription.active ? 'Click to disconnect' : 'Click to activate'}
+                                                                disabled={togglingSubId === subscription.id}
+                                                                className="relative inline-flex items-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                title={togglingSubId === subscription.id ? 'Checking...' : subscription.active ? 'Click to disconnect' : 'Click to activate'}
                                                             >
                                                                 <div className={`w-9 h-5 rounded-full transition-colors ${subscription.active ? 'bg-green-600' : 'bg-gray-700'}`}>
-                                                                    <div className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${subscription.active ? 'translate-x-4' : 'translate-x-0'}`} />
+                                                                    {togglingSubId === subscription.id ? (
+                                                                        <div className="absolute inset-0 flex items-center justify-center">
+                                                                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className={`absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform ${subscription.active ? 'translate-x-4' : 'translate-x-0'}`} />
+                                                                    )}
                                                                 </div>
                                                             </button>
                                                             <button

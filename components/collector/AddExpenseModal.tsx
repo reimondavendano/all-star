@@ -8,6 +8,24 @@ interface AddExpenseModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    expense?: Expense | null; // For editing
+}
+
+interface Expense {
+    id: string;
+    date: string;
+    reason: string;
+    amount: number;
+    notes: string;
+    subscription_id: string | null;
+    subscription?: {
+        id: string;
+        address: string;
+        barangay: string;
+        business_unit: { name: string } | null;
+        customer: { id: string; name: string } | null;
+        plan: { name: string } | null;
+    };
 }
 
 interface Customer {
@@ -25,8 +43,9 @@ interface Subscription {
     business_unit_id: string;
 }
 
-export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpenseModalProps) {
+export default function AddExpenseModal({ isOpen, onClose, onSuccess, expense }: AddExpenseModalProps) {
     const [isLoading, setIsLoading] = useState(false);
+    const isEditMode = !!expense;
 
     // Form State
     const [formData, setFormData] = useState({
@@ -53,19 +72,44 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
     useEffect(() => {
         if (isOpen) {
             fetchCustomers();
-            // Reset form when opened
-            setFormData({
-                amount: '',
-                reason: '',
-                notes: '',
-                date: new Date().toISOString().split('T')[0],
-                subscription_id: ''
-            });
-            setSelectedCustomer(null);
-            setCustomerSearch('');
-            setCustomerSubscriptions([]);
+            
+            // If editing, populate form with expense data
+            if (expense) {
+                setFormData({
+                    amount: expense.amount.toString(),
+                    reason: expense.reason,
+                    notes: expense.notes || '',
+                    date: expense.date || new Date().toISOString().split('T')[0],
+                    subscription_id: expense.subscription_id || ''
+                });
+
+                // If expense has a subscription, set the customer
+                if (expense.subscription?.customer) {
+                    const customer = Array.isArray(expense.subscription.customer) 
+                        ? expense.subscription.customer[0] 
+                        : expense.subscription.customer;
+                    
+                    if (customer) {
+                        setSelectedCustomer(customer);
+                        setCustomerSearch(customer.name);
+                        fetchCustomerSubscriptions(customer.id);
+                    }
+                }
+            } else {
+                // Reset form when opened for new expense
+                setFormData({
+                    amount: '',
+                    reason: '',
+                    notes: '',
+                    date: new Date().toISOString().split('T')[0],
+                    subscription_id: ''
+                });
+                setSelectedCustomer(null);
+                setCustomerSearch('');
+                setCustomerSubscriptions([]);
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, expense]);
 
     // Click outside handler for dropdown
     useEffect(() => {
@@ -140,30 +184,55 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
     }, [customers, customerSearch]);
 
     const handleSubmit = async () => {
+        // Validation
         if (!formData.amount || !formData.reason || !formData.date) {
             alert('Please fill in all required fields (Amount, Reason, Date)');
             return;
         }
 
+        if (!formData.notes || formData.notes.trim() === '') {
+            alert('Notes are required. Please provide details about this expense.');
+            return;
+        }
+
+        // If customer is selected, subscription must be selected
+        if (selectedCustomer && !formData.subscription_id) {
+            alert('Please select a subscription for the selected customer.');
+            return;
+        }
+
         setIsLoading(true);
         try {
-            const { error } = await supabase
-                .from('expenses')
-                .insert({
-                    amount: parseFloat(formData.amount),
-                    reason: formData.reason,
-                    notes: formData.notes || null,
-                    date: formData.date,
-                    subscription_id: formData.subscription_id || null
-                });
+            const expenseData = {
+                amount: parseFloat(formData.amount),
+                reason: formData.reason,
+                notes: formData.notes,
+                date: formData.date,
+                subscription_id: formData.subscription_id || null
+            };
 
-            if (error) throw error;
+            if (isEditMode && expense) {
+                // Update existing expense
+                const { error } = await supabase
+                    .from('expenses')
+                    .update(expenseData)
+                    .eq('id', expense.id);
+
+                if (error) throw error;
+            } else {
+                // Insert new expense
+                const { error } = await supabase
+                    .from('expenses')
+                    .insert(expenseData);
+
+                if (error) throw error;
+            }
 
             onSuccess();
             onClose();
         } catch (error) {
-            console.error('Error adding expense:', error);
-            alert('Failed to add expense');
+            console.error('Error saving expense:', error);
+            alert(`Failed to ${isEditMode ? 'update' : 'add'} expense`);
         } finally {
             setIsLoading(false);
         }
@@ -185,8 +254,8 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                                 <Receipt className="w-6 h-6 text-white" />
                             </div>
                             <div>
-                                <h2 className="text-xl font-bold text-white">Add Expense</h2>
-                                <p className="text-sm text-gray-400">Record a business expense</p>
+                                <h2 className="text-xl font-bold text-white">{isEditMode ? 'Edit Expense' : 'Add Expense'}</h2>
+                                <p className="text-sm text-gray-400">{isEditMode ? 'Update expense details' : 'Record a business expense'}</p>
                             </div>
                         </div>
                         <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-lg">
@@ -251,10 +320,12 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                         </div>
                     </div>
 
-                    {/* Subscription Select */}
+                    {/* Subscription Select - Required if customer selected */}
                     {selectedCustomer && (
                         <div>
-                            <label className="block text-sm text-gray-400 mb-2">Subscription</label>
+                            <label className="block text-sm text-gray-400 mb-2">
+                                Subscription <span className="text-red-400">*</span>
+                            </label>
                             <div className="space-y-2">
                                 {customerSubscriptions.length > 0 ? (
                                     customerSubscriptions.map(sub => (
@@ -290,6 +361,9 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                                     <p className="text-gray-500 text-sm p-3 bg-gray-900/50 rounded-xl">No active subscriptions found</p>
                                 )}
                             </div>
+                            {selectedCustomer && !formData.subscription_id && (
+                                <p className="text-xs text-amber-400 mt-1">Please select a subscription for this customer</p>
+                            )}
                         </div>
                     )}
 
@@ -335,15 +409,19 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                         </div>
                     </div>
 
-                    {/* Notes */}
+                    {/* Notes - Now Required */}
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2">Notes (Optional)</label>
+                        <label className="block text-sm text-gray-400 mb-2">
+                            Notes <span className="text-red-400">*</span>
+                        </label>
                         <textarea
                             value={formData.notes}
                             onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                             className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-colors resize-none h-24"
-                            placeholder="Additional details..."
+                            placeholder="Provide details about this expense..."
+                            required
                         />
+                        <p className="text-xs text-gray-500 mt-1">Required: Describe the purpose and details of this expense</p>
                     </div>
                 </div>
 
@@ -356,19 +434,21 @@ export default function AddExpenseModal({ isOpen, onClose, onSuccess }: AddExpen
                             isLoading ||
                             !formData.reason ||
                             !formData.amount ||
-                            !formData.date
+                            !formData.date ||
+                            !formData.notes ||
+                            (selectedCustomer && !formData.subscription_id)
                         }
                         className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isLoading ? (
                             <>
                                 <Loader2 className="w-5 h-5 animate-spin" />
-                                Saving...
+                                {isEditMode ? 'Updating...' : 'Saving...'}
                             </>
                         ) : (
                             <>
                                 <Save className="w-5 h-5" />
-                                Save Expense
+                                {isEditMode ? 'Update Expense' : 'Save Expense'}
                             </>
                         )}
                     </button>

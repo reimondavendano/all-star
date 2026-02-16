@@ -91,6 +91,7 @@ export default function CollectorCustomersPage() {
         sub: Subscription;
         isActive: boolean;
     } | null>(null);
+    const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
 
     const itemsPerPage = 10;
 
@@ -172,24 +173,30 @@ export default function CollectorCustomersPage() {
     const handleToggleActive = async (customer: Customer, subscription: Subscription, e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // Check MikroTik status first
-        const status = await checkMikrotikStatus();
-        if (!status.online) {
-            alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
-            return;
-        }
+        setTogglingSubId(subscription.id);
 
-        // If disabling (subscription is currently active), show disconnection modal with invoice option
-        if (subscription.active) {
-            setSelectedCustomer(customer);
-            setSelectedSubscription(subscription);
-            setShowDisconnectModal(true);
-        } else {
-            // If enabling (subscription is currently inactive), just show confirmation
-            setConfirmationParams({
-                sub: subscription,
-                isActive: true
-            });
+        try {
+            // Check MikroTik status first
+            const status = await checkMikrotikStatus();
+            if (!status.online) {
+                alert('MikroTik router is offline. Please ensure the router is online before activating or deactivating subscriptions.');
+                return;
+            }
+
+            // If disabling (subscription is currently active), show disconnection modal with invoice option
+            if (subscription.active) {
+                setSelectedCustomer(customer);
+                setSelectedSubscription(subscription);
+                setShowDisconnectModal(true);
+            } else {
+                // If enabling (subscription is currently inactive), just show confirmation
+                setConfirmationParams({
+                    sub: subscription,
+                    isActive: true
+                });
+            }
+        } finally {
+            setTogglingSubId(null);
         }
     };
 
@@ -372,10 +379,17 @@ export default function CollectorCustomersPage() {
                                                                 {/* Toggle Switch */}
                                                                 <button
                                                                     onClick={(e) => handleToggleActive(customer, sub, e)}
-                                                                    className="group relative w-10 h-5 rounded-full transition-colors"
+                                                                    disabled={togglingSubId === sub.id}
+                                                                    className="group relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                                     style={{ background: sub.active ? '#059669' : '#374151' }}
                                                                 >
-                                                                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
+                                                                    {togglingSubId === sub.id ? (
+                                                                        <div className="absolute inset-0 flex items-center justify-center">
+                                                                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
+                                                                    )}
                                                                 </button>
 
                                                                 {/* Edit Button (Restricted to MikroTik) */}
