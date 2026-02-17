@@ -22,7 +22,6 @@ interface DisconnectionModalProps {
 export default function DisconnectionModal({ isOpen, onClose, subscription, onConfirm }: DisconnectionModalProps) {
     const [step, setStep] = useState<'confirm' | 'success'>('confirm');
     const [isLoading, setIsLoading] = useState(false);
-    const [generateInvoice, setGenerateInvoice] = useState(true);
     const [disconnectionDate, setDisconnectionDate] = useState(new Date().toISOString().split('T')[0]);
     const [error, setError] = useState<string | null>(null);
     const [mikrotikOnline, setMikrotikOnline] = useState<boolean | null>(null);
@@ -62,7 +61,7 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
             const result = await processDisconnection(
                 subscription.id,
                 disconnectDate,
-                generateInvoice
+                true // Always generate invoice on disconnection
             );
 
             if (!result.success) {
@@ -159,23 +158,6 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                                         </p>
                                     </div>
 
-                                    <label className="flex items-start gap-3 p-4 rounded-lg bg-[#151515] border border-gray-800 cursor-pointer hover:border-gray-700 transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            checked={generateInvoice}
-                                            onChange={(e) => setGenerateInvoice(e.target.checked)}
-                                            className="mt-0.5 w-4 h-4 text-red-600 focus:ring-red-600 bg-gray-900 border-gray-700 rounded"
-                                        />
-                                        <div className="flex-1">
-                                            <div className="font-medium text-white">Generate Final Invoice</div>
-                                            <div className="text-xs text-gray-500 mt-1">
-                                                Automatically create an invoice for the period from the last billing date to the disconnection date.
-                                            </div>
-                                        </div>
-                                    </label>
-                                </div>
-
-                                {generateInvoice && (
                                     <div className="mt-4 p-3 bg-blue-950/30 border border-blue-900/50 rounded-lg">
                                         <div className="flex items-start gap-2">
                                             <FileText className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
@@ -187,7 +169,7 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                                             </div>
                                         </div>
                                     </div>
-                                )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -199,8 +181,7 @@ export default function DisconnectionModal({ isOpen, onClose, subscription, onCo
                             </div>
                             <h3 className="text-lg font-bold text-white mb-2">Disconnection Complete</h3>
                             <p className="text-sm text-gray-400">
-                                The subscription has been disconnected successfully.
-                                {generateInvoice && ' A final invoice has been generated.'}
+                                The subscription has been disconnected successfully. A final invoice has been generated.
                             </p>
                         </div>
                     )}
