@@ -233,10 +233,14 @@ export default function InvoicesPaymentsPage() {
         year: number,
         month: number
     ): Invoice[] => {
-        const { rangeStart, rangeEnd } = getDueDateRangeForMonth(businessUnitName, invoiceDate, year, month);
+        // Filter invoices by their billing period end date (to_date)
+        // An invoice belongs to the month where its billing period ends
+        const monthStart = new Date(year, month - 1, 1);
+        const monthEnd = new Date(year, month, 0); // Last day of month
+        
         return invoices.filter(inv => {
-            const dueDate = new Date(inv.due_date + 'T00:00:00');
-            return dueDate >= rangeStart && dueDate <= rangeEnd;
+            const toDate = new Date(inv.to_date + 'T00:00:00');
+            return toDate >= monthStart && toDate <= monthEnd;
         });
     };
 
@@ -249,9 +253,11 @@ export default function InvoicesPaymentsPage() {
 
             // Wide range for fetching to cover 15th cycle (prev month 16th)
             // Fetch from start of previous month to end of current month
-            const prevMonthDate = new Date(selectedYear, selectedMonthNum - 2, 1);
-            const fetchStartDate = prevMonthDate.toISOString().split('T')[0];
-            const fetchEndDate = new Date(selectedYear, selectedMonthNum, 0).toISOString().split('T')[0];
+            // Use timezone-safe date formatting to avoid off-by-one errors
+            const fetchStartDate = `${selectedYear}-${String(selectedMonthNum - 1).padStart(2, '0')}-01`;
+            
+            const lastDayOfMonth = new Date(selectedYear, selectedMonthNum, 0).getDate();
+            const fetchEndDate = `${selectedYear}-${String(selectedMonthNum).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
             // For strict filtering logic (legacy/fallback if needed, but we rely on client-side filtering now for period)
             // keeping the wide range ensures we get all potentially relevant paid invoices
@@ -376,24 +382,21 @@ export default function InvoicesPaymentsPage() {
                 const subInvoices = (invoices || []).filter(inv => inv.subscription_id === sub.id);
                 const subPayments = (payments || []).filter(pay => pay.subscription_id === sub.id);
 
-                // ONLY include subscriptions that have invoices
-                if (subInvoices.length === 0) continue;
-
                 // Get business unit name for this subscription
                 const buData = sub.business_units as any;
                 const buName = Array.isArray(buData) ? buData[0]?.name : buData?.name || '';
 
                 // Filter invoices for the selected billing period
-                // When "Paid" or "All" filter is active with paid invoices, show all invoices
-                const periodInvoices = (statusFilter === 'Paid' || statusFilter === 'all')
-                    ? subInvoices 
-                    : filterInvoicesForPeriod(
-                        subInvoices,
-                        buName,
-                        (sub as any).invoice_date,
-                        selectedYear,
-                        selectedMonthNum
-                    );
+                const periodInvoices = filterInvoicesForPeriod(
+                    subInvoices,
+                    buName,
+                    (sub as any).invoice_date,
+                    selectedYear,
+                    selectedMonthNum
+                );
+
+                // ONLY include subscriptions that have invoices for the current period
+                if (periodInvoices.length === 0) continue;
 
                 const totalPaid = subInvoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
 
