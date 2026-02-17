@@ -17,25 +17,7 @@ export async function processActivation(
     amount?: number;
 }> {
     try {
-        let invoiceId: string | undefined;
-        let amount: number | undefined;
-
-        // Generate invoice if requested
-        if (generateInvoice) {
-            const invoiceResult = await generateActivationInvoice(subscriptionId, activationDate);
-
-            if (!invoiceResult.success) {
-                return {
-                    success: false,
-                    error: invoiceResult.errors.join(', ')
-                };
-            }
-
-            invoiceId = invoiceResult.invoiceId;
-            amount = invoiceResult.amount;
-        }
-
-        // Update subscription to active
+        // Update subscription to active and store last_reconnection_date
         const { createClient } = await import('@supabase/supabase-js');
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -51,7 +33,10 @@ export async function processActivation(
 
         const { error: updateError } = await supabase
             .from('subscriptions')
-            .update({ active: true })
+            .update({ 
+                active: true,
+                last_reconnection_date: activationDate.toISOString()
+            })
             .eq('id', subscriptionId);
 
         if (updateError) {
@@ -71,9 +56,7 @@ export async function processActivation(
         }
 
         return {
-            success: true,
-            invoiceId,
-            amount
+            success: true
         };
 
     } catch (error) {

@@ -535,11 +535,10 @@ export default function DashboardPage() {
                 };
             }).filter((d) => d.balance > 0);
 
-            // 13. Expenses Summary (filtered by BU via subscription)
-            // 13. Expenses Summary (filtered by BU via subscription)
+            // 13. Expenses Summary (filtered by BU)
             let expensesQuery = supabase
                 .from('expenses')
-                .select('amount, reason, subscription_id');
+                .select('amount, reason, subscription_id, business_unit_id');
 
             expensesQuery = applyDateFilter(expensesQuery, 'created_at', startOfMonth, startOfNextMonth);
 
@@ -548,9 +547,17 @@ export default function DashboardPage() {
             // Filter expenses by business unit if selected
             const expensesData = selectedBusinessUnit === 'all'
                 ? (expensesDataRaw || [])
-                : (expensesDataRaw || []).filter(exp =>
-                    exp.subscription_id && subscriptionIdsForBU.includes(exp.subscription_id)
-                );
+                : (expensesDataRaw || []).filter(exp => {
+                    // Include if expense has direct business_unit_id match
+                    if (exp.business_unit_id === selectedBusinessUnit) {
+                        return true;
+                    }
+                    // Include if expense is linked to subscription in this business unit
+                    if (exp.subscription_id && subscriptionIdsForBU.includes(exp.subscription_id)) {
+                        return true;
+                    }
+                    return false;
+                });
 
             const expenseBreakdown: { [key: string]: { count: number; total: number } } = {};
             let totalExpenses = 0;

@@ -51,7 +51,10 @@ export async function processDisconnection(
 
         const { error: updateError } = await supabase
             .from('subscriptions')
-            .update({ active: false })
+            .update({ 
+                active: false,
+                last_disconnection_date: disconnectionDate.toISOString()
+            })
             .eq('id', subscriptionId);
 
         if (updateError) {

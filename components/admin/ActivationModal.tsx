@@ -32,7 +32,6 @@ interface MikrotikData {
 export default function ActivationModal({ isOpen, onClose, subscription, onConfirm }: ActivationModalProps) {
     const [step, setStep] = useState<'mikrotik' | 'confirm' | 'success'>('mikrotik');
     const [isLoading, setIsLoading] = useState(false);
-    const [generateInvoice, setGenerateInvoice] = useState(true);
     const [activationDate, setActivationDate] = useState(new Date().toISOString().split('T')[0]);
     const [error, setError] = useState<string | null>(null);
     const [hasMikrotikAccount, setHasMikrotikAccount] = useState(false);
@@ -196,7 +195,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
             const result = await processActivation(
                 subscription.id,
                 date,
-                generateInvoice
+                false // Never generate invoice on reconnection
             );
 
             if (!result.success) {
@@ -461,35 +460,18 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                         </p>
                                     </div>
 
-                                    <label className="flex items-start gap-3 p-4 rounded-lg bg-[#151515] border border-gray-800 cursor-pointer hover:border-gray-700 transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            checked={generateInvoice}
-                                            onChange={(e) => setGenerateInvoice(e.target.checked)}
-                                            className="mt-0.5 w-4 h-4 text-green-600 focus:ring-green-600 bg-gray-900 border-gray-700 rounded"
-                                        />
-                                        <div className="flex-1">
-                                            <div className="font-medium text-white">Generate Activation Invoice</div>
-                                            <div className="text-xs text-gray-500 mt-1">
-                                                Automatically create an invoice for the period from the activation date to the next billing date.
-                                            </div>
-                                        </div>
-                                    </label>
-                                </div>
-
-                                {generateInvoice && (
                                     <div className="mt-4 p-3 bg-blue-950/30 border border-blue-900/50 rounded-lg">
                                         <div className="flex items-start gap-2">
                                             <FileText className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
                                             <div className="text-xs text-blue-300">
-                                                <strong>Invoice will be generated automatically</strong>
+                                                <strong>Invoice Generation</strong>
                                                 <p className="mt-1 text-blue-400/80">
-                                                    The system will calculate the prorated amount from {new Date(activationDate).toLocaleDateString()} to your next billing date based on {subscription.business_unit_name}.
+                                                    No invoice will be created during reconnection. Use the "Generate Invoice" button later to create an invoice from {new Date(activationDate).toLocaleDateString()} to your next billing date.
                                                 </p>
                                             </div>
                                         </div>
                                     </div>
-                                )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -502,8 +484,10 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                             <h3 className="text-lg font-bold text-white mb-2">Activation Complete</h3>
                             <p className="text-sm text-gray-400">
                                 The subscription has been activated successfully.
-                                {generateInvoice && ' An activation invoice has been generated.'}
                                 {!hasMikrotikAccount && ' MikroTik account has been created.'}
+                            </p>
+                            <p className="text-sm text-blue-400 mt-2">
+                                Use the "Generate Invoice" button to create an invoice for this period.
                             </p>
                         </div>
                     )}

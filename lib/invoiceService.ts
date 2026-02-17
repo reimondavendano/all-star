@@ -37,6 +37,7 @@ interface Subscription {
     business_unit_id: string;
     plan_id: string;
     date_installed: string;
+    last_reconnection_date: string | null;
     balance: number;
     active: boolean;
     referral_credit_applied: boolean;
@@ -113,6 +114,7 @@ export async function generateInvoicesForBusinessUnit(
                 business_unit_id,
                 plan_id,
                 date_installed,
+                last_reconnection_date,
                 balance,
                 active,
                 referral_credit_applied,
@@ -208,14 +210,21 @@ export async function generateInvoicesForBusinessUnit(
             const plan = sub.plans as any;
             const previousInvoices = invoiceCountMap.get(sub.id) || 0;
             const dateInstalled = sub.date_installed ? new Date(sub.date_installed) : null;
+            const lastReconnection = sub.last_reconnection_date ? new Date(sub.last_reconnection_date) : null;
+
+            // Determine the effective start date for billing
+            // Use last_reconnection_date if it exists and is more recent than installation
+            const effectiveStartDate = lastReconnection && dateInstalled && lastReconnection > dateInstalled
+                ? lastReconnection
+                : dateInstalled;
 
             let amountDue = plan.monthly_fee;
             let isProrated = false;
 
-            // Pro-rating logic for new customers
-            if (dateInstalled && previousInvoices === 0) {
+            // Pro-rating logic for new customers or recently reconnected
+            if (effectiveStartDate && (previousInvoices === 0 || lastReconnection)) {
                 const needsProratingCheck = needsProrating(
-                    dateInstalled,
+                    effectiveStartDate,
                     dates.generationDate,
                     dates.fromDate
                 );
@@ -223,7 +232,7 @@ export async function generateInvoicesForBusinessUnit(
                 if (needsProratingCheck) {
                     const prorated = calculateProratedAmount(
                         plan.monthly_fee,
-                        dateInstalled,
+                        effectiveStartDate,
                         dates.dueDate
                     );
                     amountDue = prorated.proratedAmount;
