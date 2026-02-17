@@ -127,19 +127,31 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
                 .single();
 
             if (invoice) {
-                // Get total payments for this invoice period
-                const { data: allPayments } = await supabase
+                // Get total payments for THIS specific invoice (with subscription_id check for safety)
+                const { data: invoicePayments } = await supabase
                     .from('payments')
                     .select('amount')
+                    .eq('invoice_id', params.invoiceId)
                     .eq('subscription_id', params.subscriptionId);
 
-                const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+                const totalPaidForInvoice = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
 
-                invoiceStatus = determinePaymentStatus(totalPaid, invoice.amount_due);
+                // Determine status based on how much of THIS invoice is paid
+                if (totalPaidForInvoice >= invoice.amount_due) {
+                    invoiceStatus = 'Paid';
+                } else if (totalPaidForInvoice > 0) {
+                    invoiceStatus = 'Partially Paid';
+                } else {
+                    invoiceStatus = 'Unpaid';
+                }
 
+                // Update both payment_status AND amount_paid
                 await supabase
                     .from('invoices')
-                    .update({ payment_status: invoiceStatus })
+                    .update({ 
+                        payment_status: invoiceStatus,
+                        amount_paid: totalPaidForInvoice
+                    })
                     .eq('id', params.invoiceId);
             }
         } else {

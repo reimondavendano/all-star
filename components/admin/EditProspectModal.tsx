@@ -547,11 +547,22 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 console.log('Referrer subscription found:', referrerSub);
 
                 if (referrerSub) {
+                    // Get the oldest unpaid invoice for the referrer to link the credit
+                    const { data: oldestInvoice } = await supabase
+                        .from('invoices')
+                        .select('id')
+                        .eq('subscription_id', referrerSub.id)
+                        .neq('payment_status', 'Paid')
+                        .order('due_date', { ascending: true })
+                        .limit(1)
+                        .single();
+
                     // Create referral credit payment
                     const { error: referralError } = await supabase
                         .from('payments')
                         .insert({
                             subscription_id: referrerSub.id,
+                            invoice_id: oldestInvoice?.id || null, // Link to oldest unpaid invoice if exists
                             amount: 300,
                             mode: 'Referral Credit',
                             notes: `Referral bonus for new subscriber: ${prospect.name}`,

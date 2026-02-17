@@ -170,6 +170,21 @@ export const SMSTemplates = {
         return message;
     },
 
+    serviceDisconnected: (customerName: string, businessUnit: string, totalAmount: number, outstandingBalance: number, proratedCharges: number) => {
+        let message = `Hi ${customerName}!\n\n`;
+        message += `Your ${businessUnit} internet service is currently disconnected due to an unpaid balance.\n\n`;
+        message += `Amount to Reconnect: P${Math.round(totalAmount).toLocaleString()}`;
+        
+        if (outstandingBalance > 0 && proratedCharges > 0) {
+            message += ` (Outstanding Balance: P${Math.round(outstandingBalance).toLocaleString()} + Pro-rated Charges: P${Math.round(proratedCharges).toLocaleString()})`;
+        }
+        
+        message += `\n\nPlease settle this amount to restore your internet service.\n\n`;
+        message += `Thank you! – Allstar`;
+        
+        return message;
+    },
+
     paymentReceived: (customerName: string, amount: number, newBalance: number) => {
         let message = `✅ PAYMENT RECEIVED\n\n`;
         message += `Hi ${customerName}!\n\n`;

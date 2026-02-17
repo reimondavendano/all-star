@@ -212,19 +212,27 @@ export async function generateInvoicesForBusinessUnit(
             const dateInstalled = sub.date_installed ? new Date(sub.date_installed) : null;
             const lastReconnection = sub.last_reconnection_date ? new Date(sub.last_reconnection_date) : null;
 
-            // Determine the effective start date for billing
-            // Use last_reconnection_date if it exists and is more recent than installation
-            const effectiveStartDate = lastReconnection && dateInstalled && lastReconnection > dateInstalled
-                ? lastReconnection
-                : dateInstalled;
-
             let amountDue = plan.monthly_fee;
             let isProrated = false;
 
-            // Pro-rating logic for new customers or recently reconnected
-            if (effectiveStartDate && (previousInvoices === 0 || lastReconnection)) {
+            // Check if subscription was recently reconnected within this billing period
+            const wasRecentlyReconnected = lastReconnection && 
+                lastReconnection >= dates.fromDate && 
+                lastReconnection <= dates.toDate;
+
+            if (wasRecentlyReconnected) {
+                // Prorate from reconnection date to billing end date
+                const prorated = calculateProratedAmount(
+                    plan.monthly_fee,
+                    lastReconnection,
+                    dates.toDate
+                );
+                amountDue = prorated.proratedAmount;
+                isProrated = true;
+            } else if (dateInstalled && previousInvoices === 0) {
+                // Pro-rating logic for new customers only
                 const needsProratingCheck = needsProrating(
-                    effectiveStartDate,
+                    dateInstalled,
                     dates.generationDate,
                     dates.fromDate
                 );
@@ -232,7 +240,7 @@ export async function generateInvoicesForBusinessUnit(
                 if (needsProratingCheck) {
                     const prorated = calculateProratedAmount(
                         plan.monthly_fee,
-                        effectiveStartDate,
+                        dateInstalled,
                         dates.dueDate
                     );
                     amountDue = prorated.proratedAmount;
@@ -530,19 +538,21 @@ export async function generateDisconnectionInvoice(
             .update({ balance: newBalance })
             .eq('id', subscriptionId);
 
-        // 6. Send SMS notification (optional)
+        // 6. Send SMS notification
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const buName = (subscription.business_units as any)?.name || '';
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
+            const totalAmount = newBalance;
+            
             await sendSMS({
                 to: customer.mobile_number,
-                message: SMSTemplates.invoiceGenerated(
+                message: SMSTemplates.serviceDisconnected(
                     customer.name,
-                    prorated.proratedAmount,
-                    formatDatePH(disconnectionDate),
                     buName,
-                    outstandingBalance > 0 ? outstandingBalance : undefined
+                    totalAmount,
+                    outstandingBalance,
+                    prorated.proratedAmount
                 )
             });
         }

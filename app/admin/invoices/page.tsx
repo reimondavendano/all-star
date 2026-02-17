@@ -311,15 +311,13 @@ export default function InvoicesPaymentsPage() {
                 .in('subscription_id', subIds);
 
             if (statusFilter === 'Paid') {
-                invoicesQuery = invoicesQuery
-                    .eq('payment_status', 'Paid')
-                    .gte('due_date', fetchStartDate)
-                    .lte('due_date', fetchEndDate);
+                // Fetch ALL paid invoices regardless of date range
+                invoicesQuery = invoicesQuery.eq('payment_status', 'Paid');
             } else if (statusFilter !== 'all') {
                 invoicesQuery = invoicesQuery.eq('payment_status', statusFilter);
             } else {
-                // 'all' - fetch wide range + ALL unpaid history
-                invoicesQuery = invoicesQuery.or(`and(due_date.gte.${fetchStartDate},due_date.lte.${fetchEndDate}),payment_status.neq.Paid`);
+                // 'all' - fetch invoices in date range (all statuses) + ALL unpaid history outside range
+                invoicesQuery = invoicesQuery.or(`and(due_date.gte.${fetchStartDate},due_date.lte.${fetchEndDate}),and(payment_status.neq.Paid,due_date.lt.${fetchStartDate})`);
             }
 
             const { data: invoices } = await invoicesQuery;
@@ -386,13 +384,16 @@ export default function InvoicesPaymentsPage() {
                 const buName = Array.isArray(buData) ? buData[0]?.name : buData?.name || '';
 
                 // Filter invoices for the selected billing period
-                const periodInvoices = filterInvoicesForPeriod(
-                    subInvoices,
-                    buName,
-                    (sub as any).invoice_date,
-                    selectedYear,
-                    selectedMonthNum
-                );
+                // When "Paid" or "All" filter is active with paid invoices, show all invoices
+                const periodInvoices = (statusFilter === 'Paid' || statusFilter === 'all')
+                    ? subInvoices 
+                    : filterInvoicesForPeriod(
+                        subInvoices,
+                        buName,
+                        (sub as any).invoice_date,
+                        selectedYear,
+                        selectedMonthNum
+                    );
 
                 const totalPaid = subInvoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
 

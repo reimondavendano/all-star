@@ -308,7 +308,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
 
-            <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-amber-900/50 rounded-2xl shadow-[0_0_60px_rgba(245,158,11,0.15)] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-amber-900/50 rounded-2xl shadow-[0_0_60px_rgba(245,158,11,0.15)] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="relative p-5 border-b border-gray-800/50">
                     <div className="absolute inset-0 bg-gradient-to-r from-amber-600/10 via-orange-600/10 to-yellow-600/10" />
@@ -407,7 +407,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex-1 overflow-y-auto p-4 min-h-0">
                     {isLoading ? (
                         <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                             <Loader2 className="w-10 h-10 animate-spin mb-3 text-amber-500" />
