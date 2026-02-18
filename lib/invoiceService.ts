@@ -214,6 +214,7 @@ export async function generateInvoicesForBusinessUnit(
 
             let amountDue = plan.monthly_fee;
             let isProrated = false;
+            let actualFromDate = dates.fromDate; // Track the actual billing start date
 
             // Check if subscription was recently reconnected within this billing period
             const wasRecentlyReconnected = lastReconnection && 
@@ -229,6 +230,7 @@ export async function generateInvoicesForBusinessUnit(
                 );
                 amountDue = prorated.proratedAmount;
                 isProrated = true;
+                actualFromDate = lastReconnection; // Use reconnection date as billing start
             } else if (dateInstalled && previousInvoices === 0) {
                 // Pro-rating logic for new customers only
                 const needsProratingCheck = needsProrating(
@@ -245,6 +247,7 @@ export async function generateInvoicesForBusinessUnit(
                     );
                     amountDue = prorated.proratedAmount;
                     isProrated = true;
+                    actualFromDate = dateInstalled; // Use installation date as billing start
                 }
             }
 
@@ -289,11 +292,12 @@ export async function generateInvoicesForBusinessUnit(
             // Create invoice record
             invoicesToInsert.push({
                 subscription_id: sub.id,
-                from_date: toISODateString(dates.fromDate),
+                from_date: toISODateString(actualFromDate),
                 to_date: toISODateString(dates.toDate),
                 due_date: toISODateString(dates.dueDate),
                 amount_due: totalAmountDue,
                 payment_status: totalAmountDue === 0 ? 'Paid' : 'Unpaid',
+                is_prorated: isProrated,
             });
 
             result.invoices.push({
