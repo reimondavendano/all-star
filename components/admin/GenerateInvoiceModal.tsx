@@ -124,6 +124,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     business_unit_id,
                     subscriber_id,
                     date_installed,
+                    last_reconnection_date,
                     referral_credit_applied,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
@@ -227,9 +228,28 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 let calculatedAmount = plan.monthly_fee;
                 let isProrated = false;
                 let proratedDays: number | undefined;
+                let actualPeriodStart = dates.fromDate;
 
-                // Check for pro-rating (new customers in their first billing cycle)
-                if (dateInstalled && prevCount === 0) {
+                const lastReconnection = (sub as any).last_reconnection_date ? new Date((sub as any).last_reconnection_date) : null;
+
+                // Check if subscription was recently reconnected within this billing period
+                const wasRecentlyReconnected = lastReconnection && 
+                    lastReconnection >= dates.fromDate && 
+                    lastReconnection <= dates.toDate;
+
+                if (wasRecentlyReconnected) {
+                    // Prorate from reconnection date to billing end date
+                    const prorated = calculateProratedAmount(
+                        plan.monthly_fee,
+                        lastReconnection,
+                        dates.toDate
+                    );
+                    calculatedAmount = prorated.proratedAmount;
+                    isProrated = true;
+                    proratedDays = prorated.daysUsed;
+                    actualPeriodStart = lastReconnection;
+                } else if (dateInstalled && prevCount === 0) {
+                    // Check for pro-rating (new customers in their first billing cycle)
                     const shouldProrate = needsProrating(
                         dateInstalled,
                         dates.generationDate,
@@ -245,6 +265,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                         calculatedAmount = prorated.proratedAmount;
                         isProrated = true;
                         proratedDays = prorated.daysUsed;
+                        actualPeriodStart = dateInstalled;
                     }
                 }
 
@@ -279,11 +300,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 }
 
                 // Determine accurate Invoice Period
-                // Start date is the later of: Billing Cycle Start OR Installation Date
-                let periodStart = dates.fromDate;
-                if (dateInstalled && dateInstalled > dates.fromDate) {
-                    periodStart = dateInstalled;
-                }
+                // Start date is the later of: Billing Cycle Start OR Installation Date OR Reconnection Date
+                let periodStart = actualPeriodStart;
                 const periodEnd = dates.toDate;
 
                 eligible.push({
