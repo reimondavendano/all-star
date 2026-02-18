@@ -238,16 +238,20 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     lastReconnection <= dates.toDate;
 
                 if (wasRecentlyReconnected) {
-                    // Prorate from reconnection date to billing end date
+                    // Prorate from the day AFTER reconnection date to billing end date
+                    // This avoids double-charging the reconnection day (which is covered by disconnection invoice)
+                    const dayAfterReconnection = new Date(lastReconnection);
+                    dayAfterReconnection.setDate(dayAfterReconnection.getDate() + 1);
+                    
                     const prorated = calculateProratedAmount(
                         plan.monthly_fee,
-                        lastReconnection,
+                        dayAfterReconnection,
                         dates.toDate
                     );
                     calculatedAmount = prorated.proratedAmount;
                     isProrated = true;
                     proratedDays = prorated.daysUsed;
-                    actualPeriodStart = lastReconnection;
+                    actualPeriodStart = dayAfterReconnection;
                 } else if (dateInstalled && prevCount === 0) {
                     // Check for pro-rating (new customers in their first billing cycle)
                     const shouldProrate = needsProrating(

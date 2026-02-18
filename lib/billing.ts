@@ -144,9 +144,9 @@ export function calculateProratedAmount(
 } {
     const dailyRate = calculateDailyRate(monthlyFee);
 
-    // Calculate days from installation to due date
+    // Calculate days from installation to due date (inclusive of both dates)
     const timeDiff = dueDate.getTime() - dateInstalled.getTime();
-    const daysUsed = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+    const daysUsed = Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
 
     // Don't allow negative or more than 30 days
     const effectiveDays = Math.max(0, Math.min(30, daysUsed));

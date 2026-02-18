@@ -222,15 +222,19 @@ export async function generateInvoicesForBusinessUnit(
                 lastReconnection <= dates.toDate;
 
             if (wasRecentlyReconnected) {
-                // Prorate from reconnection date to billing end date
+                // Prorate from the day AFTER reconnection date to billing end date
+                // This avoids double-charging the reconnection day (which is covered by disconnection invoice)
+                const dayAfterReconnection = new Date(lastReconnection);
+                dayAfterReconnection.setDate(dayAfterReconnection.getDate() + 1);
+                
                 const prorated = calculateProratedAmount(
                     plan.monthly_fee,
-                    lastReconnection,
+                    dayAfterReconnection,
                     dates.toDate
                 );
                 amountDue = prorated.proratedAmount;
                 isProrated = true;
-                actualFromDate = lastReconnection; // Use reconnection date as billing start
+                actualFromDate = dayAfterReconnection; // Use day after reconnection as billing start
             } else if (dateInstalled && previousInvoices === 0) {
                 // Pro-rating logic for new customers only
                 const needsProratingCheck = needsProrating(
