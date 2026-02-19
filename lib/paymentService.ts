@@ -191,9 +191,20 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
                     invoiceStatus = 'Unpaid';
                 }
 
+                // Calculate amount paid for this specific invoice
+                const { data: invoicePayments } = await supabase
+                    .from('payments')
+                    .select('amount')
+                    .eq('invoice_id', recentInvoice.id);
+                
+                const invoiceAmountPaid = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
+
                 await supabase
                     .from('invoices')
-                    .update({ payment_status: invoiceStatus })
+                    .update({ 
+                        payment_status: invoiceStatus,
+                        amount_paid: invoiceAmountPaid 
+                    })
                     .eq('id', recentInvoice.id);
             }
         }
