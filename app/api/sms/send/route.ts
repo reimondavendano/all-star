@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
                         templateData.customerName,
                         templateData.amount,
                         templateData.dueDate,
-                        templateData.businessUnit
+                        templateData.businessUnit,
+                        templateData.unpaidBalance
                     );
                     break;
                 case 'dueDateReminder':

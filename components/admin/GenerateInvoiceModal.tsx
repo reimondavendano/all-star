@@ -423,6 +423,31 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 return;
             }
 
+            // Query unpaid invoices BEFORE inserting new invoices (for SMS)
+            const unpaidBalanceMap = new Map<string, number>();
+            if (sendSms) {
+                for (const sub of subsWithBalances) {
+                    if (sub.finalAmount > 0 && sub.customerMobile) {
+                        const { data: unpaidInvoices } = await supabase
+                            .from('invoices')
+                            .select('amount_due, amount_paid')
+                            .eq('subscription_id', sub.id)
+                            .in('payment_status', ['Unpaid', 'Partially Paid']);
+                        
+                        // Calculate outstanding balance (before the new invoice)
+                        const outstandingBalance = unpaidInvoices
+                            ? unpaidInvoices.reduce((sum, inv) => {
+                                const due = Number(inv.amount_due) || 0;
+                                const paid = Number(inv.amount_paid) || 0;
+                                return sum + (due - paid);
+                            }, 0)
+                            : 0;
+                        
+                        unpaidBalanceMap.set(sub.id, Math.round(outstandingBalance));
+                    }
+                }
+            }
+
             // Insert invoices
             const { error: insertError } = await supabase
                 .from('invoices')
@@ -454,16 +479,21 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 // Prepare SMS messages for customers with balance > 0
                 const smsMessages = subsWithBalances
                     .filter(sub => sub.finalAmount > 0 && sub.customerMobile)
-                    .map(sub => ({
-                        to: sub.customerMobile,
-                        template: 'invoiceGenerated',
-                        templateData: {
-                            customerName: sub.customerName,
-                            amount: sub.finalAmount,
-                            dueDate: formatDatePH(dates.dueDate),
-                            businessUnit: businessUnitName
-                        }
-                    }));
+                    .map(sub => {
+                        const previousUnpaidBalance = unpaidBalanceMap.get(sub.id) || 0;
+                        
+                        return {
+                            to: sub.customerMobile,
+                            template: 'invoiceGenerated',
+                            templateData: {
+                                customerName: sub.customerName,
+                                amount: sub.finalAmount,
+                                dueDate: formatDatePH(dates.dueDate),
+                                businessUnit: businessUnitName,
+                                unpaidBalance: previousUnpaidBalance > 0 ? previousUnpaidBalance : undefined
+                            }
+                        };
+                    });
 
                 if (smsMessages.length > 0) {
                     try {
