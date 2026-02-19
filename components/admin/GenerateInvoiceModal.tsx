@@ -497,8 +497,6 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
 
                 if (smsMessages.length > 0) {
                     try {
-                        console.log(`[Invoice] Sending ${smsMessages.length} SMS notifications...`);
-
                         // Send SMS in batches using the API
                         for (const smsData of smsMessages) {
                             try {
@@ -519,8 +517,6 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                             // Small delay between SMS to avoid rate limiting
                             await new Promise(resolve => setTimeout(resolve, 200));
                         }
-
-                        console.log(`[Invoice] SMS sent: ${smsSentCount}/${smsMessages.length}`);
                     } catch (smsError) {
                         console.error('Error sending SMS notifications:', smsError);
                     }

@@ -81,12 +81,7 @@ export async function POST(request: NextRequest) {
             }, { status: 400 });
         }
 
-        console.log('[SMS API] Sending SMS to:', to);
-        console.log('[SMS API] Message:', finalMessage);
-
         const result = await sendSMS({ to, message: finalMessage });
-
-        console.log('[SMS API] Result:', result);
 
         return NextResponse.json({
             success: result.success,
@@ -119,8 +114,6 @@ export async function PUT(request: NextRequest) {
             }, { status: 400 });
         }
 
-        console.log(`[SMS API] Sending bulk SMS: ${messages.length} messages`);
-
         const results = await Promise.all(
             messages.map(async (msg: { to: string; message: string }) => {
                 if (!msg.to || !msg.message) {
@@ -132,8 +125,6 @@ export async function PUT(request: NextRequest) {
 
         const sent = results.filter(r => r.success).length;
         const failed = results.filter(r => !r.success).length;
-
-        console.log(`[SMS API] Bulk results: ${sent} sent, ${failed} failed`);
 
         return NextResponse.json({
             success: true,

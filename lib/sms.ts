@@ -48,10 +48,6 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
 
     const formattedNumber = formatPhoneNumber(to);
 
-    console.log('=== Sending SMS ===');
-    console.log('To:', formattedNumber);
-    console.log('Message length:', message.length);
-
     try {
         const requestBody = {
             apikey: SEMAPHORE_API_KEY,
@@ -59,8 +55,6 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
             message: message,
             sendername: SEMAPHORE_SENDER_NAME,
         };
-
-        console.log('Request body:', JSON.stringify({ ...requestBody, apikey: '***hidden***' }));
 
         const response = await fetch('https://api.semaphore.co/api/v4/messages', {
             method: 'POST',
@@ -71,8 +65,6 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
         });
 
         const responseText = await response.text();
-        console.log('Semaphore API Response Status:', response.status);
-        console.log('Semaphore API Response:', responseText);
 
         let data;
         try {
@@ -94,7 +86,6 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
 
         // Check for success response format
         if (response.ok && Array.isArray(data) && data.length > 0 && data[0].message_id) {
-            console.log('SMS sent successfully! Message ID:', data[0].message_id);
             return {
                 success: true,
                 messageId: data[0].message_id,
