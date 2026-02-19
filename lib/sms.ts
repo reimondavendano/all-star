@@ -119,16 +119,14 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
 export const SMSTemplates = {
     invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string, unpaidBalance?: number) => {
         let message = `Hi ${customerName}!\n\n`;
-        message += `Your ${businessUnit} internet bill is ready:\n`;
+        message += `Your ${businessUnit} internet bill is ready:\n\n`;
         
         if (unpaidBalance && unpaidBalance > 0) {
             const totalAmount = amount + unpaidBalance;
             message += `Total to Pay: P${totalAmount.toLocaleString()}\n`;
             message += `Due Date: ${dueDate}\n\n`;
-            message += `BreakDown:\n`;
-            message += `Bill for this Month: P${amount.toLocaleString()}\n`;
-            message += `⚠️ Outstanding Balance: P${unpaidBalance.toLocaleString()}\n`;
-            message += `Total: P${totalAmount.toLocaleString()}\n`;
+            message += `Bill: P${amount.toLocaleString()}\n`;
+            message += `Outstanding Balance: P${unpaidBalance.toLocaleString()}\n`;
         } else {
             message += `Amount: P${amount.toLocaleString()}\n`;
             message += `Due Date: ${dueDate}\n`;
