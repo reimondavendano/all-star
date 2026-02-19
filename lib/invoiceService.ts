@@ -330,22 +330,20 @@ export async function generateInvoicesForBusinessUnit(
                     return sum + (due - paid);
                 }, 0) || 0;
                 
-                // Use the actual outstanding balance from database, not subscription balance
-                // This ensures we show the correct total even if subscription balance is out of sync
                 const roundedOutstanding = Math.round(actualOutstandingBalance);
                 
                 // SMS template expects:
-                // - amount: current period invoice amount (e.g., ₱799)
-                // - unpaidBalance: previous unpaid balance (e.g., ₱1,099)
+                // - amount: current period charge (e.g., ₱799)
+                // - unpaidBalance: previous unpaid invoices (e.g., ₱1,099)
                 // Template will show: "Total to Pay: amount + unpaidBalance"
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.invoiceGenerated(
                         customer.name,
-                        amountDue, // Current period charge (NOT including outstanding)
+                        amountDue, // Current period charge ONLY (e.g., ₱799)
                         formatDatePH(dates.dueDate),
                         buName,
-                        roundedOutstanding > 0 ? roundedOutstanding : undefined // Previous unpaid invoices
+                        roundedOutstanding > 0 ? roundedOutstanding : undefined // Previous unpaid (e.g., ₱1,099)
                     ),
                 });
             }
@@ -353,7 +351,7 @@ export async function generateInvoicesForBusinessUnit(
 
         // 9. Insert invoices
         if (invoicesToInsert.length > 0) {
-            const { error: insertError } = await supabase
+            const { error: insertError} = await supabase
                 .from('invoices')
                 .insert(invoicesToInsert);
 
