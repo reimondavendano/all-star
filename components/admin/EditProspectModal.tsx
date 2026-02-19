@@ -550,7 +550,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     // Get the oldest unpaid invoice for the referrer to link the credit
                     const { data: oldestInvoice } = await supabase
                         .from('invoices')
-                        .select('id')
+                        .select('id, amount_due, amount_paid')
                         .eq('subscription_id', referrerSub.id)
                         .neq('payment_status', 'Paid')
                         .order('due_date', { ascending: true })
@@ -571,6 +571,24 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     if (referralError) {
                         console.error('Error creating referral credit:', referralError);
+                    }
+
+                    // Update the invoice's amount_paid and payment_status
+                    if (oldestInvoice) {
+                        const currentPaid = Number(oldestInvoice.amount_paid) || 0;
+                        const newPaid = Math.round(currentPaid + 300);
+                        const amountDue = Number(oldestInvoice.amount_due) || 0;
+                        
+                        const newStatus = newPaid >= amountDue ? 'Paid' : 
+                                         newPaid > 0 ? 'Partially Paid' : 'Unpaid';
+
+                        await supabase
+                            .from('invoices')
+                            .update({
+                                amount_paid: newPaid,
+                                payment_status: newStatus
+                            })
+                            .eq('id', oldestInvoice.id);
                     }
 
                     // Update referrer's balance by subtracting 300

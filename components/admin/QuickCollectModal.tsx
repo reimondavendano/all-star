@@ -196,7 +196,14 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                 for (const invoice of invoices) {
                     if (remainingAmount <= 0) break;
 
-                    const currentPaid = invoice.amount_paid || 0;
+                    // Query actual payments for this invoice to get accurate amount_paid
+                    const { data: existingPayments } = await supabase
+                        .from('payments')
+                        .select('amount')
+                        .eq('invoice_id', invoice.id)
+                        .eq('subscription_id', debtor.id);
+                    
+                    const currentPaid = existingPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
                     const remaining = invoice.amount_due - currentPaid;
                     const paymentForInvoice = Math.min(remainingAmount, remaining);
 
@@ -213,8 +220,8 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 : 'Quick Collect - Full Balance'
                         });
 
-                        // Update invoice
-                        const newPaid = currentPaid + paymentForInvoice;
+                        // Update invoice with accurate amount_paid
+                        const newPaid = Math.round(currentPaid + paymentForInvoice);
                         const isFullyPaid = newPaid >= invoice.amount_due;
 
                         await supabase.from('invoices').update({
