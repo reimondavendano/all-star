@@ -315,32 +315,18 @@ export async function generateInvoicesForBusinessUnit(
             if (sendSmsNotifications && customer?.mobile_number && totalAmountDue > 0) {
                 const buName = (sub.business_units as any)?.name || businessUnit.name;
                 
-                // Query ALL unpaid invoices for this subscription to get accurate total
-                const { data: unpaidInvoices } = await supabase
-                    .from('invoices')
-                    .select('amount_due, amount_paid')
-                    .eq('subscription_id', sub.id)
-                    .in('payment_status', ['Unpaid', 'Partially Paid']);
-                
-                // Calculate total unpaid amount from existing invoices (before this new one)
-                const totalUnpaidFromExisting = unpaidInvoices?.reduce((sum, inv) => {
-                    const due = Number(inv.amount_due) || 0;
-                    const paid = Number(inv.amount_paid) || 0;
-                    return sum + (due - paid);
-                }, 0) || 0;
-                
                 // SMS template expects:
-                // - amount: current invoice amount (after discounts/credits)
-                // - unpaidBalance: previous unpaid invoices (not including current)
+                // - amount: current period invoice amount (after discounts/credits, NOT including outstanding)
+                // - unpaidBalance: previous unpaid balance (from subscription balance)
                 // Template will show: "Total to Pay: amount + unpaidBalance"
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.invoiceGenerated(
                         customer.name,
-                        amountDue, // Current period invoice amount (after discounts/credits, NOT including outstanding)
+                        amountDue, // Current period invoice amount (e.g., ₱799)
                         formatDatePH(dates.dueDate),
                         buName,
-                        totalUnpaidFromExisting > 0 ? Math.round(totalUnpaidFromExisting) : undefined // Previous unpaid invoices
+                        outstandingBalance > 0 ? Math.round(outstandingBalance) : undefined // Previous unpaid balance (e.g., ₱1,099)
                     ),
                 });
             }
