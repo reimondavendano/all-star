@@ -118,6 +118,8 @@ export async function generateInvoicesForBusinessUnit(
                 balance,
                 active,
                 referral_credit_applied,
+                is_free,
+                customer_portal,
                 customers!subscriptions_subscriber_id_fkey (
                     id,
                     name,
@@ -133,7 +135,8 @@ export async function generateInvoicesForBusinessUnit(
                 )
             `)
             .eq('business_unit_id', businessUnitId)
-            .eq('active', true);
+            .eq('active', true)
+            .eq('is_free', false); // Exclude free subscriptions
 
         if (subError) {
             result.errors.push(`Error fetching subscriptions: ${subError.message}`);
@@ -314,42 +317,26 @@ export async function generateInvoicesForBusinessUnit(
             // Prepare SMS notification
             if (sendSmsNotifications && customer?.mobile_number && totalAmountDue > 0) {
                 const buName = (sub.business_units as any)?.name || businessUnit.name;
-
+                
+                // Calculate outstanding balance (previous unpaid invoices)
+                const outstandingBalance = currentBalance > 0 ? currentBalance : 0;
+                
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 
-                // Query ALL unpaid invoices to get accurate outstanding balance
-                // This is more reliable than subscription balance which might not be in sync
-                const { data: unpaidInvoices } = await supabase
-                    .from('invoices')
-                    .select('amount_due, amount_paid')
-                    .eq('subscription_id', sub.id)
-                    .in('payment_status', ['Unpaid', 'Partially Paid']);
+                const smsMessage = SMSTemplates.invoiceGenerated(
+                    customer.name,
+                    amountDue,
+                    formatDatePH(dates.dueDate),
+                    buName,
+                    portalLink,
+                    outstandingBalance > 0 ? outstandingBalance : undefined
+                );
                 
-                // Calculate total unpaid from existing invoices (before this new one)
-                const actualOutstandingBalance = unpaidInvoices?.reduce((sum, inv) => {
-                    const due = Number(inv.amount_due) || 0;
-                    const paid = Number(inv.amount_paid) || 0;
-                    return sum + (due - paid);
-                }, 0) || 0;
-                
-                const roundedOutstanding = Math.round(actualOutstandingBalance);
-                
-                // SMS template expects:
-                // - amount: current period charge (e.g., ₱799)
-                // - unpaidBalance: previous unpaid invoices (e.g., ₱1,099)
-                // Template will show: "Total to Pay: amount + unpaidBalance"
                 smsMessages.push({
                     to: customer.mobile_number,
-                    message: SMSTemplates.invoiceGenerated(
-                        customer.name,
-                        amountDue, // Current period charge ONLY (e.g., ₱799)
-                        formatDatePH(dates.dueDate),
-                        buName,
-                        portalLink,
-                        roundedOutstanding > 0 ? roundedOutstanding : undefined // Previous unpaid (e.g., ₱1,099)
-                    ),
+                    message: smsMessage,
                 });
             }
         }
@@ -416,7 +403,9 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
                 subscriptions (
                     id,
                     business_unit_id,
+                    customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
+                        id,
                         name,
                         mobile_number
                     )
@@ -438,10 +427,10 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
-                // Build portal link
+                // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
-
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
@@ -582,13 +571,13 @@ export async function generateDisconnectionInvoice(
         // 6. Send SMS notification
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
-            // Build portal link
-            const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-            const portalLink = ``;
-
             const buName = (subscription.business_units as any)?.name || '';
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             const totalAmount = newBalance;
+            
+            // Build full portal URL
+            const portalPath = (subscription as any).customer_portal || `/portal/${customer.id}`;
+            const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
             
             await sendSMS({
                 to: customer.mobile_number,
@@ -643,8 +632,8 @@ export async function generateActivationInvoice(
                 business_unit_id,
                 plan_id,
                 balance,
-                customer_portal,
                 invoice_date,
+                customer_portal,
                 plans (
                     name,
                     monthly_fee
@@ -748,9 +737,11 @@ export async function generateActivationInvoice(
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
-            // Build portal link
+            
+            // Build full portal URL
             const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-            const portalLink = ``;
+            const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+            
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.invoiceGenerated(
@@ -829,7 +820,9 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
                 subscriptions (
                     id,
                     business_unit_id,
+                    customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
+                        id,
                         name,
                         mobile_number
                     )
@@ -845,10 +838,10 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
-                // Build portal link
+                // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
-
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
@@ -977,9 +970,7 @@ export async function generateInvoicesForExtension(
             return result;
         }
 
-        console.log(`[Extension] Processing subscriptions with invoice_date='${invoiceDate}'`);
-
-        // Get Extension subscriptions with the matching invoice_date
+        // Use the same invoice generation logic but for filtered subscriptions
         const { data: subscriptions, error: subError } = await supabase
             .from('subscriptions')
             .select(`
@@ -992,7 +983,7 @@ export async function generateInvoicesForExtension(
                 active,
                 invoice_date,
                 referral_credit_applied,
-                  customer_portal,
+                customer_portal,
                 customers!subscriptions_subscriber_id_fkey (
                     id,
                     name,
@@ -1009,7 +1000,8 @@ export async function generateInvoicesForExtension(
             `)
             .eq('business_unit_id', extensionBU.id)
             .eq('active', true)
-            .eq('invoice_date', invoiceDate);
+            .eq('invoice_date', invoiceDate)
+            .eq('is_free', false); // Exclude free subscriptions
 
         if (subError) {
             result.errors.push(`Error fetching Extension subscriptions: ${subError.message}`);
@@ -1017,12 +1009,9 @@ export async function generateInvoicesForExtension(
         }
 
         if (!subscriptions || subscriptions.length === 0) {
-            console.log(`[Extension] No subscriptions found with invoice_date='${invoiceDate}'`);
             result.success = true;
             return result;
         }
-
-        console.log(`[Extension] Found ${subscriptions.length} subscriptions with invoice_date='${invoiceDate}'`);
 
         // Use the same invoice generation logic but for filtered subscriptions
         // Calculate dates based on the invoice_date cycle
@@ -1101,10 +1090,10 @@ export async function generateInvoicesForExtension(
 
                 // Queue SMS
                 if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
-                    // Build portal link
-                    const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                    const portalLink = ``;
-
+                    // Build full portal URL
+                    const portalPath = (sub as any).customer_portal || `/portal/${customer.id}`;
+                    const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                    
                     smsMessages.push({
                         to: customer.mobile_number,
                         message: SMSTemplates.invoiceGenerated(
@@ -1129,7 +1118,6 @@ export async function generateInvoicesForExtension(
         }
 
         result.success = true;
-        console.log(`[Extension] Generated ${result.generated} invoices, sent ${result.smsSent} SMS`);
         return result;
 
     } catch (error) {
@@ -1174,7 +1162,9 @@ export async function sendDueDateRemindersForExtension(
                     id,
                     invoice_date,
                     business_unit_id,
+                    customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
+                        id,
                         name,
                         mobile_number
                     )
@@ -1201,10 +1191,10 @@ export async function sendDueDateRemindersForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
-                // Build portal link
+                // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
-
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
@@ -1266,7 +1256,9 @@ export async function sendDisconnectionWarningsForExtension(
                     id,
                     invoice_date,
                     business_unit_id,
+                    customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
+                        id,
                         name,
                         mobile_number
                     )
@@ -1293,10 +1285,10 @@ export async function sendDisconnectionWarningsForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
-                // Build portal link
+                // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
-
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
