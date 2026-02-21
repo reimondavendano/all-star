@@ -87,7 +87,8 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
         contact_person: '', // This acts as Referrer ID
         customer_portal: '',
         invoice_date: '',
-        referral_credit_applied: false
+        referral_credit_applied: false,
+        is_free: false // Default to false - subscription is not free
     });
 
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
@@ -223,6 +224,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                     customer_portal: formData.customer_portal,
                     invoice_date: formData.invoice_date,
                     referral_credit_applied: formData.referral_credit_applied,
+                    is_free: formData.is_free,
                     'x-coordinates': coordinates?.lng || null,
                     'y-coordinates': coordinates?.lat || null
                 })
@@ -386,7 +388,8 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
             contact_person: '',
             customer_portal: '',
             invoice_date: '',
-            referral_credit_applied: false
+            referral_credit_applied: false,
+            is_free: false
         });
         setCoordinates(null);
         setSelectedCustomer(null);
@@ -818,6 +821,23 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                         </div>
                                         <p className="text-sm text-gray-500">
                                             {formData.referral_credit_applied ? 'Credit already applied to referrer' : 'Mark if credit needs to be applied'}
+                                        </p>
+                                    </div>
+
+                                    {/* FREE Subscription Toggle */}
+                                    <div
+                                        onClick={() => setFormData({ ...formData, is_free: !formData.is_free })}
+                                        className={`p-4 rounded-xl border cursor-pointer transition-all ${formData.is_free ? 'border-green-500/50 bg-green-500/10' : 'border-gray-800 bg-[#151515]'
+                                            }`}
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className={`font-medium ${formData.is_free ? 'text-green-400' : 'text-gray-400'}`}>FREE Subscription</span>
+                                            <div className={`w-10 h-6 rounded-full relative transition-colors ${formData.is_free ? 'bg-green-500' : 'bg-gray-700'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${formData.is_free ? 'left-5' : 'left-1'}`} />
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-500">
+                                            {formData.is_free ? 'No invoices or SMS will be generated' : 'Normal billing subscription'}
                                         </p>
                                     </div>
                                 </div>

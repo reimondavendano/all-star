@@ -117,7 +117,7 @@ export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSRe
  * SMS Templates
  */
 export const SMSTemplates = {
-    invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string, unpaidBalance?: number) => {
+    invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string, portalLink: string, unpaidBalance?: number) => {
         let message = `Hi ${customerName}!\n\n`;
         message += `Your ${businessUnit} internet bill is ready:\n\n`;
         
@@ -132,25 +132,27 @@ export const SMSTemplates = {
             message += `Due Date: ${dueDate}\n`;
         }
         
+        message += `\nView your account & pay online:\n${portalLink}\n`;
         message += `\nPlease pay on time to avoid disconnection.\n`;
         message += `Thank you! - Allstar`;
         
         return message;
     },
 
-    dueDateReminder: (customerName: string, amount: number, dueDate: string) => {
+    dueDateReminder: (customerName: string, amount: number, dueDate: string, portalLink: string) => {
         let message = `⏰ REMINDER\n\n`;
         message += `Hi ${customerName},\n\n`;
         message += `Your internet bill is due soon:\n`;
         message += `Amount: P${amount.toLocaleString()}\n`;
         message += `Due Date: ${dueDate}\n\n`;
-        message += `Please settle to avoid service interruption.\n`;
+        message += `View & pay online:\n${portalLink}\n`;
+        message += `\nPlease settle to avoid service interruption.\n`;
         message += `Thank you! - Allstar`;
         
         return message;
     },
 
-    disconnectionWarning: (customerName: string, disconnectionDate: string, unpaidAmount?: number) => {
+    disconnectionWarning: (customerName: string, disconnectionDate: string, portalLink: string, unpaidAmount?: number) => {
         let message = `🚨 URGENT NOTICE\n\n`;
         message += `Hi ${customerName},\n\n`;
         message += `Your internet service will be disconnected on ${disconnectionDate} due to unpaid balance.\n`;
@@ -159,13 +161,14 @@ export const SMSTemplates = {
             message += `\nAmount Due: P${unpaidAmount.toLocaleString()}\n`;
         }
         
+        message += `\nView your account:\n${portalLink}\n`;
         message += `\nPlease pay immediately to continue service.\n`;
         message += `- Allstar`;
         
         return message;
     },
 
-    serviceDisconnected: (customerName: string, businessUnit: string, totalAmount: number, outstandingBalance: number, proratedCharges: number) => {
+    serviceDisconnected: (customerName: string, businessUnit: string, totalAmount: number, outstandingBalance: number, proratedCharges: number, portalLink: string) => {
         let message = `Hi ${customerName}!\n\n`;
         message += `Your ${businessUnit} internet service is currently disconnected due to an unpaid balance.\n\n`;
         message += `Amount to Reconnect: P${Math.round(totalAmount).toLocaleString()}`;
@@ -174,13 +177,14 @@ export const SMSTemplates = {
             message += ` (Outstanding Balance: P${Math.round(outstandingBalance).toLocaleString()} + Pro-rated Charges: P${Math.round(proratedCharges).toLocaleString()})`;
         }
         
-        message += `\n\nPlease settle this amount to restore your internet service.\n\n`;
+        message += `\n\nView your account & pay online:\n${portalLink}\n`;
+        message += `\nPlease settle this amount to restore your internet service.\n\n`;
         message += `Thank you! – Allstar`;
         
         return message;
     },
 
-    paymentReceived: (customerName: string, amount: number, newBalance: number) => {
+    paymentReceived: (customerName: string, amount: number, newBalance: number, portalLink: string) => {
         let message = `✅ PAYMENT RECEIVED\n\n`;
         message += `Hi ${customerName}!\n\n`;
         message += `We received your payment:\n`;
@@ -194,18 +198,20 @@ export const SMSTemplates = {
             message += `✓ Account Fully Paid\n`;
         }
         
+        message += `\nView your account:\n${portalLink}\n`;
         message += `\nThank you! - Allstar`;
         
         return message;
     },
 
-    newSubscription: (customerName: string, planName: string, amount: number) => {
+    newSubscription: (customerName: string, planName: string, amount: number, portalLink: string) => {
         let message = `🎉 WELCOME!\n\n`;
         message += `Hi ${customerName}!\n\n`;
         message += `Your subscription is now active:\n`;
         message += `Plan: ${planName}\n`;
         message += `Monthly Fee: P${amount.toLocaleString()}\n\n`;
-        message += `Thank you for choosing Allstar!\n`;
+        message += `Manage your account online:\n${portalLink}\n`;
+        message += `\nThank you for choosing Allstar!\n`;
         message += `- Allstar`;
         
         return message;
@@ -213,40 +219,32 @@ export const SMSTemplates = {
 };
 
 /**
- * Batch send SMS to multiple recipients
+ * Batch send SMS to multiple recipients with rate limiting
+ * Uses SMS queue to respect Semaphore API rate limits (120 requests/min)
  */
 export async function sendBulkSMS(messages: SendSMSParams[]): Promise<{
     sent: number;
     failed: number;
     results: SendSMSResponse[];
 }> {
-    const results: SendSMSResponse[] = [];
-    let sent = 0;
-    let failed = 0;
-
-    // Process in batches of 10 to avoid rate limiting
-    const batchSize = 10;
-    for (let i = 0; i < messages.length; i += batchSize) {
-        const batch = messages.slice(i, i + batchSize);
-
-        const batchResults = await Promise.all(
-            batch.map(msg => sendSMS(msg))
-        );
-
-        for (const result of batchResults) {
-            results.push(result);
-            if (result.success) {
-                sent++;
-            } else {
-                failed++;
-            }
-        }
-
-        // Add delay between batches to respect rate limits
-        if (i + batchSize < messages.length) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
-
-    return { sent, failed, results };
+    const { sendBulkSMSWithRateLimit } = await import('./smsQueue');
+    
+    // Wrapper function to match queue interface
+    const sendFunction = async (to: string, message: string) => {
+        const result = await sendSMS({ to, message });
+        return {
+            success: result.success,
+            error: result.error
+        };
+    };
+    
+    // Use rate-limited queue
+    const summary = await sendBulkSMSWithRateLimit(messages, sendFunction);
+    
+    // Return in expected format (results array not available in queue mode)
+    return {
+        sent: summary.sent,
+        failed: summary.failed,
+        results: [] // Queue doesn't return individual results to save memory
+    };
 }

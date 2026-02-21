@@ -229,3 +229,68 @@ export async function getPaymentAccounts() {
         return { success: false, accounts: {}, error: error.message };
     }
 }
+
+/**
+ * Delete a payment method from Supabase Storage
+ */
+export async function deletePaymentMethod(key: string) {
+    try {
+        // 1. Download existing accounts.json
+        let accountsData: Record<string, any> = {};
+        
+        try {
+            const { data: existingData, error: downloadError } = await supabase.storage
+                .from(BUCKET_NAME)
+                .download('payment-methods/accounts.json');
+
+            if (existingData && !downloadError) {
+                const text = await existingData.text();
+                accountsData = JSON.parse(text);
+            }
+        } catch (e) {
+            console.error('Error downloading accounts.json:', e);
+            throw new Error('Failed to load payment methods');
+        }
+
+        // 2. Check if the key exists
+        if (!accountsData[key]) {
+            throw new Error('Payment method not found');
+        }
+
+        // 3. Remove the key from the JSON object
+        delete accountsData[key];
+
+        // 4. Delete the QR image file from storage
+        const fileName = `payment-methods/${key}.jpg`;
+        const { error: deleteImageError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .remove([fileName]);
+
+        if (deleteImageError) {
+            console.warn('Warning: Could not delete image file:', deleteImageError);
+            // Continue anyway - the image might not exist
+        }
+
+        // 5. Upload updated accounts.json back to storage
+        const jsonBuffer = Buffer.from(JSON.stringify(accountsData, null, 2));
+        const { error: uploadError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .upload('payment-methods/accounts.json', jsonBuffer, {
+                contentType: 'application/json',
+                upsert: true
+            });
+
+        if (uploadError) {
+            throw new Error(`Failed to update accounts: ${uploadError.message}`);
+        }
+
+        // 6. Revalidate the page
+        revalidatePath('/admin/verification');
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error('Delete payment method error:', error);
+        return { success: false, error: error.message };
+    }
+}

@@ -32,6 +32,8 @@ interface Subscription {
     created_at: string;
     balance?: number;
     router_serial_number?: string;
+    last_reconnection_date?: string | null;
+    last_disconnection_date?: string | null;
     // Joined data
     customer_name?: string;
     plan_name?: string;
@@ -423,6 +425,15 @@ export default function SubscriptionsPage() {
                                                                         <div className="text-gray-300">{formatDate(subscription.date_installed)}</div>
                                                                     </div>
                                                                 </div>
+                                                                {subscription.last_reconnection_date && (
+                                                                    <div className="flex items-start gap-2">
+                                                                        <RefreshCw className="w-4 h-4 text-amber-500 mt-0.5" />
+                                                                        <div>
+                                                                            <div className="text-xs text-gray-500">Last Reconnected</div>
+                                                                            <div className="text-amber-400">{formatDate(subscription.last_reconnection_date)}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                                 <div className="flex items-start gap-2">
                                                                     <MapPin className="w-4 h-4 text-red-500 mt-0.5" />
                                                                     <div>

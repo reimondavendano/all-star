@@ -21,7 +21,9 @@ interface GenerateInvoiceModalProps {
 interface SubscriptionPreview {
     id: string;
     customerName: string;
+    customerId: string;
     customerMobile: string;
+    customerPortal: string;
     planName: string;
     monthlyFee: number;
     dateInstalled: string | null;
@@ -126,6 +128,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     date_installed,
                     last_reconnection_date,
                     referral_credit_applied,
+                    customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
                         name,
@@ -311,7 +314,9 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 eligible.push({
                     id: sub.id,
                     customerName: customer?.name || 'Unknown',
+                    customerId: customer?.id || '',
                     customerMobile: customer?.mobile_number || '',
+                    customerPortal: (sub as any).customer_portal || `/portal/${customer?.id}`,
                     planName: plan?.name || 'Unknown',
                     monthlyFee: plan?.monthly_fee || 0,
                     dateInstalled: sub.date_installed,
@@ -481,6 +486,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     .filter(sub => sub.finalAmount > 0 && sub.customerMobile)
                     .map(sub => {
                         const previousUnpaidBalance = unpaidBalanceMap.get(sub.id) || 0;
+                        const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${sub.customerPortal}`;
                         
                         return {
                             to: sub.customerMobile,
@@ -490,6 +496,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                                 amount: sub.finalAmount,
                                 dueDate: formatDatePH(dates.dueDate),
                                 businessUnit: businessUnitName,
+                                portalLink: portalLink,
                                 unpaidBalance: previousUnpaidBalance > 0 ? previousUnpaidBalance : undefined
                             }
                         };

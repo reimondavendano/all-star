@@ -29,7 +29,8 @@
     "routeros-client": "^1.1.1",
     "source-map-support": "^0.5.21",
     "tailwind-merge": "^3.4.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

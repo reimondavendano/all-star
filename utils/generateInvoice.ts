@@ -15,6 +15,12 @@ interface InvoiceData {
     }[];
     totalAmount: number;
     status: string;
+    paymentMethods?: {
+        provider: string;
+        accountName?: string;
+        accountNumber?: string;
+    }[];
+    businessUnit?: string;
 }
 
 export const generateInvoicePDF = async (data: InvoiceData) => {
@@ -45,7 +51,12 @@ export const generateInvoicePDF = async (data: InvoiceData) => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100); // Gray
     doc.text('Next-Generation Fiber Internet', pageWidth - 15, 32, { align: 'right' });
-    doc.text('support@allstartech.ph', pageWidth - 15, 37, { align: 'right' });
+    
+    // Dynamic contact - use first payment method's account number if available
+    const contactNumber = data.paymentMethods && data.paymentMethods.length > 0 && data.paymentMethods[0].accountNumber
+        ? data.paymentMethods[0].accountNumber
+        : '0912 345 6789';
+    doc.text(contactNumber, pageWidth - 15, 37, { align: 'right' });
     // doc.text('123 Fiber Street, Tech City', pageWidth - 15, 42, { align: 'right' });
 
     // --- Invoice Title & Details ---
@@ -143,14 +154,29 @@ export const generateInvoicePDF = async (data: InvoiceData) => {
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Please pay via GCash, PayMaya, or Bank Transfer using the details below or via your Customer Portal.', 15, finalY + 6);
+    
+    // Dynamic payment instructions based on available methods
+    const paymentMethods = data.paymentMethods && data.paymentMethods.length > 0
+        ? data.paymentMethods
+        : [{ provider: 'GCash', accountNumber: '0912 345 6789', accountName: 'AllStar Tech' }];
+    
+    const methodNames = paymentMethods.map(m => m.provider).join(' or ');
+    doc.text(`Please pay via ${methodNames} using the details below or via your Customer Portal.`, 15, finalY + 6);
 
-    // Payment Methods Box
+    // Payment Methods Box - Dynamic height based on number of methods
+    const boxHeight = 10 + (paymentMethods.length * 7);
     doc.setDrawColor(200, 200, 200);
-    doc.rect(15, finalY + 10, pageWidth - 30, 25);
+    doc.rect(15, finalY + 10, pageWidth - 30, boxHeight);
 
-    doc.text('GCash / PayMaya: 0912 345 6789 (AllStar Tech)', 20, finalY + 20);
-    doc.text('Bank Transfer (BPI): 1234 5678 90', 20, finalY + 27);
+    // Display each payment method
+    let yOffset = finalY + 18;
+    paymentMethods.forEach((method) => {
+        const accountInfo = method.accountNumber 
+            ? `${method.accountNumber}${method.accountName ? ` (${method.accountName})` : ''}`
+            : 'Contact admin for details';
+        doc.text(`${method.provider}: ${accountInfo}`, 20, yOffset);
+        yOffset += 7;
+    });
 
     // Thank you message
     doc.setFontSize(10);

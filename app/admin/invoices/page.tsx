@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import GenerateInvoiceModal from '@/components/admin/GenerateInvoiceModal';
 import QuickCollectModal from '@/components/admin/QuickCollectModal';
+import ManualInvoiceMigrationModal from '@/components/admin/ManualInvoiceMigrationModal';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 
 interface Customer {
@@ -115,6 +116,7 @@ export default function InvoicesPaymentsPage() {
     // Modals
     const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
     const [isQuickCollectOpen, setIsQuickCollectOpen] = useState(false);
+    const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<{
         invoice: Invoice;
@@ -262,7 +264,7 @@ export default function InvoicesPaymentsPage() {
             // For strict filtering logic (legacy/fallback if needed, but we rely on client-side filtering now for period)
             // keeping the wide range ensures we get all potentially relevant paid invoices
 
-            // Fetch subscriptions with related data
+            // Fetch subscriptions with related data (exclude free subscriptions)
             let subscriptionsQuery = supabase
                 .from('subscriptions')
                 .select(`
@@ -275,6 +277,7 @@ export default function InvoicesPaymentsPage() {
                     label,
                     address,
                     invoice_date,
+                    is_free,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
                         name,
@@ -291,8 +294,8 @@ export default function InvoicesPaymentsPage() {
                         name,
                         profile
                     )
-                `);
-                // Removed .eq('active', true) to show all subscriptions regardless of status
+                `)
+                .eq('is_free', false); // Exclude free subscriptions from invoices page
 
             if (selectedBusinessUnit !== 'all') {
                 subscriptionsQuery = subscriptionsQuery.eq('business_unit_id', selectedBusinessUnit);
@@ -742,6 +745,18 @@ export default function InvoicesPaymentsPage() {
                         >
                             <Plus className="w-4 h-4" />
                             Generate Invoices
+                        </button>
+
+                        {/* ⚠️ TEMPORARY MIGRATION BUTTON - REMOVE AFTER DATA MIGRATION */}
+                        <button
+                            onClick={() => setIsMigrationModalOpen(true)}
+                            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium border-2 border-amber-400/30"
+                            title="Temporary: For migrating old invoices from legacy system"
+                        >
+                            <FileText className="w-4 h-4" />
+                            <span className="hidden sm:inline">Manual Invoice</span>
+                            <span className="sm:hidden">Migration</span>
+                            <span className="text-xs bg-amber-900/50 px-1.5 py-0.5 rounded">TEMP</span>
                         </button>
                     </div>
                 </div>
@@ -1245,6 +1260,16 @@ export default function InvoicesPaymentsPage() {
                 onClose={() => setIsQuickCollectOpen(false)}
                 onSuccess={() => {
                     setIsQuickCollectOpen(false);
+                    fetchData();
+                }}
+            />
+
+            {/* ⚠️ TEMPORARY: Manual Invoice Migration Modal - REMOVE AFTER DATA MIGRATION */}
+            <ManualInvoiceMigrationModal
+                isOpen={isMigrationModalOpen}
+                onClose={() => setIsMigrationModalOpen(false)}
+                onSuccess={() => {
+                    setIsMigrationModalOpen(false);
                     fetchData();
                 }}
             />

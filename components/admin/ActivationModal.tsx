@@ -46,7 +46,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
         service: 'pppoe',
         profile: subscription.plan_name || '100MBPS',
         comment: `Activated: ${subscription.customer_name}`,
-        addToRouter: false
+        addToRouter: true // Always add to router by default
     });
 
     // Check if MikroTik account already exists and fetch profiles
@@ -312,23 +312,6 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                 Configure the MikroTik PPP credentials for this subscription before activation.
                             </p>
 
-                            {/* Enabled Toggle */}
-                            <div className="flex items-center justify-between p-4 bg-[#151515] border border-gray-800 rounded-xl">
-                                <div>
-                                    <label className="text-sm font-medium text-white">Enabled</label>
-                                    <p className="text-xs text-gray-500 mt-1">PPP secret will be active immediately</p>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        className="sr-only peer"
-                                        checked={mikrotikData.enabled}
-                                        onChange={(e) => setMikrotikData({ ...mikrotikData, enabled: e.target.checked })}
-                                    />
-                                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                </label>
-                            </div>
-
                             {/* Name (Username) */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-2">
@@ -386,28 +369,6 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                 />
                                 <p className="text-xs text-gray-600 mt-1">Profile is automatically set from the selected plan</p>
                             </div>
-
-                            {/* Add to Router Checkbox */}
-                            <div className="flex items-start gap-3 p-4 bg-amber-900/10 border border-amber-700/30 rounded-xl">
-                                <input
-                                    type="checkbox"
-                                    id="addToRouter"
-                                    checked={mikrotikData.addToRouter}
-                                    onChange={(e) => setMikrotikData({ ...mikrotikData, addToRouter: e.target.checked })}
-                                    className="mt-1 w-4 h-4 text-amber-600 focus:ring-amber-600 bg-gray-900 border-gray-700 rounded"
-                                />
-                                <div className="flex-1">
-                                    <label htmlFor="addToRouter" className="text-sm font-medium text-white cursor-pointer">
-                                        Also add to MikroTik Router
-                                    </label>
-                                    <div className="flex items-start gap-2 mt-1">
-                                        <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                                        <p className="text-xs text-amber-400">
-                                            Will only save to database (recommended for testing)
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     )}
 
@@ -447,7 +408,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
 
                                 <div className="space-y-3">
                                     <div className="space-y-2">
-                                        <label className="text-xs font-medium text-gray-500">Activation Date</label>
+                                        <label className="text-xs font-medium text-gray-500">Activation Date (Reconnection Date)</label>
                                         <input
                                             type="date"
                                             value={activationDate}
@@ -456,7 +417,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                                             className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-green-500 outline-none"
                                         />
                                         <p className="text-xs text-gray-500">
-                                            The date when the service will be activated
+                                            This date will be saved as the "Last Reconnection Date" and used for pro-rating future invoices
                                         </p>
                                     </div>
 

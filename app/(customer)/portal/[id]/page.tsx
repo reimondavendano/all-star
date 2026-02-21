@@ -343,6 +343,50 @@ export default function CustomerPortalPage() {
                 .lte('due_date', endDate)
                 .maybeSingle();
 
+            // Get business unit from subscription address
+            const getBusinessUnit = (address: string) => {
+                const lower = address.toLowerCase();
+                if (lower.includes('malanggam')) return 'malanggam';
+                if (lower.includes('bulihan')) return 'bulihan';
+                if (lower.includes('extension')) return 'extension';
+                return 'general';
+            };
+
+            const businessUnit = getBusinessUnit(selectedSubscription.address);
+
+            // Fetch payment methods for this business unit
+            const { getPaymentAccounts } = await import('@/app/actions/verification');
+            const accountsRes = await getPaymentAccounts();
+            const paymentMethods: { provider: string; accountName?: string; accountNumber?: string }[] = [];
+
+            if (accountsRes.success && accountsRes.accounts) {
+                const accounts = accountsRes.accounts;
+                
+                // Check for GCash
+                const gcashKey = `${businessUnit}-gcash`;
+                const generalGcashKey = 'general-gcash';
+                const gcashDetails = accounts[gcashKey] || accounts[generalGcashKey];
+                if (gcashDetails) {
+                    paymentMethods.push({
+                        provider: 'GCash',
+                        accountName: gcashDetails.accountName,
+                        accountNumber: gcashDetails.accountNumber
+                    });
+                }
+
+                // Check for Maya
+                const mayaKey = `${businessUnit}-maya`;
+                const generalMayaKey = 'general-maya';
+                const mayaDetails = accounts[mayaKey] || accounts[generalMayaKey];
+                if (mayaDetails) {
+                    paymentMethods.push({
+                        provider: 'Maya',
+                        accountName: mayaDetails.accountName,
+                        accountNumber: mayaDetails.accountNumber
+                    });
+                }
+            }
+
             let invoiceData;
 
             if (existingInvoices) {
@@ -358,7 +402,9 @@ export default function CustomerPortalPage() {
                         { description: `${selectedSubscription.plan.name} - Monthly Fee`, amount: existingInvoices.amount_due }
                     ],
                     totalAmount: existingInvoices.amount_due,
-                    status: existingInvoices.payment_status
+                    status: existingInvoices.payment_status,
+                    paymentMethods,
+                    businessUnit
                 };
             } else {
                 const dueDate = `${selectedYear}-${selectedMonth}-${selectedSubscription.invoice_date === '15th' ? '15' : '30'}`;
@@ -376,7 +422,9 @@ export default function CustomerPortalPage() {
                         { description: `${selectedSubscription.plan.name} - Monthly Fee`, amount: selectedSubscription.plan.monthly_fee }
                     ],
                     totalAmount: selectedSubscription.plan.monthly_fee,
-                    status: 'Unpaid'
+                    status: 'Unpaid',
+                    paymentMethods,
+                    businessUnit
                 };
             }
 
@@ -408,7 +456,15 @@ export default function CustomerPortalPage() {
     ];
 
     const currentYear = new Date().getFullYear();
-    const years = Array.from({ length: 3 }, (_, i) => currentYear - 1 + i);
+    const currentMonth = new Date().getMonth() + 1; // 1-12
+    
+    // Only show past and current months/years
+    const years = Array.from({ length: 3 }, (_, i) => currentYear - 2 + i).filter(y => y <= currentYear);
+    
+    // Filter months based on selected year
+    const availableMonths = selectedYear === String(currentYear)
+        ? months.filter(m => parseInt(m.value) <= currentMonth)
+        : months;
 
     const handleManualPaymentSubmit = async ({ wallet, referenceNumber, proofImage }: { wallet: string, referenceNumber: string, proofImage?: File }) => {
         setIsSubmittingPayment(true);
@@ -927,7 +983,7 @@ export default function CustomerPortalPage() {
                                         onChange={(e) => setSelectedMonth(e.target.value)}
                                         className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white appearance-none focus:border-blue-500 focus:outline-none"
                                     >
-                                        {months.map(m => (
+                                        {availableMonths.map(m => (
                                             <option key={m.value} value={m.value}>{m.label}</option>
                                         ))}
                                     </select>

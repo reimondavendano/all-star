@@ -72,7 +72,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
         enabled: true
     });
     const [pppError, setPppError] = useState('');
-    const [addToMikrotik, setAddToMikrotik] = useState(false); // Default unchecked - only save to DB
+    const [addToMikrotik, setAddToMikrotik] = useState(true); // Always add to MikroTik by default
 
     const [formData, setFormData] = useState({
         business_unit_id: prospect.business_unit_id || '',
@@ -1246,27 +1246,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     className="w-full px-4 py-2 bg-[#1a1a1a] border border-gray-800 rounded-lg focus:border-blue-500 focus:outline-none text-white"
                                     placeholder="Optional comment"
                                 />
-                            </div>
-
-                            {/* Add to MikroTik Checkbox */}
-                            <div className="pt-4 border-t border-gray-700">
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        id="add-to-mikrotik"
-                                        checked={addToMikrotik}
-                                        onChange={(e) => setAddToMikrotik(e.target.checked)}
-                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
-                                    />
-                                    <label htmlFor="add-to-mikrotik" className="text-sm font-medium text-gray-300">
-                                        Also add to MikroTik Router
-                                    </label>
-                                </div>
-                                <p className={`text-xs mt-1 ${addToMikrotik ? 'text-green-400' : 'text-yellow-400'}`}>
-                                    {addToMikrotik
-                                        ? '✓ Will create PPP secret in MikroTik router'
-                                        : '⚠ Will only save to database (recommended for testing)'}
-                                </p>
                             </div>
                         </div>
 

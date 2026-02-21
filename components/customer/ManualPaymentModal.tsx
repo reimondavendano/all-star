@@ -26,11 +26,11 @@ export default function ManualPaymentModal({
     // Step management: 1 = QR, 2 = Reference/Upload, 3 = Review
     const [step, setStep] = useState(1);
 
-    const [wallet, setWallet] = useState<'GCash' | 'Maya' | 'Bank'>('GCash');
-    const [selectedBank, setSelectedBank] = useState('BPI');
+    const [wallet, setWallet] = useState<'GCash' | 'Maya'>('GCash');
     const [referenceNumber, setReferenceNumber] = useState('');
     const [imgSrc, setImgSrc] = useState('');
     const [accountDetails, setAccountDetails] = useState<{ name?: string, number?: string } | null>(null);
+    const [availableWallets, setAvailableWallets] = useState<('GCash' | 'Maya')[]>([]);
 
     // Proof/Receipt upload states
     const [proofFile, setProofFile] = useState<File | null>(null);
@@ -52,8 +52,8 @@ export default function ManualPaymentModal({
     };
 
     const unitCode = getBusinessUnitCode(businessUnit);
-    const paymentIdentifier = wallet === 'Bank' ? selectedBank.toLowerCase() : wallet.toLowerCase();
-    const displayIdentifier = wallet === 'Bank' ? selectedBank : wallet;
+    const paymentIdentifier = wallet.toLowerCase();
+    const displayIdentifier = wallet;
 
     useEffect(() => {
         const fetchDetails = async () => {
@@ -61,6 +61,28 @@ export default function ManualPaymentModal({
                 const res = await getPaymentAccounts();
                 if (res.success && res.accounts) {
                     const data = res.accounts;
+                    
+                    // Check which payment methods are available for this business unit
+                    const available: ('GCash' | 'Maya')[] = [];
+                    
+                    // Check for GCash (specific or general)
+                    if (data[`${unitCode}-gcash`] || data['general-gcash']) {
+                        available.push('GCash');
+                    }
+                    
+                    // Check for Maya (specific or general)
+                    if (data[`${unitCode}-maya`] || data['general-maya']) {
+                        available.push('Maya');
+                    }
+                    
+                    setAvailableWallets(available);
+                    
+                    // Set default wallet to first available
+                    if (available.length > 0 && !available.includes(wallet)) {
+                        setWallet(available[0]);
+                    }
+                    
+                    // Get details for current wallet
                     const specificKey = `${unitCode}-${paymentIdentifier}`;
                     const generalKey = `general-${paymentIdentifier}`;
                     const details = data[specificKey] || data[generalKey];
@@ -72,7 +94,9 @@ export default function ManualPaymentModal({
                         });
 
                         if (details.imageUrl) {
-                            setImgSrc(details.imageUrl);
+                            // Add cache-busting parameter to force browser to reload updated QR images
+                            const cacheBuster = details.updatedAt ? new Date(details.updatedAt).getTime() : Date.now();
+                            setImgSrc(`${details.imageUrl}?t=${cacheBuster}`);
                         } else {
                             // Fallback if no image URL but details exist
                             setImgSrc(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=PAY-${unitCode.toUpperCase()}-${paymentIdentifier.toUpperCase()}-${amount}`);
@@ -84,11 +108,12 @@ export default function ManualPaymentModal({
                 }
             } catch (e) {
                 setAccountDetails(null);
+                setAvailableWallets(['GCash', 'Maya']); // Fallback to show both
                 setImgSrc(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=PAY-${unitCode.toUpperCase()}-${paymentIdentifier.toUpperCase()}-${amount}`);
             }
         };
         fetchDetails();
-    }, [unitCode, paymentIdentifier, amount]);
+    }, [unitCode, paymentIdentifier, amount, wallet]);
 
     // Reset on close
     useEffect(() => {
@@ -177,9 +202,8 @@ export default function ManualPaymentModal({
 
     const handleSubmit = async () => {
         if (!referenceNumber) return;
-        const finalWallet = wallet === 'Bank' ? `Bank-${selectedBank}` : wallet;
         try {
-            await onSubmit({ wallet: finalWallet, referenceNumber, proofImage: proofFile || undefined });
+            await onSubmit({ wallet, referenceNumber, proofImage: proofFile || undefined });
             setSubmitStatus('success');
         } catch (error) {
             console.error(error);
@@ -258,47 +282,44 @@ export default function ManualPaymentModal({
                     {/* STEP 1: QR Code Display */}
                     {step === 1 && (
                         <div className="space-y-4">
-                            {/* Wallet Selection */}
-                            <div className="grid grid-cols-3 gap-2">
-                                <button
-                                    onClick={() => setWallet('GCash')}
-                                    className={`py-3 rounded-xl font-medium text-xs transition-all ${wallet === 'GCash'
-                                        ? 'bg-[#007DFE] text-white shadow-lg shadow-blue-900/30'
-                                        : 'bg-[#1a1a1a] text-gray-400 border border-gray-800 hover:border-gray-700'
-                                        }`}
-                                >
-                                    GCash
-                                </button>
-                                <button
-                                    onClick={() => setWallet('Maya')}
-                                    className={`py-3 rounded-xl font-medium text-xs transition-all ${wallet === 'Maya'
-                                        ? 'bg-green-600 text-white shadow-lg shadow-green-900/30'
-                                        : 'bg-[#1a1a1a] text-gray-400 border border-gray-800 hover:border-gray-700'
-                                        }`}
-                                >
-                                    Maya
-                                </button>
-                                <button
-                                    onClick={() => setWallet('Bank')}
-                                    className={`py-3 rounded-xl font-medium text-xs transition-all ${wallet === 'Bank'
-                                        ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
-                                        : 'bg-[#1a1a1a] text-gray-400 border border-gray-800 hover:border-gray-700'
-                                        }`}
-                                >
-                                    Bank
-                                </button>
-                            </div>
-
-                            {wallet === 'Bank' && (
-                                <select
-                                    value={selectedBank}
-                                    onChange={(e) => setSelectedBank(e.target.value)}
-                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors text-sm"
-                                >
-                                    {bankOptions.map(bank => (
-                                        <option key={bank} value={bank}>{bank}</option>
-                                    ))}
-                                </select>
+                            {/* Wallet Selection - Only show available wallets */}
+                            {availableWallets.length === 0 ? (
+                                <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-4 text-center">
+                                    <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                                    <p className="text-sm text-red-300 font-medium">No payment methods configured</p>
+                                    <p className="text-xs text-red-400/70 mt-1">Please contact admin to set up payment options.</p>
+                                </div>
+                            ) : availableWallets.length === 1 ? (
+                                <div className="bg-violet-900/20 border border-violet-500/30 rounded-xl p-3 text-center">
+                                    <p className="text-sm text-violet-200">
+                                        Payment Method: <span className="font-bold text-white">{availableWallets[0]}</span>
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-2">
+                                    {availableWallets.includes('GCash') && (
+                                        <button
+                                            onClick={() => setWallet('GCash')}
+                                            className={`py-3 rounded-xl font-medium text-xs transition-all ${wallet === 'GCash'
+                                                ? 'bg-[#007DFE] text-white shadow-lg shadow-blue-900/30'
+                                                : 'bg-[#1a1a1a] text-gray-400 border border-gray-800 hover:border-gray-700'
+                                                }`}
+                                        >
+                                            GCash
+                                        </button>
+                                    )}
+                                    {availableWallets.includes('Maya') && (
+                                        <button
+                                            onClick={() => setWallet('Maya')}
+                                            className={`py-3 rounded-xl font-medium text-xs transition-all ${wallet === 'Maya'
+                                                ? 'bg-green-600 text-white shadow-lg shadow-green-900/30'
+                                                : 'bg-[#1a1a1a] text-gray-400 border border-gray-800 hover:border-gray-700'
+                                                }`}
+                                        >
+                                            Maya
+                                        </button>
+                                    )}
+                                </div>
                             )}
 
                             {/* QR Code */}
@@ -327,9 +348,7 @@ export default function ManualPaymentModal({
                                 <p className="text-xs text-violet-200 mb-1">Send payment to</p>
                                 <p className="text-lg font-bold text-white select-all">
                                     {accountDetails?.number || (
-                                        wallet === 'GCash' ? '0917-XXX-XXXX' :
-                                            wallet === 'Maya' ? '0918-XXX-XXXX' :
-                                                `${selectedBank} Account`
+                                        wallet === 'GCash' ? '0917-XXX-XXXX' : '0918-XXX-XXXX'
                                     )}
                                 </p>
                                 {accountDetails?.name && (
@@ -483,7 +502,7 @@ export default function ManualPaymentModal({
                     {step < 3 ? (
                         <button
                             onClick={() => setStep(step + 1)}
-                            disabled={step === 2 && !referenceNumber}
+                            disabled={(step === 2 && !referenceNumber) || (step === 1 && availableWallets.length === 0)}
                             className="flex-1 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
                             Next

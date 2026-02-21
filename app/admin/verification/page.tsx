@@ -76,15 +76,25 @@ export default function VerificationPage() {
         if (activeTab === 'verification') {
             fetchPayments();
         } else if (activeTab === 'settings') {
-            getPaymentAccounts().then(res => {
-                if (res.success && res.accounts) {
-                    setConfiguredMethods(res.accounts);
-                } else {
-                    setConfiguredMethods({});
-                }
-            });
+            fetchPaymentMethods();
         }
-    }, [activeTab, showUploadModal, selectedMonth]);
+    }, [activeTab, selectedMonth]);
+
+    // Separate effect to refresh payment methods when upload modal closes
+    useEffect(() => {
+        if (!showUploadModal && activeTab === 'settings') {
+            fetchPaymentMethods();
+        }
+    }, [showUploadModal, activeTab]);
+
+    const fetchPaymentMethods = async () => {
+        const res = await getPaymentAccounts();
+        if (res.success && res.accounts) {
+            setConfiguredMethods(res.accounts);
+        } else {
+            setConfiguredMethods({});
+        }
+    };
 
     const fetchPayments = async () => {
         setIsLoading(true);
@@ -205,6 +215,33 @@ export default function VerificationPage() {
             console.error(e);
         } finally {
             setProcessingId(null);
+        }
+    };
+
+    const handleDeletePaymentMethod = async (key: string) => {
+        if (!confirm(`Are you sure you want to delete this payment method?\n\nThis will remove:\n- ${key}\n\nCustomers will no longer see this payment option.`)) {
+            return;
+        }
+
+        try {
+            const { deletePaymentMethod } = await import('@/app/actions/verification');
+            const result = await deletePaymentMethod(key);
+            
+            if (result.success) {
+                // Refresh the payment methods list
+                const accounts = await getPaymentAccounts();
+                if (accounts.success && accounts.accounts) {
+                    setConfiguredMethods(accounts.accounts);
+                } else {
+                    setConfiguredMethods({});
+                }
+                alert('Payment method deleted successfully.');
+            } else {
+                alert('Failed to delete: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('An error occurred while deleting the payment method.');
         }
     };
 
@@ -478,7 +515,7 @@ export default function VerificationPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-2">Manage Payment Methods</h2>
                         <p className="text-gray-400 mb-8 max-w-lg mx-auto">
-                            Add or update QR codes and account details for GCash, Maya, and Bank Transfers.
+                            Add or update QR codes and account details for GCash and Maya.
                             These will be immediately visible to customers in their portal.
                         </p>
 
@@ -499,7 +536,16 @@ export default function VerificationPage() {
                             </div>
                         ) : (
                             Object.entries(configuredMethods).map(([key, details]: [string, any]) => (
-                                <div key={key} className="p-5 bg-gray-900/40 border border-gray-800 rounded-xl hover:border-violet-500/30 transition-colors">
+                                <div key={key} className="p-5 bg-gray-900/40 border border-gray-800 rounded-xl hover:border-violet-500/30 transition-colors group relative">
+                                    {/* Delete Button */}
+                                    <button
+                                        onClick={() => handleDeletePaymentMethod(key)}
+                                        className="absolute top-3 right-3 p-1.5 bg-red-900/20 hover:bg-red-900/40 border border-red-700/50 rounded-lg text-red-400 hover:text-red-300 transition-all opacity-0 group-hover:opacity-100"
+                                        title="Delete payment method"
+                                    >
+                                        <XCircle className="w-4 h-4" />
+                                    </button>
+
                                     <div className="flex items-center justify-between mb-3">
                                         <h3 className="font-bold text-white capitalize flex items-center gap-2">
                                             {key.includes('dash') || key.includes('-') ? (

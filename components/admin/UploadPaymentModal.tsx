@@ -98,6 +98,17 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
         setIsProcessing(false);
     };
 
+    const handleClose = () => {
+        // Reset all states when closing
+        setStatus('idle');
+        setUploadFile(null);
+        setPreviewUrl(null);
+        setUploadAccountName('');
+        setUploadAccountNumber('');
+        setMessage('');
+        onClose();
+    };
+
     if (!isOpen) return null;
 
     const handleUpload = async (e: React.FormEvent) => {
@@ -134,7 +145,7 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
     if (status === 'success') {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
                 <div className="relative bg-[#0a0a0a] border border-emerald-900/50 rounded-2xl p-8 max-w-sm w-full shadow-[0_0_60px_rgba(16,185,129,0.15)] animate-in fade-in zoom-in duration-300 text-center">
                     <div className="w-16 h-16 bg-emerald-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
                         <CheckCircle className="w-8 h-8 text-emerald-500" />
@@ -144,7 +155,7 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
 
                     <div className="flex flex-col gap-2">
                         <button
-                            onClick={onClose}
+                            onClick={handleClose}
                             className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors"
                         >
                             Done
@@ -163,10 +174,10 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
             <div className="relative bg-[#0a0a0a] border border-violet-900/50 rounded-2xl p-6 max-w-md w-full shadow-[0_0_60px_rgba(139,92,246,0.15)] animate-in fade-in zoom-in duration-300">
                 <button
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
                 >
                     <X className="w-5 h-5" />
@@ -198,26 +209,8 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
                             onChange={(e) => setUploadProvider(e.target.value)}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-violet-500 focus:outline-none"
                         >
-                            {/* E-Wallets */}
-                            <optgroup label="E-Wallets">
-                                <option value="gcash">GCash</option>
-                                <option value="maya">Maya</option>
-                                <option value="coinsph">Coins.ph</option>
-                                <option value="grabpay">GrabPay</option>
-                            </optgroup>
-                            {/* Banks */}
-                            <optgroup label="Banks">
-                                <option value="bpi">BPI</option>
-                                <option value="bdo">BDO</option>
-                                <option value="metrobank">Metrobank</option>
-                                <option value="rcbc">RCBC</option>
-                                <option value="unionbank">UnionBank</option>
-                                <option value="landbank">LandBank</option>
-                                <option value="securitybank">Security Bank</option>
-                                <option value="pnb">PNB</option>
-                                <option value="chinabank">China Bank</option>
-                                <option value="eastwest">EastWest Bank</option>
-                            </optgroup>
+                            <option value="gcash">GCash</option>
+                            <option value="maya">Maya</option>
                         </select>
                     </div>
 

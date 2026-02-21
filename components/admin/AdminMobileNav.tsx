@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -20,29 +20,83 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 // Primary Bottom Nav Items
 const bottomNavItems = [
-    { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-    { name: 'Prospects', href: '/admin/prospects', icon: UserPlus },
-    { name: 'Invoices', href: '/admin/invoices', icon: FileText },
-    { name: 'Customers', href: '/admin/customers', icon: Users },
+    { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, badge: null },
+    { name: 'Prospects', href: '/admin/prospects', icon: UserPlus, badge: 'openProspects' },
+    { name: 'Invoices', href: '/admin/invoices', icon: FileText, badge: null },
+    { name: 'Customers', href: '/admin/customers', icon: Users, badge: null },
 ];
 
 // Secondary "More" Menu Items
 const moreMenuItems = [
-    { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle },
-    { name: 'Expenses', href: '/admin/expenses', icon: DollarSign },
-    { name: 'Business Units', href: '/admin/business-units', icon: Briefcase },
-    { name: 'Plans', href: '/admin/plans', icon: Package },
-    { name: 'Locations', href: '/admin/locations', icon: MapPin },
-    { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router },
+    { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle, badge: 'unverifiedPayments' },
+    { name: 'Expenses', href: '/admin/expenses', icon: DollarSign, badge: null },
+    { name: 'Business Units', href: '/admin/business-units', icon: Briefcase, badge: null },
+    { name: 'Plans', href: '/admin/plans', icon: Package, badge: null },
+    { name: 'Locations', href: '/admin/locations', icon: MapPin, badge: null },
+    { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router, badge: null },
 ];
 
 export default function AdminMobileNav() {
     const pathname = usePathname();
     const [isMoreOpen, setIsMoreOpen] = useState(false);
     const { logout, user } = useAuth();
+    const [openProspectsCount, setOpenProspectsCount] = useState(0);
+    const [unverifiedPaymentsCount, setUnverifiedPaymentsCount] = useState(0);
+
+    // Fetch counts
+    const fetchCounts = async () => {
+        try {
+            // Count Open prospects
+            const { count: prospectsCount, error: prospectsError } = await supabase
+                .from('prospects')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'Open');
+
+            if (!prospectsError && prospectsCount !== null) {
+                setOpenProspectsCount(prospectsCount);
+            }
+
+            // Count unverified payments (verified = false or null)
+            const { count: paymentsCount, error: paymentsError } = await supabase
+                .from('payments')
+                .select('*', { count: 'exact', head: true })
+                .or('verified.is.null,verified.eq.false');
+
+            if (!paymentsError && paymentsCount !== null) {
+                setUnverifiedPaymentsCount(paymentsCount);
+            }
+        } catch (error) {
+            console.error('Error fetching counts:', error);
+        }
+    };
+
+    useEffect(() => {
+        fetchCounts();
+    }, []);
+
+    // Real-time updates for prospects
+    useRealtimeSubscription({
+        table: 'prospects',
+        onAny: fetchCounts
+    });
+
+    // Real-time updates for payments
+    useRealtimeSubscription({
+        table: 'payments',
+        onAny: fetchCounts
+    });
+
+    const getBadgeCount = (badgeType: string | null) => {
+        if (!badgeType) return 0;
+        if (badgeType === 'openProspects') return openProspectsCount;
+        if (badgeType === 'unverifiedPayments') return unverifiedPaymentsCount;
+        return 0;
+    };
 
     return (
         <>
@@ -80,22 +134,32 @@ export default function AdminMobileNav() {
 
                     {/* Menu Items */}
                     <div className="grid grid-cols-2 gap-3">
-                        {moreMenuItems.map((item) => (
-                            <Link
-                                key={item.name}
-                                href={item.href}
-                                onClick={() => setIsMoreOpen(false)}
-                                className={clsx(
-                                    "flex flex-col items-center justify-center p-4 rounded-xl border transition-all",
-                                    pathname.startsWith(item.href)
-                                        ? "bg-red-900/20 border-red-600/50 text-red-400"
-                                        : "bg-gray-900/50 border-gray-800 text-gray-400 hover:bg-gray-800"
-                                )}
-                            >
-                                <item.icon className="w-6 h-6 mb-2" />
-                                <span className="text-xs text-center font-medium">{item.name}</span>
-                            </Link>
-                        ))}
+                        {moreMenuItems.map((item) => {
+                            const badgeCount = getBadgeCount(item.badge);
+                            const showBadge = badgeCount > 0;
+
+                            return (
+                                <Link
+                                    key={item.name}
+                                    href={item.href}
+                                    onClick={() => setIsMoreOpen(false)}
+                                    className={clsx(
+                                        "flex flex-col items-center justify-center p-4 rounded-xl border transition-all relative",
+                                        pathname.startsWith(item.href)
+                                            ? "bg-red-900/20 border-red-600/50 text-red-400"
+                                            : "bg-gray-900/50 border-gray-800 text-gray-400 hover:bg-gray-800"
+                                    )}
+                                >
+                                    {showBadge && (
+                                        <span className="absolute top-2 right-2 px-1.5 py-0.5 text-[10px] font-bold bg-orange-500 text-white rounded-full">
+                                            {badgeCount}
+                                        </span>
+                                    )}
+                                    <item.icon className="w-6 h-6 mb-2" />
+                                    <span className="text-xs text-center font-medium">{item.name}</span>
+                                </Link>
+                            );
+                        })}
                     </div>
 
                     <button
@@ -112,15 +176,23 @@ export default function AdminMobileNav() {
                 <nav className="flex items-center justify-around h-16 px-1">
                     {bottomNavItems.map((item) => {
                         const isActive = pathname.startsWith(item.href);
+                        const badgeCount = getBadgeCount(item.badge);
+                        const showBadge = badgeCount > 0;
+
                         return (
                             <Link
                                 key={item.name}
                                 href={item.href}
                                 className={clsx(
-                                    'flex flex-col items-center justify-center w-full h-full space-y-1',
+                                    'flex flex-col items-center justify-center w-full h-full space-y-1 relative',
                                     isActive ? 'text-red-500' : 'text-gray-500'
                                 )}
                             >
+                                {showBadge && (
+                                    <span className="absolute top-1 right-2 px-1.5 py-0.5 text-[9px] font-bold bg-orange-500 text-white rounded-full min-w-[16px] text-center">
+                                        {badgeCount}
+                                    </span>
+                                )}
                                 <div className={clsx(
                                     "p-1.5 rounded-xl transition-all duration-200",
                                     isActive ? "bg-red-900/20" : "bg-transparent"

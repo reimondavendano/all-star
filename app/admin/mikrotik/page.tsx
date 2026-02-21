@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { getMikrotikData, addPppSecret, syncMikrotikToDatabase } from '@/app/actions/mikrotik';
+import * as XLSX from 'xlsx';
 import {
     Server,
     Activity,
@@ -206,6 +207,80 @@ export default function MikrotikPage() {
         }
     };
 
+    // Handle Export to Excel
+    const handleExportToExcel = () => {
+        if (!data) return;
+
+        try {
+            // Prepare Secrets data
+            const secretsData = data.pppSecrets.map((secret: any) => ({
+                'Name': secret.name || '',
+                'Password': secret.password || '',
+                'Service': secret.service || '',
+                'Profile': secret.profile || '',
+                'Caller ID': secret['caller-id'] || '',
+                'Local Address': secret['local-address'] || '',
+                'Remote Address': secret['remote-address'] || '',
+                'Comment': secret.comment || '',
+                'Disabled': secret.disabled === 'true' ? 'Yes' : 'No',
+                'Last Logged Out': secret['last-logged-out'] || '',
+                'Last Caller ID': secret['last-caller-id'] || '',
+                'Last Disconnect Reason': secret['last-disconnect-reason'] || ''
+            }));
+
+            // Prepare Interfaces data with matching by username
+            const interfacesData = data.pppInterfaces.map((iface: any) => {
+                const cleanName = iface.name.replace('<pppoe-', '').replace('>', '');
+                const secret = getSecretByName(cleanName);
+                
+                return {
+                    'Name': cleanName,
+                    'Type': iface.type || '',
+                    'Profile': secret?.profile || '',
+                    'Running': iface.running === 'true' ? 'Yes' : 'No',
+                    'Disabled': iface.disabled === 'true' ? 'Yes' : 'No',
+                    'Actual MTU': iface['actual-mtu'] || '',
+                    'L2 MTU': iface['l2-mtu'] || '',
+                    'TX Bytes': iface['tx-byte'] || '0',
+                    'RX Bytes': iface['rx-byte'] || '0',
+                    'TX Packets': iface['tx-packet'] || '0',
+                    'RX Packets': iface['rx-packet'] || '0',
+                    'FP TX Bytes': iface['fp-tx-byte'] || '0',
+                    'FP RX Bytes': iface['fp-rx-byte'] || '0',
+                    'FP TX Packets': iface['fp-tx-packet'] || '0',
+                    'FP RX Packets': iface['fp-rx-packet'] || '0',
+                    'Uptime': iface.uptime || '',
+                    'Encoding': iface.encoding || '',
+                    'Session Uptime': iface['session-uptime'] || '',
+                    'Caller ID': iface['caller-id'] || '',
+                    'Address': iface.address || '',
+                    'Remote Address': iface['remote-address'] || ''
+                };
+            });
+
+            // Create workbook
+            const wb = XLSX.utils.book_new();
+
+            // Add Secrets sheet
+            const wsSecrets = XLSX.utils.json_to_sheet(secretsData);
+            XLSX.utils.book_append_sheet(wb, wsSecrets, 'PPP Secrets');
+
+            // Add Interfaces sheet
+            const wsInterfaces = XLSX.utils.json_to_sheet(interfacesData);
+            XLSX.utils.book_append_sheet(wb, wsInterfaces, 'PPP Interfaces');
+
+            // Generate filename with timestamp
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            const filename = `MikroTik_Export_${timestamp}.xlsx`;
+
+            // Download file
+            XLSX.writeFile(wb, filename);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export data to Excel');
+        }
+    };
+
     if (isLoading && !data) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
@@ -242,6 +317,14 @@ export default function MikrotikPage() {
                                 Last updated: {lastUpdated.toLocaleTimeString()}
                             </span>
                         )}
+                        <button
+                            onClick={handleExportToExcel}
+                            disabled={!data || isLoading}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-green-900/30 disabled:opacity-50"
+                        >
+                            <Database className="w-4 h-4" />
+                            Export to Excel
+                        </button>
                         <button
                             onClick={handleSyncToDatabase}
                             disabled={isSyncing}

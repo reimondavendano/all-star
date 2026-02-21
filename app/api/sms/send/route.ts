@@ -32,7 +32,8 @@ export async function POST(request: NextRequest) {
                     finalMessage = SMSTemplates.newSubscription(
                         templateData.customerName,
                         templateData.planName,
-                        templateData.amount
+                        templateData.amount,
+                        templateData.portalLink
                     );
                     break;
                 case 'invoiceGenerated':
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
                         templateData.amount,
                         templateData.dueDate,
                         templateData.businessUnit,
+                        templateData.portalLink,
                         templateData.unpaidBalance
                     );
                     break;
@@ -48,20 +50,23 @@ export async function POST(request: NextRequest) {
                     finalMessage = SMSTemplates.dueDateReminder(
                         templateData.customerName,
                         templateData.amount,
-                        templateData.dueDate
+                        templateData.dueDate,
+                        templateData.portalLink
                     );
                     break;
                 case 'disconnectionWarning':
                     finalMessage = SMSTemplates.disconnectionWarning(
                         templateData.customerName,
-                        templateData.disconnectionDate
+                        templateData.disconnectionDate,
+                        templateData.portalLink
                     );
                     break;
                 case 'paymentReceived':
                     finalMessage = SMSTemplates.paymentReceived(
                         templateData.customerName,
                         templateData.amount,
-                        templateData.newBalance
+                        templateData.newBalance,
+                        templateData.portalLink
                     );
                     break;
                 default:

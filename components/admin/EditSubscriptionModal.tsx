@@ -34,6 +34,9 @@ interface Subscription {
     referral_credit_applied: boolean;
     customer_name?: string;
     router_serial_number?: string;
+    is_free?: boolean;
+    last_reconnection_date?: string | null;
+    last_disconnection_date?: string | null;
     'x-coordinates'?: number;
     'y-coordinates'?: number;
 }
@@ -85,7 +88,9 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         label: subscription.label || '',
         contact_person: subscription.contact_person, // referrer ID
         referral_credit_applied: subscription.referral_credit_applied,
-        router_serial_number: subscription.router_serial_number || ''
+        router_serial_number: subscription.router_serial_number || '',
+        is_free: subscription.is_free || false,
+        last_reconnection_date: subscription.last_reconnection_date ? new Date(subscription.last_reconnection_date).toISOString().split('T')[0] : ''
     });
 
     const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
@@ -110,7 +115,9 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 label: subscription.label || '',
                 contact_person: subscription.contact_person || '',
                 referral_credit_applied: subscription.referral_credit_applied,
-                router_serial_number: subscription.router_serial_number || ''
+                router_serial_number: subscription.router_serial_number || '',
+                is_free: subscription.is_free || false,
+                last_reconnection_date: subscription.last_reconnection_date ? new Date(subscription.last_reconnection_date).toISOString().split('T')[0] : ''
             });
 
             // Initialize coordinates
@@ -254,6 +261,8 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     contact_person: formData.contact_person || null,
                     referral_credit_applied: formData.referral_credit_applied,
                     router_serial_number: formData.router_serial_number || null,
+                    is_free: formData.is_free,
+                    last_reconnection_date: formData.last_reconnection_date || null,
                     'x-coordinates': coordinates?.lng || null,
                     'y-coordinates': coordinates?.lat || null
                 })
@@ -463,6 +472,26 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                                     </label>
                                                 </div>
                                             </div>
+
+                                            <div className="pt-2 border-t border-gray-800">
+                                                <label className="text-xs font-medium text-gray-500 block mb-2">Billing Type</label>
+                                                <div
+                                                    onClick={() => setFormData({ ...formData, is_free: !formData.is_free })}
+                                                    className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-all ${formData.is_free ? 'border-green-500/50 bg-green-500/10' : 'border-gray-800 bg-[#151515]'}`}
+                                                >
+                                                    <div>
+                                                        <span className={`text-sm font-medium block ${formData.is_free ? 'text-green-400' : 'text-gray-400'}`}>
+                                                            {formData.is_free ? 'FREE Subscription' : 'Normal Billing'}
+                                                        </span>
+                                                        <span className="text-[10px] text-gray-500 block mt-0.5">
+                                                            {formData.is_free ? 'No invoices or SMS' : 'Regular billing cycle'}
+                                                        </span>
+                                                    </div>
+                                                    <div className={`w-9 h-5 rounded-full relative transition-colors ${formData.is_free ? 'bg-green-500' : 'bg-gray-700'}`}>
+                                                        <div className={`absolute top-[2px] w-4 h-4 rounded-full bg-white transition-all ${formData.is_free ? 'left-[18px]' : 'left-[2px]'}`} />
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -537,6 +566,22 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                                     onChange={(e) => setFormData({ ...formData, date_installed: e.target.value })}
                                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
                                                 />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-xs font-medium text-gray-500 block mb-1.5 flex items-center gap-2">
+                                                    Last Reconnection Date
+                                                    <span className="text-xs text-amber-500">(Optional)</span>
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={formData.last_reconnection_date}
+                                                    onChange={(e) => setFormData({ ...formData, last_reconnection_date: e.target.value })}
+                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 outline-none transition-colors"
+                                                />
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    Used for pro-rating invoices after reconnection
+                                                </p>
                                             </div>
 
                                             <div>

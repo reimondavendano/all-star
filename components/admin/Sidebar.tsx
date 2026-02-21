@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import {
     LayoutDashboard,
     Users,
@@ -19,18 +20,20 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 const navigation = [
-    { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-    { name: 'Prospects', href: '/admin/prospects', icon: UserPlus },
-    { name: 'Customers & Subscriptions', href: '/admin/customers', icon: Users },
-    { name: 'Invoices & Payments', href: '/admin/invoices', icon: FileText },
-    { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle },
-    { name: 'Expenses', href: '/admin/expenses', icon: DollarSign },
-    { name: 'Business Units', href: '/admin/business-units', icon: Briefcase },
-    { name: 'Plans', href: '/admin/plans', icon: Package },
-    { name: 'Locations', href: '/admin/locations', icon: MapPin },
-    { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router },
+    { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, badge: null },
+    { name: 'Prospects', href: '/admin/prospects', icon: UserPlus, badge: 'openProspects' },
+    { name: 'Customers & Subscriptions', href: '/admin/customers', icon: Users, badge: null },
+    { name: 'Invoices & Payments', href: '/admin/invoices', icon: FileText, badge: null },
+    { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle, badge: 'unverifiedPayments' },
+    { name: 'Expenses', href: '/admin/expenses', icon: DollarSign, badge: null },
+    { name: 'Business Units', href: '/admin/business-units', icon: Briefcase, badge: null },
+    { name: 'Plans', href: '/admin/plans', icon: Package, badge: null },
+    { name: 'Locations', href: '/admin/locations', icon: MapPin, badge: null },
+    { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router, badge: null },
 ];
 
 interface SidebarProps {
@@ -41,6 +44,58 @@ interface SidebarProps {
 export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const pathname = usePathname();
     const { logout, user } = useAuth();
+    const [openProspectsCount, setOpenProspectsCount] = useState(0);
+    const [unverifiedPaymentsCount, setUnverifiedPaymentsCount] = useState(0);
+
+    // Fetch counts
+    const fetchCounts = async () => {
+        try {
+            // Count Open prospects
+            const { count: prospectsCount, error: prospectsError } = await supabase
+                .from('prospects')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'Open');
+
+            if (!prospectsError && prospectsCount !== null) {
+                setOpenProspectsCount(prospectsCount);
+            }
+
+            // Count unverified payments (verified = false or null)
+            const { count: paymentsCount, error: paymentsError } = await supabase
+                .from('payments')
+                .select('*', { count: 'exact', head: true })
+                .or('verified.is.null,verified.eq.false');
+
+            if (!paymentsError && paymentsCount !== null) {
+                setUnverifiedPaymentsCount(paymentsCount);
+            }
+        } catch (error) {
+            console.error('Error fetching counts:', error);
+        }
+    };
+
+    useEffect(() => {
+        fetchCounts();
+    }, []);
+
+    // Real-time updates for prospects
+    useRealtimeSubscription({
+        table: 'prospects',
+        onAny: fetchCounts
+    });
+
+    // Real-time updates for payments
+    useRealtimeSubscription({
+        table: 'payments',
+        onAny: fetchCounts
+    });
+
+    const getBadgeCount = (badgeType: string | null) => {
+        if (!badgeType) return 0;
+        if (badgeType === 'openProspects') return openProspectsCount;
+        if (badgeType === 'unverifiedPayments') return unverifiedPaymentsCount;
+        return 0;
+    };
 
     return (
         <>
@@ -83,6 +138,9 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 <nav className="flex-1 px-4 space-y-2 mt-4">
                     {navigation.map((item) => {
                         const isActive = pathname.startsWith(item.href);
+                        const badgeCount = getBadgeCount(item.badge);
+                        const showBadge = badgeCount > 0;
+
                         return (
                             <Link
                                 key={item.name}
@@ -97,7 +155,12 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                             >
                                 <div className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`} />
                                 <item.icon className={clsx("w-5 h-5 mr-3 transition-transform duration-300 group-hover:scale-110", isActive && "animate-pulse")} />
-                                <span className="relative z-10">{item.name}</span>
+                                <span className="relative z-10 flex-1">{item.name}</span>
+                                {showBadge && (
+                                    <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-orange-500 text-white rounded-full animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.5)]">
+                                        {badgeCount}
+                                    </span>
+                                )}
                                 {isActive && <div className="absolute inset-0 bg-gradient-to-r from-red-900/10 to-transparent opacity-50" />}
                             </Link>
                         );

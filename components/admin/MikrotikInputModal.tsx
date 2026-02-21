@@ -39,7 +39,7 @@ export default function MikrotikInputModal({
         service: 'pppoe',
         profile: planName || '100MBPS',
         comment: `Converted from prospect: ${customerName}`,
-        addToRouter: false
+        addToRouter: true // Always add to router by default
     });
 
     useEffect(() => {
@@ -199,28 +199,6 @@ export default function MikrotikInputModal({
                             rows={2}
                             className="w-full bg-[#151515] border border-gray-800 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors resize-none"
                         />
-                    </div>
-
-                    {/* Add to Router Checkbox */}
-                    <div className="flex items-start gap-3 p-4 bg-amber-900/10 border border-amber-700/30 rounded-xl">
-                        <input
-                            type="checkbox"
-                            id="addToRouter"
-                            checked={formData.addToRouter}
-                            onChange={(e) => setFormData({ ...formData, addToRouter: e.target.checked })}
-                            className="mt-1 w-4 h-4 text-amber-600 focus:ring-amber-600 bg-gray-900 border-gray-700 rounded"
-                        />
-                        <div className="flex-1">
-                            <label htmlFor="addToRouter" className="text-sm font-medium text-white cursor-pointer">
-                                Also add to MikroTik Router
-                            </label>
-                            <div className="flex items-start gap-2 mt-1">
-                                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                                <p className="text-xs text-amber-400">
-                                    Will only save to database (recommended for testing)
-                                </p>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
