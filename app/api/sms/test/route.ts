@@ -70,33 +70,53 @@ export async function POST(request: NextRequest) {
 
         // Use template if specified
         if (template && templateData) {
+            const portalLink = templateData.portalLink || 'https://all-star-three.vercel.app/portal/customer';
+            
             switch (template) {
                 case 'invoiceGenerated':
                     finalMessage = SMSTemplates.invoiceGenerated(
                         templateData.customerName,
                         templateData.amount,
                         templateData.dueDate,
-                        templateData.businessUnit
+                        templateData.businessUnit,
+                        portalLink
                     );
                     break;
                 case 'dueDateReminder':
                     finalMessage = SMSTemplates.dueDateReminder(
                         templateData.customerName,
                         templateData.amount,
-                        templateData.dueDate
+                        templateData.dueDate,
+                        portalLink
                     );
                     break;
                 case 'disconnectionWarning':
                     finalMessage = SMSTemplates.disconnectionWarning(
                         templateData.customerName,
-                        templateData.disconnectionDate
+                        templateData.disconnectionDate,
+                        portalLink
+                    );
+                    break;
+                case 'serviceDisconnected':
+                    finalMessage = SMSTemplates.serviceDisconnected(
+                        templateData.customerName,
+                        portalLink
                     );
                     break;
                 case 'paymentReceived':
                     finalMessage = SMSTemplates.paymentReceived(
                         templateData.customerName,
                         templateData.amount,
-                        templateData.newBalance
+                        templateData.newBalance,
+                        portalLink
+                    );
+                    break;
+                case 'newSubscription':
+                    finalMessage = SMSTemplates.newSubscription(
+                        templateData.customerName,
+                        templateData.planName,
+                        templateData.monthlyFee,
+                        portalLink
                     );
                     break;
                 default:
