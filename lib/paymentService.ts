@@ -55,6 +55,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
             .select(`
                 id,
                 balance,
+                  customer_portal,
                 customers!subscriptions_subscriber_id_fkey (
                     name,
                     mobile_number
@@ -213,12 +214,17 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         if (params.sendSmsNotification) {
             const customer = subscription.customers as any;
             if (customer?.mobile_number) {
+                // Build portal link
+                const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
+
                 await sendSMS({
                     to: customer.mobile_number,
                     message: SMSTemplates.paymentReceived(
                         customer.name,
                         paymentAmount,
-                        newBalance
+                        newBalance,
+                        portalLink
                     ),
                 });
             }
@@ -321,6 +327,7 @@ export async function getCustomerPaymentSummary(customerId: string): Promise<{
             .select(`
                 id,
                 balance,
+                  customer_portal,
                 plans (name)
             `)
             .eq('subscriber_id', customerId);

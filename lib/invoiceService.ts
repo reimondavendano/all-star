@@ -314,6 +314,10 @@ export async function generateInvoicesForBusinessUnit(
             // Prepare SMS notification
             if (sendSmsNotifications && customer?.mobile_number && totalAmountDue > 0) {
                 const buName = (sub.business_units as any)?.name || businessUnit.name;
+
+                // Build full portal URL
+                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
                 
                 // Query ALL unpaid invoices to get accurate outstanding balance
                 // This is more reliable than subscription balance which might not be in sync
@@ -343,6 +347,7 @@ export async function generateInvoicesForBusinessUnit(
                         amountDue, // Current period charge ONLY (e.g., ₱799)
                         formatDatePH(dates.dueDate),
                         buName,
+                        portalLink,
                         roundedOutstanding > 0 ? roundedOutstanding : undefined // Previous unpaid (e.g., ₱1,099)
                     ),
                 });
@@ -433,12 +438,17 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
+                // Build portal link
+                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
                         customer.name,
                         invoice.amount_due,
-                        formatDatePH(new Date(invoice.due_date))
+                        formatDatePH(new Date(invoice.due_date)),
+                        portalLink
                     ),
                 });
             }
@@ -487,6 +497,7 @@ export async function generateDisconnectionInvoice(
                 business_unit_id,
                 plan_id,
                 balance,
+                customer_portal,
                 plans (
                     name,
                     monthly_fee
@@ -571,6 +582,10 @@ export async function generateDisconnectionInvoice(
         // 6. Send SMS notification
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
+            // Build portal link
+            const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
+            const portalLink = ``;
+
             const buName = (subscription.business_units as any)?.name || '';
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             const totalAmount = newBalance;
@@ -582,7 +597,8 @@ export async function generateDisconnectionInvoice(
                     buName,
                     totalAmount,
                     outstandingBalance,
-                    prorated.proratedAmount
+                    prorated.proratedAmount,
+                    portalLink
                 )
             });
         }
@@ -627,6 +643,7 @@ export async function generateActivationInvoice(
                 business_unit_id,
                 plan_id,
                 balance,
+                customer_portal,
                 invoice_date,
                 plans (
                     name,
@@ -731,6 +748,9 @@ export async function generateActivationInvoice(
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
+            // Build portal link
+            const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
+            const portalLink = ``;
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.invoiceGenerated(
@@ -738,6 +758,7 @@ export async function generateActivationInvoice(
                     prorated.proratedAmount,
                     formatDatePH(nextBillingDate),
                     buName,
+                    portalLink,
                     outstandingBalance > 0 ? outstandingBalance : undefined
                 )
             });
@@ -824,11 +845,16 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
+                // Build portal link
+                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
                         customer.name,
-                        formatDatePH(disconnectionDate)
+                        formatDatePH(disconnectionDate),
+                        portalLink
                     ),
                 });
             }
@@ -966,6 +992,7 @@ export async function generateInvoicesForExtension(
                 active,
                 invoice_date,
                 referral_credit_applied,
+                  customer_portal,
                 customers!subscriptions_subscriber_id_fkey (
                     id,
                     name,
@@ -1074,6 +1101,10 @@ export async function generateInvoicesForExtension(
 
                 // Queue SMS
                 if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
+                    // Build portal link
+                    const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                    const portalLink = ``;
+
                     smsMessages.push({
                         to: customer.mobile_number,
                         message: SMSTemplates.invoiceGenerated(
@@ -1081,6 +1112,7 @@ export async function generateInvoicesForExtension(
                             amount, // Current invoice amount
                             formatDatePH(dates.dueDate),
                             'Extension',
+                            portalLink,
                             outstandingBalance > 0 ? outstandingBalance : undefined // Previous unpaid balance
                         ),
                     });
@@ -1169,12 +1201,17 @@ export async function sendDueDateRemindersForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
+                // Build portal link
+                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
                         customer.name,
                         invoice.amount_due,
-                        formatDatePH(new Date(invoice.due_date))
+                        formatDatePH(new Date(invoice.due_date)),
+                        portalLink
                     ),
                 });
             }
@@ -1256,11 +1293,16 @@ export async function sendDisconnectionWarningsForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
+                // Build portal link
+                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                const portalLink = ``;
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
                         customer.name,
-                        formatDatePH(today)
+                        formatDatePH(today),
+                        portalLink
                     ),
                 });
             }
