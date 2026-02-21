@@ -100,6 +100,10 @@ export async function POST(request: NextRequest) {
                 case 'serviceDisconnected':
                     finalMessage = SMSTemplates.serviceDisconnected(
                         templateData.customerName,
+                        templateData.businessUnit || 'AllStar',
+                        templateData.totalAmount || 0,
+                        templateData.outstandingBalance || 0,
+                        templateData.proratedCharges || 0,
                         portalLink
                     );
                     break;
