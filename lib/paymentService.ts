@@ -216,7 +216,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
             if (customer?.mobile_number) {
                 // Build portal link
                 const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-                const portalLink = ``;
+                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
 
                 await sendSMS({
                     to: customer.mobile_number,

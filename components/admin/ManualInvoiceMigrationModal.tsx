@@ -144,13 +144,24 @@ export default function ManualInvoiceMigrationModal({
 
             if (invoiceError) throw invoiceError;
 
-            // If status is Paid or Partially Paid, update subscription balance
+            // Update subscription balance based on payment status
             if (paymentStatus === 'Paid') {
-                // No balance change needed for fully paid
+                // No balance change needed for fully paid invoices
             } else if (paymentStatus === 'Partially Paid') {
-                // You might want to add logic here for partial payments
+                // For partially paid, we should still add the unpaid portion to balance
+                // But since we don't have the paid amount in this form, add full amount
+                // Admin can adjust later via payment recording
+                const { error: balanceError } = await supabase.rpc('update_subscription_balance', {
+                    p_subscription_id: selectedSubscription,
+                    p_amount: parseFloat(amountDue)
+                });
+
+                if (balanceError) {
+                    console.error('Balance update error:', balanceError);
+                    // Continue anyway - invoice is created
+                }
             } else {
-                // Unpaid - add to balance
+                // Unpaid - add full amount to balance
                 const { error: balanceError } = await supabase.rpc('update_subscription_balance', {
                     p_subscription_id: selectedSubscription,
                     p_amount: parseFloat(amountDue)
