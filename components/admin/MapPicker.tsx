@@ -67,7 +67,9 @@ function LocationMarker({ position, setPosition }: { position: [number, number] 
 function ChangeView({ center }: { center: [number, number] }) {
     const map = useMapEvents({});
     useEffect(() => {
-        map.setView(center);
+        if (map && center) {
+            map.setView(center, map.getZoom());
+        }
     }, [center, map]);
     return null;
 }

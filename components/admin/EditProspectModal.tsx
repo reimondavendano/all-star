@@ -422,29 +422,29 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
     const handleConfirmApprove = async () => {
         setIsLoading(true);
-        setShowConfirmation(false);
         setPppError('');
 
         try {
             // 0. Optionally add PPP secret to MikroTik (only if checkbox is checked)
             if (addToMikrotik) {
-                console.log('[PPP] Adding PPP secret to MikroTik router...');
                 const pppResult = await addPppSecret({
                     name: pppForm.name,
                     password: pppForm.password,
                     service: pppForm.service,
                     profile: pppForm.profile,
-                    comment: pppForm.comment
+                    comment: pppForm.comment,
+                    enabled: pppForm.enabled
                 });
 
                 if (!pppResult.success) {
-                    console.error('[PPP] Failed to create PPP secret in MikroTik:', pppResult.error);
+                    // Check if error is because user already exists
+                    if (pppResult.error?.includes('already exists')) {
+                        console.warn('[PPP] MikroTik user already exists, skipping creation');
+                    } else {
+                        console.error('[PPP] Failed to create PPP secret in MikroTik:', pppResult.error);
+                    }
                     // Continue anyway - don't block customer creation
-                } else {
-                    console.log('[PPP] PPP secret created in MikroTik successfully');
                 }
-            } else {
-                console.log('[PPP] Skipping MikroTik router (checkbox unchecked) - saving to DB only');
             }
 
             // 1. Check for existing customer or create new
@@ -460,7 +460,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             if (existingCustomers && existingCustomers.length > 0) {
                 // Use existing customer
                 customerId = existingCustomers[0].id;
-                console.log(`Using existing customer: ${prospect.name} (${customerId})`);
             } else {
                 // Create new customer
                 const { data: newCustomer, error: customerError } = await supabase
@@ -474,7 +473,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                 if (customerError) throw customerError;
                 customerId = newCustomer.id;
-                console.log(`Created new customer: ${prospect.name} (${customerId})`);
             }
 
             // 2. Create subscription
@@ -502,7 +500,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             if (subscriptionError) throw subscriptionError;
 
             // 2.5. Always save to mikrotik_ppp_secrets table (as backup)
-            console.log('[PPP] Saving PPP secret to database...');
             const { error: pppDbError } = await supabase
                 .from('mikrotik_ppp_secrets')
                 .insert({
@@ -522,15 +519,11 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             if (pppDbError) {
                 console.error('[PPP] Failed to save PPP secret to database:', pppDbError);
                 // Continue anyway - don't block customer creation
-            } else {
-                console.log('[PPP] PPP secret saved to database successfully');
             }
 
 
             // 3. Referral Logic: If referrer exists, create a 300 payment for the REFERRER's subscription
             if (selectedReferrerId) {
-                console.log('Processing referral for:', selectedReferrerId);
-
                 // Find referrer's subscription (Latest one created)
                 const { data: referrerSubs, error: subError } = await supabase
                     .from('subscriptions')
@@ -544,7 +537,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                 }
 
                 const referrerSub = referrerSubs && referrerSubs.length > 0 ? referrerSubs[0] : null;
-                console.log('Referrer subscription found:', referrerSub);
 
                 if (referrerSub) {
                     // Get the oldest unpaid invoice for the referrer to link the credit
@@ -595,8 +587,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     const currentBalance = Number(referrerSub.balance) || 0;
                     const newBalance = currentBalance - 300;
 
-                    console.log(`Updating balance from ${currentBalance} to ${newBalance}`);
-
                     const { error: updateError } = await supabase
                         .from('subscriptions')
                         .update({
@@ -607,8 +597,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     if (updateError) {
                         console.error('Error updating referrer balance:', updateError);
-                    } else {
-                        console.log('Referrer balance updated successfully');
                     }
 
                     // Create expense for the referral incentive (₱300)
@@ -625,8 +613,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
 
                     if (expenseError) {
                         console.error('Error creating referral expense:', expenseError);
-                    } else {
-                        console.log('Referral expense created successfully');
                     }
                 } else {
                     console.warn('No subscription found for referrer:', selectedReferrerId);
@@ -661,8 +647,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                     const smsResult = await smsResponse.json();
                     if (!smsResult.success) {
                         console.warn('Welcome SMS not sent:', smsResult.error);
-                    } else {
-                        console.log('Welcome SMS sent successfully to', prospect.mobile_number);
                     }
                 } catch (smsError) {
                     console.error('Error sending welcome SMS:', smsError);
@@ -671,10 +655,13 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             }
 
             setShowSuccess(true);
+            setShowConfirmation(false); // Close confirmation modal
 
         } catch (error) {
             console.error('Error approving prospect:', error);
-            alert('Failed to approve prospect. Please try again.');
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            alert(`Failed to approve prospect: ${errorMessage}\n\nPlease check the console for more details.`);
+            setShowConfirmation(false); // Close confirmation modal on error
         } finally {
             setIsLoading(false);
         }
@@ -1171,18 +1158,6 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                         )}
 
                         <div className="space-y-4">
-                            {/* Enabled Checkbox */}
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    id="ppp-enabled"
-                                    checked={pppForm.enabled}
-                                    onChange={(e) => setPppForm({ ...pppForm, enabled: e.target.checked })}
-                                    className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
-                                />
-                                <label htmlFor="ppp-enabled" className="text-sm font-medium text-gray-300">Enabled</label>
-                            </div>
-
                             {/* Name (Username) */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Name (Username)</label>
@@ -1358,15 +1333,24 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowConfirmation(false)}
-                                    className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors"
+                                    disabled={isLoading}
+                                    className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={handleConfirmApprove}
-                                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all shadow-lg"
+                                    disabled={isLoading}
+                                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
-                                    Yes, Approve
+                                    {isLoading ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        'Yes, Approve'
+                                    )}
                                 </button>
                             </div>
                         </div>

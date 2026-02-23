@@ -17,6 +17,7 @@ interface Subscription {
     barangay: string;
     router_serial_number: string;
     balance: number;
+    is_free: boolean;
     plan: {
         name: string;
         monthly_fee: number;
@@ -76,6 +77,10 @@ export default function CustomerPortalPage() {
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     const [showManualPayModal, setShowManualPayModal] = useState(false);
     const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+    
+    // Error modal state
+    const [showErrorModal, setShowErrorModal] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
 
     // Plan Change State
     const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
@@ -118,6 +123,7 @@ export default function CustomerPortalPage() {
                     barangay,
                     router_serial_number,
                     balance,
+                    is_free,
                     plans (name, monthly_fee, details)
                 `)
                 .eq('subscriber_id', customerId)
@@ -152,6 +158,7 @@ export default function CustomerPortalPage() {
                         barangay: sub.barangay,
                         router_serial_number: sub.router_serial_number,
                         balance: sub.balance || 0,
+                        is_free: sub.is_free || false,
                         plan: {
                             name: plan?.name || 'Unknown Plan',
                             monthly_fee: plan?.monthly_fee || 0,
@@ -163,10 +170,13 @@ export default function CustomerPortalPage() {
                 })
             );
 
-            // Calculate total balance and credits separately
+            // Calculate total balance and credits separately (exclude FREE subscriptions)
             let totalBalance = 0;
             let totalCredits = 0;
             subscriptionsWithDetails.forEach(sub => {
+                // Skip FREE subscriptions from balance calculation
+                if (sub.is_free) return;
+                
                 if (sub.balance > 0) {
                     totalBalance += sub.balance;
                 } else if (sub.balance < 0) {
@@ -267,6 +277,21 @@ export default function CustomerPortalPage() {
 
     const handleDownloadInvoice = (subscription: Subscription) => {
         setSelectedSubscription(subscription);
+        
+        // Set default month/year to the most recent invoice or current month
+        if (subscription.invoices && subscription.invoices.length > 0) {
+            // Get the most recent invoice
+            const mostRecentInvoice = subscription.invoices[0]; // Already sorted by created_at desc
+            const invoiceDate = new Date(mostRecentInvoice.due_date);
+            setSelectedMonth(String(invoiceDate.getMonth() + 1).padStart(2, '0'));
+            setSelectedYear(String(invoiceDate.getFullYear()));
+        } else {
+            // Default to current month if no invoices
+            const now = new Date();
+            setSelectedMonth(String(now.getMonth() + 1).padStart(2, '0'));
+            setSelectedYear(String(now.getFullYear()));
+        }
+        
         setShowInvoiceModal(true);
     };
 
@@ -335,6 +360,17 @@ export default function CustomerPortalPage() {
             const lastDay = new Date(parseInt(selectedYear), parseInt(selectedMonth), 0).getDate();
             const endDate = `${selectedYear}-${selectedMonth}-${lastDay}`;
 
+            // Check if subscription was active during this month
+            const subscriptionStart = new Date(selectedSubscription.date_installed);
+            const selectedMonthDate = new Date(parseInt(selectedYear), parseInt(selectedMonth) - 1, 1);
+            
+            if (selectedMonthDate < subscriptionStart) {
+                setErrorMessage(`Cannot generate invoice for ${months.find(m => m.value === selectedMonth)?.label} ${selectedYear}. Subscription started on ${subscriptionStart.toLocaleDateString()}.`);
+                setShowErrorModal(true);
+                setIsGeneratingInvoice(false);
+                return;
+            }
+
             const { data: existingInvoices } = await supabase
                 .from('invoices')
                 .select('*')
@@ -362,7 +398,7 @@ export default function CustomerPortalPage() {
             if (accountsRes.success && accountsRes.accounts) {
                 const accounts = accountsRes.accounts;
                 
-                // Check for GCash
+                // Check for GCash (try business unit specific, then general)
                 const gcashKey = `${businessUnit}-gcash`;
                 const generalGcashKey = 'general-gcash';
                 const gcashDetails = accounts[gcashKey] || accounts[generalGcashKey];
@@ -374,7 +410,7 @@ export default function CustomerPortalPage() {
                     });
                 }
 
-                // Check for Maya
+                // Check for Maya (try business unit specific, then general)
                 const mayaKey = `${businessUnit}-maya`;
                 const generalMayaKey = 'general-maya';
                 const mayaDetails = accounts[mayaKey] || accounts[generalMayaKey];
@@ -385,6 +421,12 @@ export default function CustomerPortalPage() {
                         accountNumber: mayaDetails.accountNumber
                     });
                 }
+            }
+
+            // Debug: Log if no payment methods found
+            if (paymentMethods.length === 0) {
+                console.warn('No payment methods found for business unit:', businessUnit);
+                console.warn('Available accounts:', accountsRes.accounts);
             }
 
             let invoiceData;
@@ -407,12 +449,19 @@ export default function CustomerPortalPage() {
                     businessUnit
                 };
             } else {
-                const dueDate = `${selectedYear}-${selectedMonth}-${selectedSubscription.invoice_date === '15th' ? '15' : '30'}`;
-                const invoiceNum = `INV-${selectedYear}${selectedMonth}${selectedSubscription.invoice_date === '15th' ? '15' : '30'}-${selectedSubscription.id.slice(0, 4).toUpperCase()}`;
+                // Generate invoice for selected month/year
+                const invoiceDay = selectedSubscription.invoice_date === '15th' ? '15' : '30';
+                const dueDate = `${selectedYear}-${selectedMonth}-${invoiceDay}`;
+                
+                // Generate invoice number based on selected month/year and due date
+                const invoiceNum = `INV-${selectedYear}${selectedMonth}${invoiceDay}-${selectedSubscription.id.slice(0, 4).toUpperCase()}`;
+                
+                // Invoice date should be the first day of the selected month
+                const invoiceDate = `${selectedYear}-${selectedMonth}-01`;
 
                 invoiceData = {
                     invoiceNumber: invoiceNum,
-                    date: new Date().toISOString().split('T')[0],
+                    date: invoiceDate,
                     dueDate: dueDate,
                     customerName: data.customer.name,
                     customerAddress: `${selectedSubscription.address}, ${selectedSubscription.barangay}`,
@@ -461,10 +510,59 @@ export default function CustomerPortalPage() {
     // Only show past and current months/years
     const years = Array.from({ length: 3 }, (_, i) => currentYear - 2 + i).filter(y => y <= currentYear);
     
-    // Filter months based on selected year
-    const availableMonths = selectedYear === String(currentYear)
-        ? months.filter(m => parseInt(m.value) <= currentMonth)
-        : months;
+    // Filter months based on selected year and subscription start date
+    const getAvailableMonths = () => {
+        if (!selectedSubscription) {
+            // If no subscription selected yet, show current and past months
+            return selectedYear === String(currentYear)
+                ? months.filter(m => parseInt(m.value) <= currentMonth)
+                : months;
+        }
+        
+        // Get subscription start date
+        const startDate = new Date(selectedSubscription.date_installed);
+        const startYear = startDate.getFullYear();
+        const startMonth = startDate.getMonth() + 1; // 1-12
+        
+        // Get months that have invoices
+        const invoiceMonths = new Set(
+            selectedSubscription.invoices.map(inv => {
+                const dueDate = new Date(inv.due_date);
+                return parseInt(String(dueDate.getMonth() + 1).padStart(2, '0'));
+            }).filter(m => {
+                // Only include invoice months for the selected year
+                const inv = selectedSubscription.invoices.find(i => {
+                    const d = new Date(i.due_date);
+                    return d.getFullYear() === parseInt(selectedYear) && (d.getMonth() + 1) === m;
+                });
+                return !!inv;
+            })
+        );
+        
+        return months.filter(m => {
+            const monthNum = parseInt(m.value);
+            const yearNum = parseInt(selectedYear);
+            
+            // Always show months that have invoices
+            if (invoiceMonths.has(monthNum)) {
+                return true;
+            }
+            
+            // Don't show future months (unless they have invoices)
+            if (yearNum === currentYear && monthNum > currentMonth) {
+                return false;
+            }
+            
+            // Don't show months before subscription started
+            if (yearNum < startYear || (yearNum === startYear && monthNum < startMonth)) {
+                return false;
+            }
+            
+            return true;
+        });
+    };
+    
+    const availableMonths = getAvailableMonths();
 
     const handleManualPaymentSubmit = async ({ wallet, referenceNumber, proofImage }: { wallet: string, referenceNumber: string, proofImage?: File }) => {
         setIsSubmittingPayment(true);
@@ -607,8 +705,10 @@ export default function CustomerPortalPage() {
                                 Pending Invoices
                             </span>
                             <span className="text-white font-semibold">
-                                {data.subscriptions.reduce((count, sub) =>
-                                    count + sub.invoices.filter(inv => inv.payment_status !== 'Paid').length, 0)}
+                                {data.subscriptions
+                                    .filter(sub => !sub.is_free)
+                                    .reduce((count, sub) =>
+                                        count + sub.invoices.filter(inv => inv.payment_status !== 'Paid').length, 0)}
                             </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -617,7 +717,9 @@ export default function CustomerPortalPage() {
                                 Recent Payments
                             </span>
                             <span className="text-white font-semibold">
-                                {data.subscriptions.reduce((count, sub) => count + sub.payments.length, 0)}
+                                {data.subscriptions
+                                    .filter(sub => !sub.is_free)
+                                    .reduce((count, sub) => count + sub.payments.length, 0)}
                             </span>
                         </div>
                     </div>
@@ -726,66 +828,88 @@ export default function CustomerPortalPage() {
                                 {/* Balance & Actions */}
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                     {/* Balance Card */}
-                                    <div className="bg-[#0a0a0a] border border-gray-800 rounded-xl p-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h4 className="text-sm text-gray-400 uppercase">{getBalanceLabel(sub.balance)}</h4>
-                                            <DollarSign className={`w-4 h-4 ${getBalanceColor(sub.balance)}`} />
-                                        </div>
-                                        <p className={`text-2xl font-bold mb-1 ${getBalanceColor(sub.balance)}`}>
-                                            ₱{Math.abs(sub.balance).toLocaleString()}
-                                        </p>
-                                        <p className="text-xs text-gray-500 mb-4">
-                                            {sub.balance > 0 ? 'Amount due for this subscription' : sub.balance < 0 ? 'Advance payment on account' : 'No outstanding balance'}
-                                        </p>
-                                        <div className="flex gap-2">
-                                            {sub.balance > 0 && (
+                                    {!sub.is_free ? (
+                                        <div className="bg-[#0a0a0a] border border-gray-800 rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="text-sm text-gray-400 uppercase">{getBalanceLabel(sub.balance)}</h4>
+                                                <DollarSign className={`w-4 h-4 ${getBalanceColor(sub.balance)}`} />
+                                            </div>
+                                            <p className={`text-2xl font-bold mb-1 ${getBalanceColor(sub.balance)}`}>
+                                                ₱{Math.abs(sub.balance).toLocaleString()}
+                                            </p>
+                                            <p className="text-xs text-gray-500 mb-4">
+                                                {sub.balance > 0 ? 'Amount due for this subscription' : sub.balance < 0 ? 'Advance payment on account' : 'No outstanding balance'}
+                                            </p>
+                                            <div className="flex gap-2">
+                                                {sub.balance > 0 && (
+                                                    <button
+                                                        onClick={() => handlePayBills(sub)}
+                                                        className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-sm rounded-lg transition-all flex items-center justify-center gap-2 font-medium"
+                                                    >
+                                                        <CreditCard className="w-4 h-4" />
+                                                        Pay Bill
+                                                    </button>
+                                                )}
                                                 <button
-                                                    onClick={() => handlePayBills(sub)}
-                                                    className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-sm rounded-lg transition-all flex items-center justify-center gap-2 font-medium"
+                                                    onClick={() => handleDownloadInvoice(sub)}
+                                                    className="flex-1 py-2.5 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
                                                 >
-                                                    <CreditCard className="w-4 h-4" />
-                                                    Pay Bill
+                                                    <Download className="w-4 h-4" />
+                                                    Invoice
                                                 </button>
-                                            )}
-                                            <button
-                                                onClick={() => handleDownloadInvoice(sub)}
-                                                className="flex-1 py-2.5 px-3 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                                            >
-                                                <Download className="w-4 h-4" />
-                                                Invoice
-                                            </button>
+                                            </div>
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="bg-[#0a0a0a] border border-emerald-800 rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="text-sm text-emerald-400 uppercase font-bold">FREE Subscription</h4>
+                                                <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                            </div>
+                                            <p className="text-2xl font-bold mb-1 text-emerald-400">
+                                                ₱0.00
+                                            </p>
+                                            <p className="text-xs text-gray-500 mb-4">
+                                                This is a complimentary subscription with no billing.
+                                            </p>
+                                            <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-lg p-3 text-center">
+                                                <p className="text-xs text-emerald-300">
+                                                    No payment required
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* Recent Invoices */}
-                                    <div className="bg-[#0a0a0a] border border-gray-800 rounded-xl p-4">
-                                        <h4 className="text-sm text-gray-400 uppercase mb-3">Recent Invoices</h4>
-                                        <div className="space-y-2">
-                                            {sub.invoices.slice(0, 3).map((invoice) => (
-                                                <div key={invoice.id} className="flex items-center justify-between text-xs p-2 bg-gray-900/50 rounded-lg">
-                                                    <span className="text-gray-400">
-                                                        {formatShortDate(invoice.due_date)}
-                                                    </span>
-                                                    <span className="text-white font-medium">
-                                                        ₱{invoice.amount_due.toLocaleString()}
-                                                    </span>
-                                                    <span className={`px-2 py-0.5 rounded-full text-xs ${invoice.payment_status === 'Paid'
-                                                        ? 'bg-emerald-900/40 text-emerald-400'
-                                                        : invoice.payment_status === 'Partially Paid'
-                                                            ? 'bg-amber-900/40 text-amber-400'
-                                                            : invoice.payment_status === 'Pending Verification'
-                                                                ? 'bg-violet-900/40 text-violet-400'
-                                                                : 'bg-red-900/40 text-red-400'
-                                                        }`}>
-                                                        {invoice.payment_status || 'Unpaid'}
-                                                    </span>
-                                                </div>
-                                            ))}
-                                            {sub.invoices.length === 0 && (
-                                                <p className="text-gray-500 text-xs text-center py-2">No invoices yet</p>
-                                            )}
+                                    {!sub.is_free && (
+                                        <div className="bg-[#0a0a0a] border border-gray-800 rounded-xl p-4">
+                                            <h4 className="text-sm text-gray-400 uppercase mb-3">Recent Invoices</h4>
+                                            <div className="space-y-2">
+                                                {sub.invoices.slice(0, 3).map((invoice) => (
+                                                    <div key={invoice.id} className="flex items-center justify-between text-xs p-2 bg-gray-900/50 rounded-lg">
+                                                        <span className="text-gray-400">
+                                                            {formatShortDate(invoice.due_date)}
+                                                        </span>
+                                                        <span className="text-white font-medium">
+                                                            ₱{invoice.amount_due.toLocaleString()}
+                                                        </span>
+                                                        <span className={`px-2 py-0.5 rounded-full text-xs ${invoice.payment_status === 'Paid'
+                                                            ? 'bg-emerald-900/40 text-emerald-400'
+                                                            : invoice.payment_status === 'Partially Paid'
+                                                                ? 'bg-amber-900/40 text-amber-400'
+                                                                : invoice.payment_status === 'Pending Verification'
+                                                                    ? 'bg-violet-900/40 text-violet-400'
+                                                                    : 'bg-red-900/40 text-red-400'
+                                                            }`}>
+                                                            {invoice.payment_status || 'Unpaid'}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                                {sub.invoices.length === 0 && (
+                                                    <p className="text-gray-500 text-xs text-center py-2">No invoices yet</p>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
 
                                 {/* Recent Payments */}
@@ -1049,6 +1173,30 @@ export default function CustomerPortalPage() {
                 onSubmit={handleManualPaymentSubmit}
                 isSubmitting={isSubmittingPayment}
             />
+
+            {/* Error Modal */}
+            {showErrorModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowErrorModal(false)} />
+                    <div className="relative bg-[#0a0a0a] border border-red-900/50 rounded-2xl shadow-[0_0_60px_rgba(239,68,68,0.15)] w-full max-w-md p-6 animate-in fade-in zoom-in duration-300">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mb-4">
+                                <AlertCircle className="w-8 h-8 text-red-500" />
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">Cannot Generate Invoice</h3>
+                            <p className="text-gray-400 mb-6 text-sm leading-relaxed">
+                                {errorMessage}
+                            </p>
+                            <button
+                                onClick={() => setShowErrorModal(false)}
+                                className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-medium transition-colors"
+                            >
+                                OK
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Share Modal */}
             {showShareModal && (

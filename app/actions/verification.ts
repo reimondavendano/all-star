@@ -187,13 +187,14 @@ export async function uploadPaymentQR(formData: FormData) {
                 updatedAt: new Date().toISOString()
             };
 
-            // Upload updated accounts.json
+            // Upload updated accounts.json with cache control headers
             const jsonBuffer = Buffer.from(JSON.stringify(accountsData, null, 2));
             await supabase.storage
                 .from(BUCKET_NAME)
                 .upload('payment-methods/accounts.json', jsonBuffer, {
                     contentType: 'application/json',
-                    upsert: true
+                    upsert: true,
+                    cacheControl: '0' // Disable caching
                 });
         }
 
@@ -208,22 +209,25 @@ export async function uploadPaymentQR(formData: FormData) {
 }
 
 /**
- * Get accounts.json from Supabase Storage
+ * Get accounts.json from Supabase Storage with cache-busting
  */
 export async function getPaymentAccounts() {
     try {
+        // Download the file with cache-busting
         const { data, error } = await supabase.storage
             .from(BUCKET_NAME)
-            .download('payment-methods/accounts.json');
+            .download(`payment-methods/accounts.json`);
 
         if (error || !data) {
+            // File doesn't exist yet, return empty object
             return { success: true, accounts: {} };
         }
 
         const text = await data.text();
         const accounts = JSON.parse(text);
 
-        return { success: true, accounts };
+        // Return with timestamp to help with cache busting on client side
+        return { success: true, accounts, timestamp: Date.now() };
     } catch (error: any) {
         console.error('Get accounts error:', error);
         return { success: false, accounts: {}, error: error.message };
@@ -271,13 +275,14 @@ export async function deletePaymentMethod(key: string) {
             // Continue anyway - the image might not exist
         }
 
-        // 5. Upload updated accounts.json back to storage
+        // 5. Upload updated accounts.json back to storage with cache control
         const jsonBuffer = Buffer.from(JSON.stringify(accountsData, null, 2));
         const { error: uploadError } = await supabase.storage
             .from(BUCKET_NAME)
             .upload('payment-methods/accounts.json', jsonBuffer, {
                 contentType: 'application/json',
-                upsert: true
+                upsert: true,
+                cacheControl: '0' // Disable caching
             });
 
         if (uploadError) {

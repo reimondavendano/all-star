@@ -55,7 +55,7 @@ export const generateInvoicePDF = async (data: InvoiceData) => {
     // Dynamic contact - use first payment method's account number if available
     const contactNumber = data.paymentMethods && data.paymentMethods.length > 0 && data.paymentMethods[0].accountNumber
         ? data.paymentMethods[0].accountNumber
-        : '0912 345 6789';
+        : '0994-994-2994';
     doc.text(contactNumber, pageWidth - 15, 37, { align: 'right' });
     // doc.text('123 Fiber Street, Tech City', pageWidth - 15, 42, { align: 'right' });
 
@@ -158,7 +158,7 @@ export const generateInvoicePDF = async (data: InvoiceData) => {
     // Dynamic payment instructions based on available methods
     const paymentMethods = data.paymentMethods && data.paymentMethods.length > 0
         ? data.paymentMethods
-        : [{ provider: 'GCash', accountNumber: '0912 345 6789', accountName: 'AllStar Tech' }];
+        : [{ provider: 'GCash', accountNumber: '0994-994-2994', accountName: 'AllStar Tech' }];
     
     const methodNames = paymentMethods.map(m => m.provider).join(' or ');
     doc.text(`Please pay via ${methodNames} using the details below or via your Customer Portal.`, 15, finalY + 6);

@@ -61,14 +61,14 @@ export default function AdminMobileNav() {
                 setOpenProspectsCount(prospectsCount);
             }
 
-            // Count unverified payments (verified = false or null)
-            const { count: paymentsCount, error: paymentsError } = await supabase
+            // Count pending verification payments (notes contains "Pending Verification")
+            const { data: paymentsData, error: paymentsError } = await supabase
                 .from('payments')
-                .select('*', { count: 'exact', head: true })
-                .or('verified.is.null,verified.eq.false');
+                .select('notes')
+                .ilike('notes', '%Pending Verification%');
 
-            if (!paymentsError && paymentsCount !== null) {
-                setUnverifiedPaymentsCount(paymentsCount);
+            if (!paymentsError && paymentsData) {
+                setUnverifiedPaymentsCount(paymentsData.length);
             }
         } catch (error) {
             console.error('Error fetching counts:', error);

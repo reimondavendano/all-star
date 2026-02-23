@@ -115,23 +115,6 @@ export default function MikrotikInputModal({
 
                 {/* Content */}
                 <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
-                    {/* Enabled Toggle */}
-                    <div className="flex items-center justify-between p-4 bg-[#151515] border border-gray-800 rounded-xl">
-                        <div>
-                            <label className="text-sm font-medium text-white">Enabled</label>
-                            <p className="text-xs text-gray-500 mt-1">PPP secret will be active immediately</p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                className="sr-only peer"
-                                checked={formData.enabled}
-                                onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                            />
-                            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        </label>
-                    </div>
-
                     {/* Name (Username) */}
                     <div>
                         <label className="block text-sm font-medium text-gray-400 mb-2">

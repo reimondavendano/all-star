@@ -217,16 +217,24 @@ async function addViaBinary(target: string, secretData: any) {
 }
 
 
-export async function addPppSecret(secretData: { name: string, password: string, service: string, profile: string, comment?: string }) {
+export async function addPppSecret(secretData: { name: string, password: string, service: string, profile: string, comment?: string, enabled?: boolean }) {
     try {
         checkCredentials();
+
+        // Ensure enabled is set (default to true if not provided)
+        const dataToSend = {
+            ...secretData,
+            disabled: secretData.enabled === false ? 'true' : 'false'
+        };
+        // Remove enabled from the data since MikroTik uses 'disabled' instead
+        delete (dataToSend as any).enabled;
 
         // 1. Try REST API (Tunnel)
         if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
             try {
                 console.log(`[Mikrotik] Adding PPP Secret via Tunnel REST API...`);
                 // Use PUT to create new entry in RouterOS v7 REST API
-                await fetchRestData(host, 'ppp/secret', 'PUT', secretData);
+                await fetchRestData(host, 'ppp/secret', 'PUT', dataToSend);
                 return { success: true };
             } catch (e: any) {
                 console.error(`Tunnel add failed: ${e.message}`);
@@ -236,9 +244,9 @@ export async function addPppSecret(secretData: { name: string, password: string,
 
         // 2. Local Fallback (Binary)
         if (host && !host.includes('trycloudflare.com') && !host.includes('ngrok-free')) {
-            return await addViaBinary(host, secretData);
+            return await addViaBinary(host, dataToSend);
         }
-        return await addViaBinary(LOCAL_FALLBACK_IP, secretData);
+        return await addViaBinary(LOCAL_FALLBACK_IP, dataToSend);
 
     } catch (error: any) {
         return { success: false, error: error.message };

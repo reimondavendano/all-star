@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Upload, CheckCircle, AlertCircle, X, Banknote, CreditCard, Loader2 } from 'lucide-react'; // Added Loader2
 import { uploadPaymentQR } from '@/app/actions/verification';
 import jsQR from 'jsqr';
@@ -6,9 +7,11 @@ import jsQR from 'jsqr';
 interface UploadPaymentModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onSuccess?: () => void; // Add callback for successful upload
 }
 
-export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentModalProps) {
+export default function UploadPaymentModal({ isOpen, onClose, onSuccess }: UploadPaymentModalProps) {
+    const router = useRouter();
     const [uploadUnit, setUploadUnit] = useState('malanggam');
     const [uploadProvider, setUploadProvider] = useState('gcash');
     const [uploadAccountName, setUploadAccountName] = useState('');
@@ -127,11 +130,22 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
 
             const result = await uploadPaymentQR(formData);
             if (result.success) {
+                // Force server-side refresh
+                router.refresh();
+                
                 setStatus('success');
                 setMessage(`QR Code and details for ${uploadProvider} (${uploadUnit}) saved successfully.`);
                 setUploadFile(null);
                 setUploadAccountName('');
                 setUploadAccountNumber('');
+                
+                // Call success callback to refresh parent
+                if (onSuccess) {
+                    // Add delay to ensure storage write completes
+                    setTimeout(() => {
+                        onSuccess();
+                    }, 800);
+                }
             } else {
                 alert('Upload failed: ' + result.error);
             }
@@ -155,7 +169,15 @@ export default function UploadPaymentModal({ isOpen, onClose }: UploadPaymentMod
 
                     <div className="flex flex-col gap-2">
                         <button
-                            onClick={handleClose}
+                            onClick={() => {
+                                // Force one more refresh when closing
+                                router.refresh();
+                                handleClose();
+                                // Trigger parent refresh
+                                if (onSuccess) {
+                                    setTimeout(() => onSuccess(), 300);
+                                }
+                            }}
                             className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-colors"
                         >
                             Done

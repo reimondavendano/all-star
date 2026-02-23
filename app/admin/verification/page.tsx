@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import {
     CheckCircle,
@@ -52,6 +53,7 @@ interface VerificationItem {
 }
 
 export default function VerificationPage() {
+    const router = useRouter();
     const [activeTab, setActiveTab] = useState<'verification' | 'settings'>('verification');
     const [payments, setPayments] = useState<VerificationItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -71,6 +73,18 @@ export default function VerificationPage() {
     const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [configuredMethods, setConfiguredMethods] = useState<Record<string, any>>({});
+    const prevShowUploadModal = useRef(showUploadModal);
+    
+    // Confirmation modal states
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<string>('');
+    const [isDeleting, setIsDeleting] = useState(false);
+    
+    // Success/Error modal states
+    const [showResultModal, setShowResultModal] = useState(false);
+    const [resultMessage, setResultMessage] = useState('');
+    const [resultType, setResultType] = useState<'success' | 'error'>('success');
+    const [refreshKey, setRefreshKey] = useState(0); // Force re-render key
 
     useEffect(() => {
         if (activeTab === 'verification') {
@@ -82,16 +96,29 @@ export default function VerificationPage() {
 
     // Separate effect to refresh payment methods when upload modal closes
     useEffect(() => {
-        if (!showUploadModal && activeTab === 'settings') {
+        // Only refresh when modal transitions from true to false
+        if (prevShowUploadModal.current === true && showUploadModal === false && activeTab === 'settings') {
             fetchPaymentMethods();
         }
+        prevShowUploadModal.current = showUploadModal;
     }, [showUploadModal, activeTab]);
 
     const fetchPaymentMethods = async () => {
-        const res = await getPaymentAccounts();
-        if (res.success && res.accounts) {
-            setConfiguredMethods(res.accounts);
-        } else {
+        try {
+            // Clear existing data first to force re-render
+            setConfiguredMethods({});
+            
+            // Force server-side refresh to bypass cache
+            router.refresh();
+            
+            // Fetch fresh data
+            const res = await getPaymentAccounts();
+            if (res.success && res.accounts) {
+                setConfiguredMethods(res.accounts);
+                setRefreshKey(prev => prev + 1); // Force re-render
+            }
+        } catch (error) {
+            console.error('Error fetching payment methods:', error);
             setConfiguredMethods({});
         }
     };
@@ -219,29 +246,43 @@ export default function VerificationPage() {
     };
 
     const handleDeletePaymentMethod = async (key: string) => {
-        if (!confirm(`Are you sure you want to delete this payment method?\n\nThis will remove:\n- ${key}\n\nCustomers will no longer see this payment option.`)) {
-            return;
-        }
+        setDeleteTarget(key);
+        setShowDeleteConfirm(true);
+    };
 
+    const confirmDelete = async () => {
+        setIsDeleting(true);
         try {
             const { deletePaymentMethod } = await import('@/app/actions/verification');
-            const result = await deletePaymentMethod(key);
+            const result = await deletePaymentMethod(deleteTarget);
             
             if (result.success) {
+                // Force server-side refresh
+                router.refresh();
+                
+                // Add delay to ensure storage operations complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
                 // Refresh the payment methods list
-                const accounts = await getPaymentAccounts();
-                if (accounts.success && accounts.accounts) {
-                    setConfiguredMethods(accounts.accounts);
-                } else {
-                    setConfiguredMethods({});
-                }
-                alert('Payment method deleted successfully.');
+                await fetchPaymentMethods();
+                
+                setResultType('success');
+                setResultMessage('Payment method deleted successfully.');
+                setShowResultModal(true);
             } else {
-                alert('Failed to delete: ' + result.error);
+                setResultType('error');
+                setResultMessage('Failed to delete: ' + result.error);
+                setShowResultModal(true);
             }
         } catch (error) {
             console.error('Delete error:', error);
-            alert('An error occurred while deleting the payment method.');
+            setResultType('error');
+            setResultMessage('An error occurred while deleting the payment method.');
+            setShowResultModal(true);
+        } finally {
+            setIsDeleting(false);
+            setShowDeleteConfirm(false);
+            setDeleteTarget('');
         }
     };
 
@@ -528,7 +569,7 @@ export default function VerificationPage() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div key={refreshKey} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {Object.entries(configuredMethods).length === 0 ? (
                             <div className="col-span-full text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-xl">
                                 <p>No custom payment methods found.</p>
@@ -536,7 +577,7 @@ export default function VerificationPage() {
                             </div>
                         ) : (
                             Object.entries(configuredMethods).map(([key, details]: [string, any]) => (
-                                <div key={key} className="p-5 bg-gray-900/40 border border-gray-800 rounded-xl hover:border-violet-500/30 transition-colors group relative">
+                                <div key={`${key}-${refreshKey}`} className="p-5 bg-gray-900/40 border border-gray-800 rounded-xl hover:border-violet-500/30 transition-colors group relative">
                                     {/* Delete Button */}
                                     <button
                                         onClick={() => handleDeletePaymentMethod(key)}
@@ -584,6 +625,7 @@ export default function VerificationPage() {
             <UploadPaymentModal
                 isOpen={showUploadModal}
                 onClose={() => setShowUploadModal(false)}
+                onSuccess={fetchPaymentMethods}
             />
             {/* Verification Modal */}
             <VerifyPaymentModal
@@ -593,6 +635,88 @@ export default function VerificationPage() {
                 onApprove={handleVerifyConfirm}
                 isProcessing={Boolean(processingId)}
             />
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => !isDeleting && setShowDeleteConfirm(false)} />
+                    <div className="relative bg-[#0a0a0a] border border-red-900/50 rounded-2xl shadow-[0_0_60px_rgba(239,68,68,0.15)] w-full max-w-md p-6">
+                        <div className="flex flex-col items-center text-center">
+                            <div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mb-4">
+                                <AlertCircle className="w-8 h-8 text-red-500" />
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">Delete Payment Method?</h3>
+                            <p className="text-gray-400 mb-4">
+                                Are you sure you want to delete this payment method?
+                            </p>
+                            <div className="w-full bg-red-900/10 border border-red-900/30 rounded-lg p-3 mb-6">
+                                <p className="text-sm text-gray-300 mb-1">This will remove:</p>
+                                <p className="text-red-400 font-mono text-sm">• {deleteTarget}</p>
+                                <p className="text-xs text-gray-500 mt-2">Customers will no longer see this payment option.</p>
+                            </div>
+                            <div className="flex gap-3 w-full">
+                                <button
+                                    onClick={() => setShowDeleteConfirm(false)}
+                                    disabled={isDeleting}
+                                    className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-gray-300 font-medium transition-colors disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmDelete}
+                                    disabled={isDeleting}
+                                    className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl font-medium transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {isDeleting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Deleting...
+                                        </>
+                                    ) : (
+                                        'Delete'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Result Modal (Success/Error) */}
+            {showResultModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowResultModal(false)} />
+                    <div className={`relative bg-[#0a0a0a] border rounded-2xl shadow-2xl w-full max-w-md p-6 ${
+                        resultType === 'success' ? 'border-emerald-900/50' : 'border-red-900/50'
+                    }`}>
+                        <div className="flex flex-col items-center text-center">
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+                                resultType === 'success' ? 'bg-emerald-900/20' : 'bg-red-900/20'
+                            }`}>
+                                {resultType === 'success' ? (
+                                    <CheckCircle className="w-8 h-8 text-emerald-500" />
+                                ) : (
+                                    <XCircle className="w-8 h-8 text-red-500" />
+                                )}
+                            </div>
+                            <h3 className="text-xl font-bold text-white mb-2">
+                                {resultType === 'success' ? 'Success!' : 'Error'}
+                            </h3>
+                            <p className="text-gray-400 mb-6">{resultMessage}</p>
+                            <button
+                                onClick={() => setShowResultModal(false)}
+                                className={`w-full px-4 py-2.5 rounded-xl font-medium transition-colors ${
+                                    resultType === 'success'
+                                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                        : 'bg-red-600 hover:bg-red-500 text-white'
+                                }`}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

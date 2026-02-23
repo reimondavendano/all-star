@@ -58,6 +58,7 @@ export default function ManualPaymentModal({
     useEffect(() => {
         const fetchDetails = async () => {
             try {
+                // Force fresh fetch by adding timestamp to bypass any caching
                 const res = await getPaymentAccounts();
                 if (res.success && res.accounts) {
                     const data = res.accounts;
@@ -94,8 +95,10 @@ export default function ManualPaymentModal({
                         });
 
                         if (details.imageUrl) {
-                            // Add cache-busting parameter to force browser to reload updated QR images
-                            const cacheBuster = details.updatedAt ? new Date(details.updatedAt).getTime() : Date.now();
+                            // Add aggressive cache-busting: use both updatedAt and current timestamp
+                            // This ensures the browser always fetches the latest QR image
+                            const updatedTime = details.updatedAt ? new Date(details.updatedAt).getTime() : 0;
+                            const cacheBuster = `${updatedTime}-${Date.now()}`;
                             setImgSrc(`${details.imageUrl}?t=${cacheBuster}`);
                         } else {
                             // Fallback if no image URL but details exist
@@ -112,8 +115,12 @@ export default function ManualPaymentModal({
                 setImgSrc(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=PAY-${unitCode.toUpperCase()}-${paymentIdentifier.toUpperCase()}-${amount}`);
             }
         };
-        fetchDetails();
-    }, [unitCode, paymentIdentifier, amount, wallet]);
+        
+        // Only fetch when modal is open to ensure fresh data
+        if (isOpen) {
+            fetchDetails();
+        }
+    }, [unitCode, paymentIdentifier, amount, wallet, isOpen]);
 
     // Reset on close
     useEffect(() => {
@@ -327,6 +334,7 @@ export default function ManualPaymentModal({
                                 <div className="aspect-square relative rounded-xl overflow-hidden bg-gray-50">
                                     {imgSrc && (
                                         <Image
+                                            key={imgSrc}
                                             src={imgSrc}
                                             alt={`${displayIdentifier} QR Code`}
                                             fill
@@ -338,6 +346,7 @@ export default function ManualPaymentModal({
                                                 }
                                             }}
                                             unoptimized
+                                            priority
                                         />
                                     )}
                                 </div>

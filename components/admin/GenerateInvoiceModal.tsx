@@ -117,7 +117,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             // Calculate billing dates
             const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
 
-            // Fetch all subscriptions for the selected business unit
+            // Fetch all subscriptions for the selected business unit (exclude FREE subscriptions)
             const { data: subs, error } = await supabase
                 .from('subscriptions')
                 .select(`
@@ -129,6 +129,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     last_reconnection_date,
                     referral_credit_applied,
                     customer_portal,
+                    is_free,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
                         name,
@@ -140,7 +141,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     )
                 `)
                 .eq('business_unit_id', selectedUnit)
-                .eq('active', true);
+                .eq('active', true)
+                .or('is_free.is.null,is_free.eq.false'); // Exclude FREE subscriptions
 
             if (error) {
                 setDebugInfo(`Error fetching subscriptions: ${error.message}`);

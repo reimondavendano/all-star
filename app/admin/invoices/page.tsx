@@ -235,14 +235,12 @@ export default function InvoicesPaymentsPage() {
         year: number,
         month: number
     ): Invoice[] => {
-        // Filter invoices by their billing period end date (to_date)
-        // An invoice belongs to the month where its billing period ends
-        const monthStart = new Date(year, month - 1, 1);
-        const monthEnd = new Date(year, month, 0); // Last day of month
+        // Filter invoices by their due date month
+        // This ensures manual/legacy invoices show up in the correct month
+        const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
         
         return invoices.filter(inv => {
-            const toDate = new Date(inv.to_date + 'T00:00:00');
-            return toDate >= monthStart && toDate <= monthEnd;
+            return inv.due_date.startsWith(targetMonth);
         });
     };
 
@@ -294,8 +292,10 @@ export default function InvoicesPaymentsPage() {
                         name,
                         profile
                     )
-                `)
-                .eq('is_free', false); // Exclude free subscriptions from invoices page
+                `);
+
+            // Exclude free subscriptions (handle NULL as false)
+            subscriptionsQuery = subscriptionsQuery.or('is_free.is.null,is_free.eq.false');
 
             if (selectedBusinessUnit !== 'all') {
                 subscriptionsQuery = subscriptionsQuery.eq('business_unit_id', selectedBusinessUnit);
