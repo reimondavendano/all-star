@@ -147,29 +147,33 @@ export default function ManualInvoiceMigrationModal({
             // Update subscription balance based on payment status
             if (paymentStatus === 'Paid') {
                 // No balance change needed for fully paid invoices
-            } else if (paymentStatus === 'Partially Paid') {
-                // For partially paid, we should still add the unpaid portion to balance
-                // But since we don't have the paid amount in this form, add full amount
-                // Admin can adjust later via payment recording
-                const { error: balanceError } = await supabase.rpc('update_subscription_balance', {
-                    p_subscription_id: selectedSubscription,
-                    p_amount: parseFloat(amountDue)
-                });
-
-                if (balanceError) {
-                    console.error('Balance update error:', balanceError);
-                    // Continue anyway - invoice is created
-                }
             } else {
-                // Unpaid - add full amount to balance
-                const { error: balanceError } = await supabase.rpc('update_subscription_balance', {
-                    p_subscription_id: selectedSubscription,
-                    p_amount: parseFloat(amountDue)
-                });
+                // For Unpaid or Partially Paid, add full amount to balance
+                // (Admin can adjust later via payment recording for partially paid)
+                
+                // Get current balance
+                const { data: currentSub, error: fetchError } = await supabase
+                    .from('subscriptions')
+                    .select('balance')
+                    .eq('id', selectedSubscription)
+                    .single();
 
-                if (balanceError) {
-                    console.error('Balance update error:', balanceError);
-                    // Continue anyway - invoice is created
+                if (fetchError) {
+                    console.error('Error fetching current balance:', fetchError);
+                } else {
+                    const currentBalance = Number(currentSub?.balance) || 0;
+                    const newBalance = currentBalance + parseFloat(amountDue);
+
+                    // Update balance
+                    const { error: balanceError } = await supabase
+                        .from('subscriptions')
+                        .update({ balance: newBalance })
+                        .eq('id', selectedSubscription);
+
+                    if (balanceError) {
+                        console.error('Balance update error:', balanceError);
+                        // Continue anyway - invoice is created
+                    }
                 }
             }
 
