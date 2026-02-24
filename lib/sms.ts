@@ -140,7 +140,8 @@ export const SMSTemplates = {
             message += `Due Date: ${dueDate}\n`;
         }
         
-        message += `\nView your account & pay online:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `\nView your account & pay online:\n${portalLink}\n`;
         message += `\nPlease pay on time to avoid disconnection.\n`;
         message += `Thank you! - Allstar`;
         
@@ -153,7 +154,8 @@ export const SMSTemplates = {
         message += `Your internet bill is due soon:\n`;
         message += `Amount: P${amount.toLocaleString()}\n`;
         message += `Due Date: ${dueDate}\n\n`;
-        message += `View & pay online:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `View & pay online:\n${portalLink}\n`;
         message += `\nPlease settle to avoid service interruption.\n`;
         message += `Thank you! - Allstar`;
         
@@ -169,7 +171,8 @@ export const SMSTemplates = {
             message += `\nAmount Due: P${unpaidAmount.toLocaleString()}\n`;
         }
         
-        message += `\nView your account:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `\nView your account:\n${portalLink}\n`;
         message += `\nPlease pay immediately to continue service.\n`;
         message += `- Allstar`;
         
@@ -185,7 +188,8 @@ export const SMSTemplates = {
             message += ` (Outstanding Balance: P${Math.round(outstandingBalance).toLocaleString()} + Pro-rated Charges: P${Math.round(proratedCharges).toLocaleString()})`;
         }
         
-        message += `\n\nView your account & pay online:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `\n\nView your account & pay online:\n${portalLink}\n`;
         message += `\nPlease settle this amount to restore your internet service.\n\n`;
         message += `Thank you! – Allstar`;
         
@@ -206,7 +210,8 @@ export const SMSTemplates = {
             message += `✓ Account Fully Paid\n`;
         }
         
-        message += `\nView your account:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `\nView your account:\n${portalLink}\n`;
         message += `\nThank you! - Allstar`;
         
         return message;
@@ -218,7 +223,8 @@ export const SMSTemplates = {
         message += `Your subscription is now active:\n`;
         message += `Plan: ${planName}\n`;
         message += `Monthly Fee: P${amount.toLocaleString()}\n\n`;
-        message += `Manage your account online:\n${portalLink}\n`;
+        // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
+        // message += `Manage your account online:\n${portalLink}\n`;
         message += `\nThank you for choosing Allstar!\n`;
         message += `- Allstar`;
         

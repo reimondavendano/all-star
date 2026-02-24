@@ -321,17 +321,18 @@ export async function generateInvoicesForBusinessUnit(
                 // Calculate outstanding balance (previous unpaid invoices)
                 const outstandingBalance = currentBalance > 0 ? currentBalance : 0;
                 
+                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
-                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                // const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 const smsMessage = SMSTemplates.invoiceGenerated(
                     customer.name,
                     amountDue,
                     formatDatePH(dates.dueDate),
                     buName,
-                    portalLink,
+                    '', // portalLink - TEMPORARILY REMOVED FOR TESTING
                     outstandingBalance > 0 ? outstandingBalance : undefined
                 );
                 
@@ -428,10 +429,11 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
+                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
-                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                // const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -439,7 +441,7 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
                         customer.name,
                         invoice.amount_due,
                         formatDatePH(new Date(invoice.due_date)),
-                        portalLink
+                        '' // portalLink - TEMPORARILY REMOVED FOR TESTING
                     ),
                 });
             }
@@ -577,10 +579,11 @@ export async function generateDisconnectionInvoice(
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             const totalAmount = newBalance;
             
+            // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
             // Build full portal URL
-            const portalPath = (subscription as any).customer_portal || `/portal/${customer.id}`;
-            const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+            // const portalPath = (subscription as any).customer_portal || `/portal/${customer.id}`;
+            // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+            // const portalLink = removeHttpsProtocol(fullPortalLink);
             
             await sendSMS({
                 to: customer.mobile_number,
@@ -590,7 +593,7 @@ export async function generateDisconnectionInvoice(
                     totalAmount,
                     outstandingBalance,
                     prorated.proratedAmount,
-                    portalLink
+                    '' // portalLink - TEMPORARILY REMOVED FOR TESTING
                 )
             });
         }
@@ -741,10 +744,11 @@ export async function generateActivationInvoice(
         if (customer?.mobile_number) {
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             
+            // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
             // Build full portal URL
-            const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-            const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+            // const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
+            // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+            // const portalLink = removeHttpsProtocol(fullPortalLink);
             
             await sendSMS({
                 to: customer.mobile_number,
@@ -753,7 +757,7 @@ export async function generateActivationInvoice(
                     prorated.proratedAmount,
                     formatDatePH(nextBillingDate),
                     buName,
-                    portalLink,
+                    '', // portalLink - TEMPORARILY REMOVED FOR TESTING
                     outstandingBalance > 0 ? outstandingBalance : undefined
                 )
             });
@@ -842,17 +846,18 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
+                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
-                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                // const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
                         customer.name,
                         formatDatePH(disconnectionDate),
-                        portalLink
+                        '' // portalLink - TEMPORARILY REMOVED FOR TESTING
                     ),
                 });
             }
@@ -1095,10 +1100,11 @@ export async function generateInvoicesForExtension(
 
                 // Queue SMS
                 if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
+                    // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                     // Build full portal URL
-                    const portalPath = (sub as any).customer_portal || `/portal/${customer.id}`;
-                    const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                    // const portalPath = (sub as any).customer_portal || `/portal/${customer.id}`;
+                    // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                    // const portalLink = removeHttpsProtocol(fullPortalLink);
                     
                     smsMessages.push({
                         to: customer.mobile_number,
@@ -1107,7 +1113,7 @@ export async function generateInvoicesForExtension(
                             amount, // Current invoice amount
                             formatDatePH(dates.dueDate),
                             'Extension',
-                            portalLink,
+                            '', // portalLink - TEMPORARILY REMOVED FOR TESTING
                             outstandingBalance > 0 ? outstandingBalance : undefined // Previous unpaid balance
                         ),
                     });
@@ -1197,10 +1203,11 @@ export async function sendDueDateRemindersForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
+                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
-                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                // const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1208,7 +1215,7 @@ export async function sendDueDateRemindersForExtension(
                         customer.name,
                         invoice.amount_due,
                         formatDatePH(new Date(invoice.due_date)),
-                        portalLink
+                        '' // portalLink - TEMPORARILY REMOVED FOR TESTING
                     ),
                 });
             }
@@ -1292,17 +1299,18 @@ export async function sendDisconnectionWarningsForExtension(
             const customer = sub?.customers;
 
             if (customer?.mobile_number) {
+                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
-                const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                const portalLink = removeHttpsProtocol(fullPortalLink);
+                // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
+                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                // const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
                         customer.name,
                         formatDatePH(today),
-                        portalLink
+                        '' // portalLink - TEMPORARILY REMOVED FOR TESTING
                     ),
                 });
             }
