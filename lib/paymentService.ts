@@ -5,7 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { calculateNewBalance, determinePaymentStatus, toISODateString } from './billing';
-import { sendSMS, SMSTemplates } from './sms';
+import { sendSMS, SMSTemplates, removeHttpsProtocol } from './sms';
 
 // Server-side Supabase client
 function getSupabaseAdmin() {
@@ -214,9 +214,10 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         if (params.sendSmsNotification) {
             const customer = subscription.customers as any;
             if (customer?.mobile_number) {
-                // Build portal link
+                // Build portal link (remove https:// for iOS SMS compatibility)
                 const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
 
                 await sendSMS({
                     to: customer.mobile_number,

@@ -13,7 +13,7 @@ import {
     formatDatePH,
     BILLING_SCHEDULES,
 } from './billing';
-import { sendSMS, SMSTemplates, sendBulkSMS } from './sms';
+import { sendSMS, SMSTemplates, sendBulkSMS, removeHttpsProtocol } from './sms';
 
 // Server-side Supabase client
 function getSupabaseAdmin() {
@@ -323,7 +323,8 @@ export async function generateInvoicesForBusinessUnit(
                 
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 const smsMessage = SMSTemplates.invoiceGenerated(
                     customer.name,
@@ -429,7 +430,8 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
             if (customer?.mobile_number) {
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -577,7 +579,8 @@ export async function generateDisconnectionInvoice(
             
             // Build full portal URL
             const portalPath = (subscription as any).customer_portal || `/portal/${customer.id}`;
-            const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+            const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
             
             await sendSMS({
                 to: customer.mobile_number,
@@ -740,7 +743,8 @@ export async function generateActivationInvoice(
             
             // Build full portal URL
             const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-            const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+            const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
             
             await sendSMS({
                 to: customer.mobile_number,
@@ -840,7 +844,8 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
             if (customer?.mobile_number) {
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1092,7 +1097,8 @@ export async function generateInvoicesForExtension(
                 if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
                     // Build full portal URL
                     const portalPath = (sub as any).customer_portal || `/portal/${customer.id}`;
-                    const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                    const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                     
                     smsMessages.push({
                         to: customer.mobile_number,
@@ -1193,7 +1199,8 @@ export async function sendDueDateRemindersForExtension(
             if (customer?.mobile_number) {
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1287,7 +1294,8 @@ export async function sendDisconnectionWarningsForExtension(
             if (customer?.mobile_number) {
                 // Build full portal URL
                 const portalPath = sub.customer_portal || `/portal/${customer.id}`;
-                const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
+                const portalLink = removeHttpsProtocol(fullPortalLink);
                 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1311,4 +1319,7 @@ export async function sendDisconnectionWarningsForExtension(
         return result;
     }
 }
+
+
+
 

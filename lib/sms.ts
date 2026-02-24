@@ -38,6 +38,14 @@ function formatPhoneNumber(phone: string): string {
 }
 
 /**
+ * Remove https:// protocol from URL for iOS SMS compatibility
+ * iOS sometimes blocks SMS with https:// URLs due to security filters
+ */
+export function removeHttpsProtocol(url: string): string {
+    return url.replace(/^https?:\/\//, '');
+}
+
+/**
  * Send SMS via Semaphore API
  */
 export async function sendSMS({ to, message }: SendSMSParams): Promise<SendSMSResponse> {
