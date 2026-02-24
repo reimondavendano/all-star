@@ -22,13 +22,15 @@ export default function ManualInvoiceMigrationModal({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showDropdown, setShowDropdown] = useState(false);
     
-    // Form fields
-    const [fromDate, setFromDate] = useState('');
-    const [toDate, setToDate] = useState('');
-    const [dueDate, setDueDate] = useState('');
+    // Form fields - dates are now defaulted
     const [amountDue, setAmountDue] = useState('');
-    const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Unpaid' | 'Partially Paid'>('Unpaid');
     const [notes, setNotes] = useState('');
+    
+    // Default date values (not shown in UI)
+    const fromDate = '2026-01-01';
+    const toDate = '2026-01-02';
+    const dueDate = '2026-01-15';
+    const paymentStatus = 'Unpaid';
 
     useEffect(() => {
         if (isOpen) {
@@ -114,7 +116,7 @@ export default function ManualInvoiceMigrationModal({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
-        if (!selectedSubscription || !fromDate || !toDate || !dueDate || !amountDue) {
+        if (!selectedSubscription || !amountDue) {
             alert('Please fill in all required fields');
             return;
         }
@@ -144,36 +146,29 @@ export default function ManualInvoiceMigrationModal({
 
             if (invoiceError) throw invoiceError;
 
-            // Update subscription balance based on payment status
-            if (paymentStatus === 'Paid') {
-                // No balance change needed for fully paid invoices
+            // Update subscription balance - always add to balance since default is Unpaid
+            // Get current balance
+            const { data: currentSub, error: fetchError } = await supabase
+                .from('subscriptions')
+                .select('balance')
+                .eq('id', selectedSubscription)
+                .single();
+
+            if (fetchError) {
+                console.error('Error fetching current balance:', fetchError);
             } else {
-                // For Unpaid or Partially Paid, add full amount to balance
-                // (Admin can adjust later via payment recording for partially paid)
-                
-                // Get current balance
-                const { data: currentSub, error: fetchError } = await supabase
+                const currentBalance = Number(currentSub?.balance) || 0;
+                const newBalance = currentBalance + parseFloat(amountDue);
+
+                // Update balance
+                const { error: balanceError } = await supabase
                     .from('subscriptions')
-                    .select('balance')
-                    .eq('id', selectedSubscription)
-                    .single();
+                    .update({ balance: newBalance })
+                    .eq('id', selectedSubscription);
 
-                if (fetchError) {
-                    console.error('Error fetching current balance:', fetchError);
-                } else {
-                    const currentBalance = Number(currentSub?.balance) || 0;
-                    const newBalance = currentBalance + parseFloat(amountDue);
-
-                    // Update balance
-                    const { error: balanceError } = await supabase
-                        .from('subscriptions')
-                        .update({ balance: newBalance })
-                        .eq('id', selectedSubscription);
-
-                    if (balanceError) {
-                        console.error('Balance update error:', balanceError);
-                        // Continue anyway - invoice is created
-                    }
+                if (balanceError) {
+                    console.error('Balance update error:', balanceError);
+                    // Continue anyway - invoice is created
                 }
             }
 
@@ -194,11 +189,7 @@ export default function ManualInvoiceMigrationModal({
         setSelectedSubscription('');
         setSearchQuery('');
         setShowDropdown(false);
-        setFromDate('');
-        setToDate('');
-        setDueDate('');
         setAmountDue('');
-        setPaymentStatus('Unpaid');
         setNotes('');
     };
 
@@ -383,84 +374,45 @@ export default function ManualInvoiceMigrationModal({
                         )}
                     </div>
 
-                    {/* Date Fields */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                                <Calendar className="w-4 h-4 inline mr-1" />
-                                From Date <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={fromDate}
-                                onChange={(e) => setFromDate(e.target.value)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                                <Calendar className="w-4 h-4 inline mr-1" />
-                                To Date <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={toDate}
-                                onChange={(e) => setToDate(e.target.value)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                                <Calendar className="w-4 h-4 inline mr-1" />
-                                Due Date <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={dueDate}
-                                onChange={(e) => setDueDate(e.target.value)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                                required
-                            />
+                    {/* Date Fields - Hidden, using defaults */}
+                    <div className="p-4 bg-gray-900/50 border border-gray-800 rounded-lg">
+                        <div className="flex items-start gap-3">
+                            <Calendar className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
+                            <div className="text-sm">
+                                <p className="text-gray-400 font-medium mb-1">Default Invoice Dates</p>
+                                <div className="grid grid-cols-3 gap-4 text-xs text-gray-500">
+                                    <div>
+                                        <span className="block text-gray-600">From:</span>
+                                        <span className="text-white">Jan 1, 2026</span>
+                                    </div>
+                                    <div>
+                                        <span className="block text-gray-600">To:</span>
+                                        <span className="text-white">Jan 2, 2026</span>
+                                    </div>
+                                    <div>
+                                        <span className="block text-gray-600">Due:</span>
+                                        <span className="text-white">Jan 15, 2026</span>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-gray-600 mt-2">Status: <span className="text-red-400">Unpaid</span></p>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Amount and Status */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                                <DollarSign className="w-4 h-4 inline mr-1" />
-                                Amount Due <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                value={amountDue}
-                                onChange={(e) => setAmountDue(e.target.value)}
-                                placeholder="0.00"
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                                required
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-2">
-                                Payment Status <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={paymentStatus}
-                                onChange={(e) => setPaymentStatus(e.target.value as any)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
-                                required
-                            >
-                                <option value="Unpaid">Unpaid</option>
-                                <option value="Partially Paid">Partially Paid</option>
-                                <option value="Paid">Paid</option>
-                            </select>
-                        </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            <DollarSign className="w-4 h-4 inline mr-1" />
+                            Amount Due <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={amountDue}
+                            onChange={(e) => setAmountDue(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-amber-500 focus:outline-none"
+                            required
+                        />
                     </div>
 
                     {/* Notes */}
