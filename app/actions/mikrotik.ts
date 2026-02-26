@@ -434,6 +434,67 @@ export async function updatePppSecret(username: string, updates: any) {
 
 // --- SYNC SUBSCRIPTION ACTIVE STATUS TO MIKROTIK ---
 /**
+ * Remove active PPP connection from MikroTik
+ * This is equivalent to clicking "Remove" in MikroTik's Active Connections
+ * Forces the user to disconnect immediately
+ */
+export async function removeActivePppConnection(username: string) {
+    try {
+        checkCredentials();
+
+        console.log(`[PPP] Removing active connection for: ${username}`);
+
+        // 1. Try REST API (Tunnel)
+        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+            try {
+                // Get active connections
+                const activeConnections = await fetchRestData(host, 'ppp/active');
+                const activeConn = Array.isArray(activeConnections) 
+                    ? activeConnections.find((a: any) => a.name === username) 
+                    : null;
+
+                if (!activeConn) {
+                    console.log(`[PPP] No active connection found for ${username}`);
+                    return { success: true, message: 'No active connection to remove' };
+                }
+
+                // Remove the active connection
+                await fetchRestData(host, `ppp/active/${activeConn['.id']}`, 'DELETE');
+                console.log(`[PPP] Successfully removed active connection for ${username}`);
+                return { success: true, message: 'Active connection removed' };
+            } catch (error: any) {
+                console.error(`[PPP] REST remove failed: ${error.message}`);
+                // Fall through to binary API
+            }
+        }
+
+        // 2. Fallback to Binary API
+        const target = host && !host.includes('trycloudflare.com') && !host.includes('ngrok-free') 
+            ? host 
+            : LOCAL_FALLBACK_IP;
+
+        return await withBinaryConnection(async (client) => {
+            // Find active connection
+            const activeConns = await client.write('/ppp/active/print', ['?name=' + username]);
+            
+            if (!activeConns || activeConns.length === 0) {
+                console.log(`[PPP] No active connection found for ${username}`);
+                return { success: true, message: 'No active connection to remove' };
+            }
+
+            // Remove the active connection
+            await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
+            console.log(`[PPP] Successfully removed active connection for ${username}`);
+            return { success: true, message: 'Active connection removed' };
+        }, target);
+
+    } catch (error: any) {
+        console.error(`[PPP] Remove active connection error: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Sync subscription active status to MikroTik.
  * When subscription is marked as inactive:
  * 1. Changes profile to "DC" (Disconnected)

@@ -68,6 +68,13 @@ export default function MikrotikPage() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<{ success: boolean; message?: string; synced?: number; total?: number; errors?: string[] } | null>(null);
 
+    // Migration State
+    const [showMigrationModal, setShowMigrationModal] = useState(false);
+    const [migrationFile, setMigrationFile] = useState<File | null>(null);
+    const [isMigrating, setIsMigrating] = useState(false);
+    const [migrationResult, setMigrationResult] = useState<any>(null);
+    const [migrationError, setMigrationError] = useState('');
+
     // Expanded PPP items
     const [expandedPpp, setExpandedPpp] = useState<string | null>(null);
 
@@ -207,6 +214,43 @@ export default function MikrotikPage() {
         }
     };
 
+    // Handle Migration
+    const handleMigration = async () => {
+        if (!migrationFile) {
+            setMigrationError('Please select a file');
+            return;
+        }
+
+        setIsMigrating(true);
+        setMigrationError('');
+        setMigrationResult(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', migrationFile);
+
+            const response = await fetch('/api/admin/migrate-data', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Migration failed');
+            }
+
+            setMigrationResult(result);
+            
+            // Refresh MikroTik data after successful migration
+            fetchData();
+        } catch (err) {
+            setMigrationError(err instanceof Error ? err.message : 'An error occurred');
+        } finally {
+            setIsMigrating(false);
+        }
+    };
+
     // Handle Export to Excel
     const handleExportToExcel = () => {
         if (!data) return;
@@ -332,6 +376,13 @@ export default function MikrotikPage() {
                         >
                             <ArrowRightLeft className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
                             Sync to DB
+                        </button>
+                        <button
+                            onClick={() => setShowMigrationModal(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-purple-900/30"
+                        >
+                            <Database className="w-4 h-4" />
+                            AutoGenerate Mikrotik + Data
                         </button>
                         <button
                             onClick={() => setShowAddPppModal(true)}
@@ -851,6 +902,222 @@ export default function MikrotikPage() {
                                     Save Changes
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Migration Modal */}
+            {showMigrationModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 border border-purple-500/30 rounded-2xl w-full max-w-2xl shadow-2xl shadow-purple-900/30">
+                        {/* Header */}
+                        <div className="border-b border-purple-500/30 p-6 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-purple-900/20 rounded-lg flex items-center justify-center">
+                                    <Database className="w-5 h-5 text-purple-500" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">AutoGenerate Mikrotik + Data</h2>
+                                    <p className="text-xs text-purple-400">Upload WEBSITEE.xlsx to migrate data</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowMigrationModal(false);
+                                    setMigrationFile(null);
+                                    setMigrationResult(null);
+                                    setMigrationError('');
+                                    setMigrationProgress({ current: 0, total: 0, percentage: 0 });
+                                }}
+                                className="text-gray-400 hover:text-white transition-colors"
+                                disabled={isMigrating}
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            {!migrationResult ? (
+                                <>
+                                    {/* File Upload */}
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                                            Select Excel File (WEBSITEE.xlsx)
+                                        </label>
+                                        <div className="flex items-center gap-3">
+                                            <label className="flex-1 cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept=".xlsx,.xls"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                            setMigrationFile(file);
+                                                            setMigrationError('');
+                                                        }
+                                                    }}
+                                                    className="hidden"
+                                                    disabled={isMigrating}
+                                                />
+                                                <div className="px-4 py-3 bg-black/40 border border-white/10 rounded-lg text-white hover:border-purple-500 transition-colors flex items-center justify-between">
+                                                    <span className="text-sm">
+                                                        {migrationFile ? migrationFile.name : 'Choose file...'}
+                                                    </span>
+                                                    <Database className="w-4 h-4 text-gray-400" />
+                                                </div>
+                                            </label>
+                                        </div>
+                                        {migrationFile && !isMigrating && (
+                                            <p className="text-xs text-green-400 mt-2">
+                                                ✓ {migrationFile.name} ({(migrationFile.size / 1024).toFixed(2)} KB)
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Progress Bar */}
+                                    {isMigrating && (
+                                        <div className="mb-6">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm text-purple-300 font-medium">Processing Migration...</span>
+                                                <span className="text-sm text-purple-400 font-mono animate-pulse">
+                                                    Working...
+                                                </span>
+                                            </div>
+                                            {/* Indeterminate progress bar */}
+                                            <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden relative">
+                                                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 animate-shimmer" 
+                                                     style={{ 
+                                                         backgroundSize: '200% 100%',
+                                                         animation: 'shimmer 2s infinite linear'
+                                                     }}
+                                                />
+                                            </div>
+                                            <p className="text-xs text-gray-400 mt-2 text-center">
+                                                Creating customers, subscriptions, and MikroTik secrets...
+                                            </p>
+                                            <p className="text-xs text-yellow-400 mt-1 text-center">
+                                                ⚠️ Please do not close this window. This may take a few minutes.
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Error */}
+                                    {migrationError && (
+                                        <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+                                            <p className="text-red-400 text-sm">{migrationError}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Info */}
+                                    {!isMigrating && (
+                                        <div className="mb-6 p-4 bg-purple-900/10 border border-purple-500/20 rounded-lg">
+                                            <p className="text-purple-300 text-sm">
+                                                This will create customers, subscriptions, and MikroTik PPP secrets from the Excel file.
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Buttons */}
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => {
+                                                setShowMigrationModal(false);
+                                                setMigrationFile(null);
+                                                setMigrationError('');
+                                                setMigrationProgress({ current: 0, total: 0, percentage: 0 });
+                                            }}
+                                            className="flex-1 px-4 py-3 border border-gray-700 rounded-lg text-gray-300 hover:bg-gray-800 transition-colors font-medium"
+                                            disabled={isMigrating}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={handleMigration}
+                                            disabled={!migrationFile || isMigrating}
+                                            className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                        >
+                                            {isMigrating ? (
+                                                <>
+                                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                                    Processing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Database className="w-4 h-4" />
+                                                    Start Migration
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {/* Success Result */}
+                                    <div className="mb-6">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className="w-12 h-12 bg-green-900/20 rounded-full flex items-center justify-center">
+                                                <Database className="w-6 h-6 text-green-500" />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-lg font-bold text-green-400">Migration Completed!</h3>
+                                                <p className="text-sm text-gray-400">Data has been imported successfully</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-4 mb-4">
+                                            <div className="bg-black/40 rounded-lg p-4 border border-white/10">
+                                                <p className="text-gray-400 text-xs mb-1">Customers</p>
+                                                <p className="text-2xl font-bold text-white">{migrationResult.customersCreated || 0}</p>
+                                            </div>
+                                            <div className="bg-black/40 rounded-lg p-4 border border-white/10">
+                                                <p className="text-gray-400 text-xs mb-1">Subscriptions</p>
+                                                <p className="text-2xl font-bold text-white">{migrationResult.subscriptionsCreated || 0}</p>
+                                            </div>
+                                            <div className="bg-black/40 rounded-lg p-4 border border-white/10">
+                                                <p className="text-gray-400 text-xs mb-1">MikroTik Secrets</p>
+                                                <p className="text-2xl font-bold text-white">{migrationResult.mikrotikSecretsCreated || 0}</p>
+                                            </div>
+                                        </div>
+
+                                        {migrationResult.columnsFound && (
+                                            <div className="mb-4 p-3 bg-blue-900/10 border border-blue-500/20 rounded-lg">
+                                                <p className="text-blue-400 text-xs font-medium mb-2">Excel Columns Detected:</p>
+                                                <p className="text-blue-300 text-xs font-mono break-all">
+                                                    {migrationResult.columnsFound.join(', ')}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {migrationResult.errors && migrationResult.errors.length > 0 && (
+                                            <div className="p-3 bg-yellow-900/10 border border-yellow-500/20 rounded-lg max-h-60 overflow-y-auto">
+                                                <p className="text-yellow-400 text-xs font-medium mb-2">
+                                                    Warnings ({migrationResult.errors.length}):
+                                                </p>
+                                                <ul className="text-yellow-300 text-xs space-y-1">
+                                                    {migrationResult.errors.map((err: string, idx: number) => (
+                                                        <li key={idx} className="font-mono">• {err}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        onClick={() => {
+                                            setShowMigrationModal(false);
+                                            setMigrationFile(null);
+                                            setMigrationResult(null);
+                                            setMigrationError('');
+                                            setMigrationProgress({ current: 0, total: 0, percentage: 0 });
+                                        }}
+                                        className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium"
+                                    >
+                                        Close
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -65,12 +65,32 @@ export async function processDisconnection(
         }
 
         // Sync to MikroTik (set profile to DC and disable)
-        const { syncSubscriptionToMikrotik } = await import('./mikrotik');
+        const { syncSubscriptionToMikrotik, removeActivePppConnection } = await import('./mikrotik');
         const mikrotikResult = await syncSubscriptionToMikrotik(subscriptionId, false);
 
         if (!mikrotikResult.success) {
             console.error('[Disconnect] MikroTik sync failed:', mikrotikResult.error);
             // Don't fail the whole operation, just log the error
+        }
+
+        // Remove active PPP connection to immediately disconnect the user
+        // This is like clicking "Remove" in MikroTik's Active Connections
+        const { data: pppSecret } = await supabase
+            .from('mikrotik_ppp_secrets')
+            .select('name')
+            .eq('subscription_id', subscriptionId)
+            .single();
+
+        if (pppSecret?.name) {
+            console.log(`[Disconnect] Removing active connection for ${pppSecret.name}`);
+            const removeResult = await removeActivePppConnection(pppSecret.name);
+            
+            if (!removeResult.success) {
+                console.error('[Disconnect] Failed to remove active connection:', removeResult.error);
+                // Don't fail the whole operation, just log the error
+            } else {
+                console.log(`[Disconnect] Successfully removed active connection for ${pppSecret.name}`);
+            }
         }
 
         return {
