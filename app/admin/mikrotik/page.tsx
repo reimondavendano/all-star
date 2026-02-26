@@ -74,6 +74,7 @@ export default function MikrotikPage() {
     const [isMigrating, setIsMigrating] = useState(false);
     const [migrationResult, setMigrationResult] = useState<any>(null);
     const [migrationError, setMigrationError] = useState('');
+    const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0, percentage: 0 });
 
     // Expanded PPP items
     const [expandedPpp, setExpandedPpp] = useState<string | null>(null);
