@@ -142,6 +142,8 @@ export async function POST(request: NextRequest) {
                 const landmark = (row['LandMark'] || row['Landmark'] || row['landmark'])?.toString().trim();
                 const invoiceDate = (row['Invoice Date'] || row['invoice_date'] || row['InvoiceDate'])?.toString().trim();
                 const dateInstalled = formatDate(row['Date Installed'] || row['date_installed'] || row['DateInstalled']);
+                const reconnectionDate = formatDate(row['Reconnection Date'] || row['reconnection_date'] || row['ReconnectionDate']);
+                const balance = row['Balance'] || row['balance'] ? parseFloat(row['Balance'] || row['balance']) : 0;
                 const okToDelete = (row['Ok to Delete in Mikrotik?'] || row['ok_to_delete'] || row['OkToDelete'])?.toString().trim().toUpperCase();
                 const isFree = (row['Free?'] || row['free'] || row['Free'])?.toString().trim().toUpperCase();
 
@@ -157,6 +159,8 @@ export async function POST(request: NextRequest) {
                         mikrotikCustomerName,
                         businessUnitName,
                         profile,
+                        reconnectionDate,
+                        balance,
                         okToDelete,
                         isFree
                     });
@@ -324,10 +328,11 @@ export async function POST(request: NextRequest) {
                         barangay: barangay,
                         invoice_date: invoiceDate === '15th' ? '15th' : '30th',
                         date_installed: dateInstalled,
+                        last_reconnection_date: reconnectionDate,
+                        balance: balance,
                         active: okToDelete === 'NO', // NO = True (active), YES = False (inactive)
                         is_free: isFree === 'YES',
-                        referral_credit_applied: false,
-                        balance: 0
+                        referral_credit_applied: false
                     })
                     .select('id')
                     .single();
