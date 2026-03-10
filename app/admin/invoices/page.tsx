@@ -238,7 +238,7 @@ export default function InvoicesPaymentsPage() {
         // Filter invoices by their due date month
         // This ensures manual/legacy invoices show up in the correct month
         const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
-        
+
         return invoices.filter(inv => {
             return inv.due_date.startsWith(targetMonth);
         });
@@ -255,7 +255,7 @@ export default function InvoicesPaymentsPage() {
             // Fetch from start of previous month to end of current month
             // Use timezone-safe date formatting to avoid off-by-one errors
             const fetchStartDate = `${selectedYear}-${String(selectedMonthNum - 1).padStart(2, '0')}-01`;
-            
+
             const lastDayOfMonth = new Date(selectedYear, selectedMonthNum, 0).getDate();
             const fetchEndDate = `${selectedYear}-${String(selectedMonthNum).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
@@ -748,7 +748,7 @@ export default function InvoicesPaymentsPage() {
                         </button>
 
                         {/* ⚠️ TEMPORARY MIGRATION BUTTON - REMOVE AFTER DATA MIGRATION */}
-                        <button
+                        {/* <button
                             onClick={() => setIsMigrationModalOpen(true)}
                             className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium border-2 border-amber-400/30"
                             title="Temporary: For migrating old invoices from legacy system"
@@ -757,7 +757,7 @@ export default function InvoicesPaymentsPage() {
                             <span className="hidden sm:inline">Manual Invoice</span>
                             <span className="sm:hidden">Migration</span>
                             <span className="text-xs bg-amber-900/50 px-1.5 py-0.5 rounded">TEMP</span>
-                        </button>
+                        </button> */}
                     </div>
                 </div>
 
