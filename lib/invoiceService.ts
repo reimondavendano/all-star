@@ -220,8 +220,8 @@ export async function generateInvoicesForBusinessUnit(
             let actualFromDate = dates.fromDate; // Track the actual billing start date
 
             // Check if subscription was recently reconnected within this billing period
-            const wasRecentlyReconnected = lastReconnection && 
-                lastReconnection >= dates.fromDate && 
+            const wasRecentlyReconnected = lastReconnection &&
+                lastReconnection >= dates.fromDate &&
                 lastReconnection <= dates.toDate;
 
             if (wasRecentlyReconnected) {
@@ -229,7 +229,7 @@ export async function generateInvoicesForBusinessUnit(
                 // This avoids double-charging the reconnection day (which is covered by disconnection invoice)
                 const dayAfterReconnection = new Date(lastReconnection);
                 dayAfterReconnection.setDate(dayAfterReconnection.getDate() + 1);
-                
+
                 const prorated = calculateProratedAmount(
                     plan.monthly_fee,
                     dayAfterReconnection,
@@ -317,16 +317,16 @@ export async function generateInvoicesForBusinessUnit(
             // Prepare SMS notification
             if (sendSmsNotifications && customer?.mobile_number && totalAmountDue > 0) {
                 const buName = (sub.business_units as any)?.name || businessUnit.name;
-                
+
                 // Calculate outstanding balance (previous unpaid invoices)
                 const outstandingBalance = currentBalance > 0 ? currentBalance : 0;
-                
+
                 // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
                 // Build full portal URL
                 // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
                 // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 // const portalLink = removeHttpsProtocol(fullPortalLink);
-                
+
                 const smsMessage = SMSTemplates.invoiceGenerated(
                     customer.name,
                     amountDue,
@@ -335,7 +335,7 @@ export async function generateInvoicesForBusinessUnit(
                     '', // portalLink - TEMPORARILY REMOVED FOR TESTING
                     outstandingBalance > 0 ? outstandingBalance : undefined
                 );
-                
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: smsMessage,
@@ -345,7 +345,7 @@ export async function generateInvoicesForBusinessUnit(
 
         // 9. Insert invoices
         if (invoicesToInsert.length > 0) {
-            const { error: insertError} = await supabase
+            const { error: insertError } = await supabase
                 .from('invoices')
                 .insert(invoicesToInsert);
 
@@ -395,15 +395,16 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
         const today = new Date();
         const todayStr = toISODateString(today);
 
-        // Find invoices due today that are unpaid
+        // Find invoices due today that are unpaid (only for active subscriptions)
         const { data: unpaidInvoices, error } = await supabase
             .from('invoices')
             .select(`
                 id,
                 amount_due,
                 due_date,
-                subscriptions (
+                subscriptions!inner (
                     id,
+                    active,
                     business_unit_id,
                     customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
@@ -414,7 +415,8 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
                 )
             `)
             .eq('due_date', todayStr)
-            .eq('payment_status', 'Unpaid');
+            .eq('payment_status', 'Unpaid')
+            .eq('subscriptions.active', true);
 
         if (error) {
             result.errors.push(error.message);
@@ -425,6 +427,8 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
 
         for (const invoice of unpaidInvoices || []) {
             const sub = invoice.subscriptions as any;
+            // Skip inactive subscriptions (should already be filtered, but double-check)
+            if (!sub?.active) continue;
             if (sub?.business_unit_id !== businessUnitId) continue;
 
             const customer = sub?.customers as any;
@@ -434,7 +438,7 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
                 // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
                 // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 // const portalLink = removeHttpsProtocol(fullPortalLink);
-                
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
@@ -578,13 +582,13 @@ export async function generateDisconnectionInvoice(
             const buName = (subscription.business_units as any)?.name || '';
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
             const totalAmount = newBalance;
-            
+
             // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
             // Build full portal URL
             // const portalPath = (subscription as any).customer_portal || `/portal/${customer.id}`;
             // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
             // const portalLink = removeHttpsProtocol(fullPortalLink);
-            
+
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.serviceDisconnected(
@@ -743,13 +747,13 @@ export async function generateActivationInvoice(
         const customer = subscription.customers as any;
         if (customer?.mobile_number) {
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
-            
+
             // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
             // Build full portal URL
             // const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
             // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
             // const portalLink = removeHttpsProtocol(fullPortalLink);
-            
+
             await sendSMS({
                 to: customer.mobile_number,
                 message: SMSTemplates.invoiceGenerated(
@@ -819,14 +823,15 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
             return result;
         }
 
-        // Find unpaid invoices for this business unit
+        // Find unpaid invoices for this business unit (only for active subscriptions)
         const { data: unpaidInvoices } = await supabase
             .from('invoices')
             .select(`
                 id,
                 amount_due,
-                subscriptions (
+                subscriptions!inner (
                     id,
+                    active,
                     business_unit_id,
                     customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
@@ -836,12 +841,15 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
                     )
                 )
             `)
-            .in('payment_status', ['Unpaid', 'Partially Paid']);
+            .in('payment_status', ['Unpaid', 'Partially Paid'])
+            .eq('subscriptions.active', true);
 
         const smsMessages: Array<{ to: string; message: string }> = [];
 
         for (const invoice of unpaidInvoices || []) {
             const sub = invoice.subscriptions as any;
+            // Skip inactive subscriptions (should already be filtered, but double-check)
+            if (!sub?.active) continue;
             if (sub?.business_unit_id !== businessUnitId) continue;
 
             const customer = sub?.customers as any;
@@ -851,7 +859,7 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
                 // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
                 // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 // const portalLink = removeHttpsProtocol(fullPortalLink);
-                
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(
@@ -1105,7 +1113,7 @@ export async function generateInvoicesForExtension(
                     // const portalPath = (sub as any).customer_portal || `/portal/${customer.id}`;
                     // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                     // const portalLink = removeHttpsProtocol(fullPortalLink);
-                    
+
                     smsMessages.push({
                         to: customer.mobile_number,
                         message: SMSTemplates.invoiceGenerated(
@@ -1172,6 +1180,7 @@ export async function sendDueDateRemindersForExtension(
                 due_date,
                 subscriptions!inner (
                     id,
+                    active,
                     invoice_date,
                     business_unit_id,
                     customer_portal,
@@ -1185,7 +1194,8 @@ export async function sendDueDateRemindersForExtension(
             .eq('payment_status', 'Unpaid')
             .eq('due_date', todayStr)
             .eq('subscriptions.business_unit_id', extensionBU.id)
-            .eq('subscriptions.invoice_date', invoiceDate);
+            .eq('subscriptions.invoice_date', invoiceDate)
+            .eq('subscriptions.active', true);
 
         if (error) {
             result.errors.push(`Error fetching invoices: ${error.message}`);
@@ -1208,7 +1218,7 @@ export async function sendDueDateRemindersForExtension(
                 // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
                 // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 // const portalLink = removeHttpsProtocol(fullPortalLink);
-                
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.dueDateReminder(
@@ -1268,6 +1278,7 @@ export async function sendDisconnectionWarningsForExtension(
                 due_date,
                 subscriptions!inner (
                     id,
+                    active,
                     invoice_date,
                     business_unit_id,
                     customer_portal,
@@ -1281,7 +1292,8 @@ export async function sendDisconnectionWarningsForExtension(
             .eq('payment_status', 'Unpaid')
             .lt('due_date', todayStr)
             .eq('subscriptions.business_unit_id', extensionBU.id)
-            .eq('subscriptions.invoice_date', invoiceDate);
+            .eq('subscriptions.invoice_date', invoiceDate)
+            .eq('subscriptions.active', true);
 
         if (error) {
             result.errors.push(`Error fetching invoices: ${error.message}`);
@@ -1304,7 +1316,7 @@ export async function sendDisconnectionWarningsForExtension(
                 // const portalPath = sub.customer_portal || `/portal/${customer.id}`;
                 // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
                 // const portalLink = removeHttpsProtocol(fullPortalLink);
-                
+
                 smsMessages.push({
                     to: customer.mobile_number,
                     message: SMSTemplates.disconnectionWarning(

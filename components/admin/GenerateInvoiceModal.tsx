@@ -118,7 +118,10 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
 
             // Fetch all subscriptions for the selected business unit (exclude FREE subscriptions)
-            const { data: subs, error } = await supabase
+            // For Extension, also filter by invoice_date to match the selected cycle (15th or 30th)
+            const isExtension = unit.name.toLowerCase().includes('extension');
+
+            let subsQuery = supabase
                 .from('subscriptions')
                 .select(`
                     id,
@@ -129,6 +132,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     last_reconnection_date,
                     referral_credit_applied,
                     customer_portal,
+                    invoice_date,
                     is_free,
                     customers!subscriptions_subscriber_id_fkey (
                         id,
@@ -143,6 +147,13 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 .eq('business_unit_id', selectedUnit)
                 .eq('active', true)
                 .or('is_free.is.null,is_free.eq.false'); // Exclude FREE subscriptions
+
+            // For Extension: filter by invoice_date (15th or 30th) based on selected cycleDate
+            if (isExtension) {
+                subsQuery = subsQuery.eq('invoice_date', cycleDate);
+            }
+
+            const { data: subs, error } = await subsQuery;
 
             if (error) {
                 setDebugInfo(`Error fetching subscriptions: ${error.message}`);
@@ -238,8 +249,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 const lastReconnection = (sub as any).last_reconnection_date ? new Date((sub as any).last_reconnection_date) : null;
 
                 // Check if subscription was recently reconnected within this billing period
-                const wasRecentlyReconnected = lastReconnection && 
-                    lastReconnection >= dates.fromDate && 
+                const wasRecentlyReconnected = lastReconnection &&
+                    lastReconnection >= dates.fromDate &&
                     lastReconnection <= dates.toDate;
 
                 if (wasRecentlyReconnected) {
@@ -247,7 +258,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     // This avoids double-charging the reconnection day (which is covered by disconnection invoice)
                     const dayAfterReconnection = new Date(lastReconnection);
                     dayAfterReconnection.setDate(dayAfterReconnection.getDate() + 1);
-                    
+
                     const prorated = calculateProratedAmount(
                         plan.monthly_fee,
                         dayAfterReconnection,
@@ -440,7 +451,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                             .select('amount_due, amount_paid')
                             .eq('subscription_id', sub.id)
                             .in('payment_status', ['Unpaid', 'Partially Paid']);
-                        
+
                         // Calculate outstanding balance (before the new invoice)
                         const outstandingBalance = unpaidInvoices
                             ? unpaidInvoices.reduce((sum, inv) => {
@@ -449,7 +460,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                                 return sum + (due - paid);
                             }, 0)
                             : 0;
-                        
+
                         unpaidBalanceMap.set(sub.id, Math.round(outstandingBalance));
                     }
                 }
@@ -489,7 +500,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                     .map(sub => {
                         const previousUnpaidBalance = unpaidBalanceMap.get(sub.id) || 0;
                         const portalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${sub.customerPortal}`;
-                        
+
                         return {
                             to: sub.customerMobile,
                             template: 'invoiceGenerated',
