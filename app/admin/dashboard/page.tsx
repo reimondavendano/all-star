@@ -6,7 +6,7 @@ import {
     Users, DollarSign, AlertCircle, TrendingUp, RefreshCw, Wifi,
     CreditCard, Activity, FileText, Calendar, ChevronRight,
     ArrowUpRight, ArrowDownRight, Building2, Loader2,
-    Send, Download, Clock, CheckCircle, XCircle, Zap, Shield
+    Send, Download, Clock, CheckCircle, XCircle, Zap, Shield, Banknote
 } from 'lucide-react';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import { createPortal } from 'react-dom';
@@ -32,6 +32,7 @@ interface DashboardData {
     topDelinquents: DelinquentAccount[];
     expensesSummary: ExpensesSummary;
     subscriptionStats: SubscriptionStats;
+    paymentMethodsBreakdown: { method: string; total: number; count: number }[];
 }
 
 interface BusinessUnitPerformance {
@@ -287,7 +288,7 @@ export default function DashboardPage() {
             // Fetch invoices with subscription info to filter
             let currentInvoicesQuery = supabase
                 .from('invoices')
-                .select('amount_due, payment_status, subscription_id');
+                .select('id, amount_due, payment_status, subscription_id, subscriptions(business_unit_id, balance, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name, monthly_fee))');
 
             currentInvoicesQuery = applyDateFilter(currentInvoicesQuery, 'due_date', startOfMonth, startOfNextMonth);
 
@@ -322,55 +323,45 @@ export default function DashboardPage() {
                 : (prevInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
             const previousMonthRevenue = prevInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
 
-            // 6. Unpaid invoices count and TOTAL outstanding amount (ALL unpaid invoices, not just current month)
-            const { data: unpaidInvoicesRaw } = await supabase
-                .from('invoices')
-                .select('id, subscription_id, amount_due')
-                .neq('payment_status', 'Paid');
-            const unpaidInvoicesFiltered = selectedBusinessUnit === 'all'
-                ? (unpaidInvoicesRaw || [])
-                : (unpaidInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
-            const unpaidInvoicesCount = unpaidInvoicesFiltered.length;
-            // Total outstanding = sum of ALL unpaid invoices (not just current month)
-            const outstandingAmount = unpaidInvoicesFiltered.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
+            // 6. Unpaid invoices count and TOTAL outstanding amount (filtered by selected month)
+            const unpaidInvoicesCount = currentInvoices.filter(inv => inv.payment_status !== 'Paid').length;
+            const outstandingAmount = currentMonthOutstanding;
 
-            // 7. Payment status distribution (filtered by BU)
-            const { data: allInvoicesRaw } = await supabase.from('invoices').select('payment_status, subscription_id');
-            const allInvoices = selectedBusinessUnit === 'all'
-                ? (allInvoicesRaw || [])
-                : (allInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
+            // 7. Payment status distribution (filtered by selected month and BU)
             const paymentStatusCounts = {
-                paid: allInvoices.filter(i => i.payment_status === 'Paid').length,
-                unpaid: allInvoices.filter(i => i.payment_status === 'Unpaid').length,
-                partial: allInvoices.filter(i => i.payment_status === 'Partially Paid').length
+                paid: currentInvoices.filter(i => i.payment_status === 'Paid').length,
+                unpaid: currentInvoices.filter(i => i.payment_status === 'Unpaid').length,
+                partial: currentInvoices.filter(i => i.payment_status === 'Partially Paid').length
             };
 
-            // 8. Business Unit Performance
-            const { data: buPerf } = await supabase
-                .from('subscriptions')
-                .select(`
-                    business_unit_id,
-                    business_units(name),
-                    invoices(amount_due, payment_status)
-                `)
-                .eq('active', true);
-
+            // 8. Business Unit Performance (filtered by selected month)
             const buPerfMap: { [key: string]: BusinessUnitPerformance } = {};
-            (buPerf || []).forEach((sub: any) => {
+            (buData || []).forEach(bu => {
+                buPerfMap[bu.name] = { name: bu.name, billed: 0, collected: 0, outstanding: 0, subscribers: 0 };
+            });
+
+            // Tally subscribers from active subscriptions for accurate overall subscriber count per BU
+            const { data: buSubsActive } = await supabase.from('subscriptions').select('business_units(name)').eq('active', true);
+            (buSubsActive || []).forEach((sub: any) => {
                 const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
-                if (!buName) return;
-                if (!buPerfMap[buName]) {
-                    buPerfMap[buName] = { name: buName, billed: 0, collected: 0, outstanding: 0, subscribers: 0 };
+                if (buName && buPerfMap[buName]) {
+                    buPerfMap[buName].subscribers++;
                 }
-                buPerfMap[buName].subscribers++;
-                (sub.invoices || []).forEach((inv: any) => {
+            });
+
+            // Tally billing data from current month invoices
+            currentInvoices.forEach((inv: any) => {
+                const sub = inv.subscriptions;
+                if (!sub) return;
+                const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
+                if (buName && buPerfMap[buName]) {
                     buPerfMap[buName].billed += inv.amount_due || 0;
                     if (inv.payment_status === 'Paid') {
                         buPerfMap[buName].collected += inv.amount_due || 0;
                     } else {
                         buPerfMap[buName].outstanding += inv.amount_due || 0;
                     }
-                });
+                }
             });
             const businessUnitPerformance = Object.values(buPerfMap).sort((a, b) => b.billed - a.billed);
 
@@ -406,15 +397,10 @@ export default function DashboardPage() {
             });
             const revenueByMonthFinal = Object.values(monthlyMapCorrected);
 
-            // 10. Plan distribution (filtered by BU)
-            let planQuery = supabase.from('subscriptions').select('plans(name, monthly_fee)').eq('active', true);
-            if (selectedBusinessUnit !== 'all') {
-                planQuery = planQuery.eq('business_unit_id', selectedBusinessUnit);
-            }
-            const { data: planData } = await planQuery;
+            // 10. Plan distribution (filtered by selected month invoices)
             const planMap: { [key: string]: PlanDistribution } = {};
-            (planData || []).forEach((sub: any) => {
-                const plan = Array.isArray(sub.plans) ? sub.plans[0] : sub.plans;
+            currentInvoices.forEach((inv: any) => {
+                const plan = Array.isArray(inv.subscriptions?.plans) ? inv.subscriptions?.plans[0] : inv.subscriptions?.plans;
                 if (!plan?.name) return;
                 if (!planMap[plan.name]) {
                     planMap[plan.name] = { name: plan.name, count: 0, revenue: 0 };
@@ -501,39 +487,32 @@ export default function DashboardPage() {
             // Sort by timestamp
             recentActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-            // 12. Top Delinquent Accounts (filtered by BU)
-            let delinquentQuery = supabase
-                .from('subscriptions')
-                .select(`
-                    balance,
-                    customers!subscriptions_subscriber_id_fkey(name),
-                    business_units(name),
-                    invoices(payment_status),
-                    payments(settlement_date)
-                `)
-                .gt('balance', 0)
-                .order('balance', { ascending: false })
-                .limit(10);
-            if (selectedBusinessUnit !== 'all') {
-                delinquentQuery = delinquentQuery.eq('business_unit_id', selectedBusinessUnit);
-            }
-            const { data: delinquentData } = await delinquentQuery;
+            // 12. Top Delinquent Accounts (filtered by selected month and BU)
+            const delinquentMap: { [key: string]: DelinquentAccount } = {};
+            currentInvoices.forEach((inv: any) => {
+                if (inv.payment_status !== 'Paid' && inv.amount_due && inv.amount_due > 0) {
+                    const sub = inv.subscriptions;
+                    if (!sub) return;
 
-            const topDelinquents: DelinquentAccount[] = (delinquentData || []).map((sub: any) => {
-                const lastPaymentDate = sub.payments?.length > 0
-                    ? sub.payments.reduce((latest: string | null, p: any) => {
-                        if (!latest) return p.settlement_date;
-                        return new Date(p.settlement_date) > new Date(latest) ? p.settlement_date : latest;
-                    }, null as string | null)
-                    : null;
-                return {
-                    customerName: sub.customers?.name || 'Unknown',
-                    businessUnit: Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name || 'Unknown',
-                    balance: sub.balance || 0,
-                    unpaidCount: (sub.invoices || []).filter((i: any) => i.payment_status === 'Unpaid').length,
-                    lastPayment: lastPaymentDate
-                };
-            }).filter((d) => d.balance > 0);
+                    if (!delinquentMap[inv.subscription_id]) {
+                        const customerName = sub.customers?.name || 'Unknown';
+                        const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name || 'Unknown';
+
+                        delinquentMap[inv.subscription_id] = {
+                            customerName: customerName,
+                            businessUnit: buName,
+                            balance: 0,
+                            unpaidCount: 0,
+                            lastPayment: null
+                        };
+                    }
+                    delinquentMap[inv.subscription_id].balance += inv.amount_due;
+                    delinquentMap[inv.subscription_id].unpaidCount++;
+                }
+            });
+            const topDelinquents = Object.values(delinquentMap)
+                .sort((a, b) => b.balance - a.balance)
+                .slice(0, 10);
 
             // 13. Expenses Summary (filtered by BU)
             let expensesQuery = supabase
@@ -575,6 +554,37 @@ export default function DashboardPage() {
                 breakdown: Object.entries(expenseBreakdown).map(([reason, data]) => ({ reason, ...data }))
             };
 
+            // 14. Payment Methods Breakdown (filtered by selected month and BU)
+            let paymentsQueryMethod = supabase
+                .from('payments')
+                .select('amount, mode, subscription_id');
+
+            paymentsQueryMethod = applyDateFilter(paymentsQueryMethod, 'settlement_date', startOfMonth, startOfNextMonth);
+
+            const { data: paymentsDataRawMethod } = await paymentsQueryMethod;
+
+            const paymentsDataFilteredMethod = selectedBusinessUnit === 'all'
+                ? (paymentsDataRawMethod || [])
+                : (paymentsDataRawMethod || []).filter(pmt => subscriptionIdsForBU.includes(pmt.subscription_id));
+
+            const paymentMethodsMap: { [key: string]: { count: number; total: number } } = {};
+            paymentsDataFilteredMethod.forEach((pmt: any) => {
+                const methodRaw = pmt.mode ? String(pmt.mode).toLowerCase() : 'cash';
+                let normalizedMethod = 'Cash';
+                if (methodRaw.includes('gcash')) normalizedMethod = 'GCash';
+                else if (methodRaw.includes('maya') || methodRaw.includes('paymaya')) normalizedMethod = 'Maya';
+                else if (methodRaw.includes('bank')) normalizedMethod = 'Bank Transfer';
+
+                if (!paymentMethodsMap[normalizedMethod]) {
+                    paymentMethodsMap[normalizedMethod] = { count: 0, total: 0 };
+                }
+                paymentMethodsMap[normalizedMethod].count++;
+                paymentMethodsMap[normalizedMethod].total += pmt.amount || 0;
+            });
+            const paymentMethodsBreakdown = Object.entries(paymentMethodsMap)
+                .map(([method, data]) => ({ method, ...data }))
+                .sort((a, b) => b.total - a.total);
+
             // Customer Growth (vs last month)
             // Customer Growth (vs last month)
             // Need count of customers created BEFORE startOfMonth
@@ -606,7 +616,8 @@ export default function DashboardPage() {
                     active: activeSubscriptions || 0,
                     inactive: inactiveSubs || 0,
                     newThisMonth: newThisMonth || 0
-                }
+                },
+                paymentMethodsBreakdown
             });
         } catch (error) {
             console.error('Dashboard error:', error);
@@ -628,6 +639,143 @@ export default function DashboardPage() {
         const hours = Math.floor(mins / 60);
         if (hours < 24) return `${hours}h ago`;
         return `${Math.floor(hours / 24)}d ago`;
+    };
+
+    const handleExportInvoices = async () => {
+        try {
+            // Re-fetch or get the data based on selectedPeriod and selectedBusinessUnit
+            let targetDate = new Date();
+            if (selectedPeriod && !['This Week', 'This Month', 'This Quarter', 'This Year'].includes(selectedPeriod)) {
+                const parsedDate = new Date(Date.parse(`1 ${selectedPeriod}`));
+                if (!isNaN(parsedDate.getTime())) {
+                    targetDate = parsedDate;
+                }
+            }
+            const currentMonthISO = targetDate.toISOString().slice(0, 7); // YYYY-MM
+            const startOfMonth = `${currentMonthISO}-01`;
+            const nextMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 1);
+            const startOfNextMonth = nextMonthDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+            // Query invoices
+            let currentInvoicesQuery = supabase
+                .from('invoices')
+                .select('id, amount_due, payment_status, due_date, subscriptions(business_unit_id, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name))')
+                .gte('due_date', startOfMonth)
+                .lt('due_date', startOfNextMonth);
+
+            const { data: rawInvoices, error } = await currentInvoicesQuery;
+            if (error) throw error;
+
+            // Filter by business unit
+            const filteredInvoices = selectedBusinessUnit === 'all'
+                ? (rawInvoices || [])
+                : (rawInvoices || []).filter((inv: any) => inv.subscriptions?.business_unit_id === selectedBusinessUnit);
+
+            // Build CSV
+            const headers = ['Invoice ID', 'Customer Name', 'Business Unit', 'Plan', 'Due Date', 'Amount Due', 'Payment Status'];
+            const rows = filteredInvoices.map((inv: any) => {
+                const sub = inv.subscriptions || {};
+                const customerName = (sub.customers?.name || 'Unknown').replace(/"/g, '""');
+                const buName = (Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name || 'Unknown').replace(/"/g, '""');
+                const planName = (Array.isArray(sub.plans) ? sub.plans[0]?.name : sub.plans?.name || 'Unknown').replace(/"/g, '""');
+                return [
+                    `"${inv.id}"`,
+                    `"${customerName}"`,
+                    `"${buName}"`,
+                    `"${planName}"`,
+                    `"${inv.due_date}"`,
+                    `"${inv.amount_due}"`,
+                    `"${inv.payment_status}"`
+                ].join(',');
+            });
+
+            const csvContent = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Invoices_${selectedPeriod.replace(/ /g, '_')}_${selectedBusinessUnit}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+        } catch (error) {
+            console.error('Error exporting invoices', error);
+            alert('Failed to export invoices');
+        }
+    };
+
+    const handleExportDashboardReport = () => {
+        if (!data) return;
+
+        try {
+            const reportLines: string[] = [];
+            // helper for CSV rows
+            const addRow = (cols: string[]) => reportLines.push(cols.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','));
+
+            addRow(['Dashboard Report', '']);
+            addRow(['Period', selectedPeriod]);
+            let businessUnitName = 'All Business Units';
+            if (selectedBusinessUnit !== 'all') {
+                const found = businessUnits.find(b => b.id === selectedBusinessUnit);
+                if (found) businessUnitName = found.name;
+            }
+            addRow(['Business Unit Filter', businessUnitName]);
+            addRow([]);
+
+            addRow(['--- SUMMARY ---', '']);
+            addRow(['Total Customers', data.totalCustomers.toString()]);
+            addRow(['Active Subscriptions', data.activeSubscriptions.toString()]);
+            addRow(['Monthly Revenue (PHP)', data.monthlyRevenue.toString()]);
+            addRow(['Outstanding Balance (PHP)', data.outstandingAmount.toString()]);
+            addRow(['Collection Rate (%)', data.collectionRate.toFixed(2)]);
+            addRow(['Unpaid Invoices Count', data.unpaidInvoicesCount.toString()]);
+
+            addRow([]);
+            addRow(['--- SUBSCRIPTION STATS ---', '']);
+            addRow(['Active', data.subscriptionStats.active.toString()]);
+            addRow(['Inactive', data.subscriptionStats.inactive.toString()]);
+            addRow(['New This Month', data.subscriptionStats.newThisMonth.toString()]);
+
+            addRow([]);
+            addRow(['--- PAYMENT STATUS ---', '']);
+            addRow(['Paid', data.paymentStatusCounts.paid.toString()]);
+            addRow(['Unpaid', data.paymentStatusCounts.unpaid.toString()]);
+            addRow(['Partially Paid', data.paymentStatusCounts.partial.toString()]);
+
+            addRow([]);
+            addRow(['--- PAYMENT METHODS ---', 'Total (PHP)', 'Transaction Count']);
+            data.paymentMethodsBreakdown.forEach(pm => {
+                addRow([pm.method, pm.total.toString(), pm.count.toString()]);
+            });
+
+            addRow([]);
+            addRow(['--- BUSINESS UNIT PERFORMANCE ---', 'Subscribers', 'Billed (PHP)', 'Collected (PHP)', 'Outstanding (PHP)']);
+            data.businessUnitPerformance.forEach(bu => {
+                addRow([bu.name, bu.subscribers.toString(), bu.billed.toString(), bu.collected.toString(), bu.outstanding.toString()]);
+            });
+
+            addRow([]);
+            addRow(['--- EXPENSES SUMMARY ---', 'Total (PHP)']);
+            addRow(['Total Expenses', data.expensesSummary.total.toString()]);
+            addRow(['Breakdown', 'Count', 'Total (PHP)']);
+            data.expensesSummary.breakdown.forEach(exp => {
+                addRow([exp.reason, exp.count.toString(), exp.total.toString()]);
+            });
+
+            const csvContent = reportLines.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Dashboard_Report_${selectedPeriod.replace(/ /g, '_')}_${selectedBusinessUnit}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error('Error exporting report', error);
+            alert('Failed to export report');
+        }
     };
 
     if (isLoading || !data) {
@@ -935,21 +1083,19 @@ export default function DashboardPage() {
                     <div className="glass-card p-5">
                         <h3 className="text-sm text-gray-400 uppercase mb-4">Quick Actions</h3>
                         <div className="grid grid-cols-2 gap-3">
-                            <button className="p-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30">
+                            <button
+                                onClick={handleExportInvoices}
+                                className="p-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30"
+                            >
                                 <FileText className="w-4 h-4" />
-                                Invoices
+                                Export Invoices
                             </button>
-                            <button className="p-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30">
-                                <Send className="w-4 h-4" />
-                                Reminders
-                            </button>
-                            <button className="p-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2">
+                            <button
+                                onClick={handleExportDashboardReport}
+                                className="p-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                            >
                                 <Download className="w-4 h-4" />
-                                Export
-                            </button>
-                            <button className="p-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2">
-                                <Zap className="w-4 h-4" />
-                                Sync
+                                Export Dashboard Report
                             </button>
                         </div>
                     </div>
@@ -980,9 +1126,9 @@ export default function DashboardPage() {
                             {data.recentActivities.map((activity) => (
                                 <div key={activity.id} className="flex items-start gap-3 p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
                                     <div className={`p-2 rounded-lg ${activity.type === 'payment' ? 'bg-emerald-900/30' :
-                                            activity.type === 'invoice' ? 'bg-blue-900/30' :
-                                                activity.type === 'subscriber' ? 'bg-purple-900/30' :
-                                                    'bg-amber-900/30'
+                                        activity.type === 'invoice' ? 'bg-blue-900/30' :
+                                            activity.type === 'subscriber' ? 'bg-purple-900/30' :
+                                                'bg-amber-900/30'
                                         }`}>
                                         {activity.type === 'payment' ? <CheckCircle className="w-4 h-4 text-emerald-400" /> :
                                             activity.type === 'invoice' ? <FileText className="w-4 h-4 text-blue-400" /> :
@@ -1024,6 +1170,34 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    {/* Payment Methods Breakdown */}
+                    <div className="glass-card p-5">
+                        <h3 className="text-sm text-gray-400 uppercase mb-4">Payment Methods</h3>
+                        <div className="space-y-3">
+                            {data.paymentMethodsBreakdown.map((pm, idx) => (
+                                <div key={idx} className="flex flex-col p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-white font-medium flex items-center gap-2">
+                                            {pm.method === 'GCash' ? (
+                                                <div className="w-5 h-5 rounded-md bg-blue-500 flex items-center justify-center text-[10px] font-bold text-white">G</div>
+                                            ) : pm.method === 'Maya' ? (
+                                                <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center text-[10px] font-bold text-black">M</div>
+                                            ) : (
+                                                <Banknote className="w-4 h-4 text-emerald-500" />
+                                            )}
+                                            {pm.method}
+                                        </span>
+                                        <span className="text-emerald-400 font-bold">{formatCurrency(pm.total)}</span>
+                                    </div>
+                                    <span className="text-xs text-gray-500">{pm.count} transaction(s)</span>
+                                </div>
+                            ))}
+                            {data.paymentMethodsBreakdown.length === 0 && (
+                                <p className="text-gray-500 text-center py-2 text-sm">No payments recorded</p>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
