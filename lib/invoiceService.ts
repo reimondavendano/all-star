@@ -940,10 +940,9 @@ export function getTodaysTasks(today: Date): {
         tasks.shouldGenerateInvoices.push('malanggam');
         tasks.extensionTasks.generateInvoices = '30th';
     }
-    // Handle February (month === 1) which may have 28 or 29 days
-    const isFebruary = month === 1;
-    const lastDayOfFeb = new Date(philippineTime.getUTCFullYear(), 2, 0).getDate(); // 28 or 29
-    if (day === 30 || (isFebruary && day === lastDayOfFeb)) {
+    // Due date reminders for Malanggam and Extension '30th' cycle are sent on the last day of the month
+    const lastDayOfMonth = new Date(philippineTime.getUTCFullYear(), month + 1, 0).getDate();
+    if (day === lastDayOfMonth) {
         tasks.shouldSendDueReminders.push('malanggam');
         tasks.extensionTasks.sendDueReminders = '30th';
     }
@@ -1058,8 +1057,8 @@ export async function generateInvoicesForExtension(
                 }
 
                 // Check if invoice already exists for this period
-                const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-                const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+                const startDate = toISODateString(new Date(year, month - 1, 1));
+                const endDate = toISODateString(new Date(year, month, 0));
 
                 const { data: existing } = await supabase
                     .from('invoices')

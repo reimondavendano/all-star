@@ -178,8 +178,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             }
 
             // Check which ones already have an invoice for this month
-            const startDate = new Date(yearInt, monthInt - 1, 1).toISOString().split('T')[0];
-            const endDate = new Date(yearInt, monthInt, 0).toISOString().split('T')[0];
+            const startDate = toISODateString(new Date(yearInt, monthInt - 1, 1));
+            const endDate = toISODateString(new Date(yearInt, monthInt, 0));
 
             const { data: existingInvoices } = await supabase
                 .from('invoices')
@@ -670,6 +670,18 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         return `${formatDatePH(dates.fromDate)} - ${formatDatePH(dates.toDate)}`;
     };
 
+    // Calculate dynamic due day text for the 30th cycle option
+    const getDueDayText = () => {
+        if (!billingMonth) return '30th';
+        const [y, m] = billingMonth.split('-');
+        const lastDay = new Date(parseInt(y), parseInt(m), 0).getDate();
+        if (lastDay === 30) return '30th';
+        if (lastDay === 31) return '31st (Last Day)';
+        if (lastDay === 28) return '28th (Last Day)';
+        if (lastDay === 29) return '29th (Last Day)';
+        return `${lastDay}th`;
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -784,7 +796,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                                 15th (Gen: 10th, Due: 15th, Disc: 20th)
                             </option>
                             <option value="30th" disabled={lockedCycleDate === '15th'}>
-                                30th (Gen: 25th, Due: 30th, Disc: 5th)
+                                30th (Gen: 25th, Due: {getDueDayText()}, Disc: 5th)
                             </option>
                         </select>
                     </div>

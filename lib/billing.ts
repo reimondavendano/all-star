@@ -104,8 +104,9 @@ export function calculateBillingDates(
         disconnectionDate = new Date(year, month - 1, schedule.disconnectionDay);
         generationDate = new Date(year, month - 1, schedule.invoiceGenerationDay);
     } else {
-        // Full month: 1st to 30th/last day of current month
-        const effectiveDueDay = Math.min(schedule.dueDay, lastDay);
+        // Full month: 1st to End of current month
+        // If dueDay is 30, treat as End of Month
+        const effectiveDueDay = schedule.dueDay >= 30 ? lastDay : Math.min(schedule.dueDay, lastDay);
 
         fromDate = new Date(year, month - 1, 1);   // 1st of current month
         toDate = new Date(year, month - 1, lastDay); // Last day of month
