@@ -141,12 +141,12 @@ export default function ProspectsPage() {
                             Track and manage potential customers
                         </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full md:w-auto">
                         {/* Tab Switcher */}
-                        <div className="flex bg-gray-900/50 rounded-xl p-1 border border-gray-800">
+                        <div className="flex w-full sm:w-auto bg-gray-900/50 rounded-xl p-1 border border-gray-800">
                             <button
                                 onClick={() => { setActiveTab('Open'); setCurrentPage(1); }}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Open'
+                                className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Open'
                                     ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg'
                                     : 'text-gray-400 hover:text-white'
                                     }`}
@@ -155,7 +155,7 @@ export default function ProspectsPage() {
                             </button>
                             <button
                                 onClick={() => { setActiveTab('Closed Lost'); setCurrentPage(1); }}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Closed Lost'
+                                className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'Closed Lost'
                                     ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg'
                                     : 'text-gray-400 hover:text-white'
                                     }`}
@@ -164,28 +164,30 @@ export default function ProspectsPage() {
                             </button>
                         </div>
 
-                        <div className="relative">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                            <input
-                                type="text"
-                                placeholder="Search prospects..."
-                                value={searchQuery}
-                                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-orange-500 w-64"
-                            />
+                        <div className="flex w-full sm:w-auto items-center gap-2">
+                            <div className="relative flex-1 sm:flex-none">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Search prospects..."
+                                    value={searchQuery}
+                                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-orange-500 w-full sm:w-48 md:w-64"
+                                />
+                            </div>
+
+                            <button onClick={fetchProspects} className="p-2 shrink-0 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors border border-gray-700 sm:border-transparent bg-[#1a1a1a] sm:bg-transparent">
+                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+
+                            <button
+                                onClick={() => setShowModal(true)}
+                                className="flex shrink-0 items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-orange-900/30"
+                            >
+                                <Plus className="w-4 h-4" />
+                                <span className="hidden sm:inline">Add Prospect</span>
+                            </button>
                         </div>
-
-                        <button onClick={fetchProspects} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                        </button>
-
-                        <button
-                            onClick={() => setShowModal(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-orange-900/30"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Prospect
-                        </button>
                     </div>
                 </div>
             </div>
@@ -208,46 +210,48 @@ export default function ProspectsPage() {
                             <div key={prospect.id}>
                                 {/* Prospect Row */}
                                 <div
-                                    className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-3 transition-colors"
+                                    className="p-3 sm:p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-2 sm:gap-3 transition-colors"
                                     onClick={() => toggleRow(prospect.id)}
                                 >
-                                    {expandedRows.has(prospect.id) ? (
-                                        <ChevronDown className="w-5 h-5 text-gray-500" />
-                                    ) : (
-                                        <ChevronRight className="w-5 h-5 text-gray-500" />
-                                    )}
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-600 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-900/30">
-                                        <User className="w-5 h-5 text-white" />
+                                    <div className="shrink-0">
+                                        {expandedRows.has(prospect.id) ? (
+                                            <ChevronDown className="w-5 h-5 text-gray-500" />
+                                        ) : (
+                                            <ChevronRight className="w-5 h-5 text-gray-500" />
+                                        )}
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-semibold text-white truncate">{prospect.name}</div>
-                                        <div className="text-xs text-gray-500 flex items-center gap-2">
-                                            {prospect.mobile_number && <><Phone className="w-3 h-3" />{prospect.mobile_number}</>}
-                                            {prospect.barangay && <><span className="text-gray-700">•</span><MapPin className="w-3 h-3" />{prospect.barangay}</>}
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-orange-600 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-900/30 shrink-0">
+                                        <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                                    </div>
+                                    <div className="flex-1 min-w-0 pr-2">
+                                        <div className="font-semibold text-white truncate text-sm sm:text-base">{prospect.name}</div>
+                                        <div className="text-[10px] sm:text-xs text-gray-500 flex items-center gap-1.5 sm:gap-2 truncate mt-0.5">
+                                            {prospect.mobile_number && <span className="flex items-center gap-1 shrink-0"><Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3" />{prospect.mobile_number}</span>}
+                                            {prospect.barangay && <span className="flex items-center gap-1 truncate"><span className="text-gray-700 hidden sm:inline">•</span><MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" /><span className="truncate hidden sm:inline">{prospect.barangay}</span></span>}
                                         </div>
                                     </div>
-                                    <div className="hidden md:flex items-center gap-4 text-sm">
+                                    <div className="hidden md:flex items-center gap-4 text-sm shrink-0">
                                         <div className="text-gray-400">{getPlanDisplay(prospect.plan_id)}</div>
                                         <div className="text-gray-500">{formatDate(prospect.installation_date)}</div>
                                     </div>
-                                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${prospect.status === 'Open'
+                                    <span className={`shrink-0 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${prospect.status === 'Open'
                                         ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/50'
                                         : 'bg-red-900/40 text-red-400 border border-red-700/50'
                                         }`}>
                                         {prospect.status}
                                     </span>
-                                    <div className="flex items-center gap-1">
+                                    <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 ml-1 sm:ml-0">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setEditingProspect(prospect); }}
-                                            className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors"
+                                            className="p-1.5 sm:p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors"
                                         >
-                                            <Edit className="w-4 h-4" />
+                                            <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setDeleteConfirm(prospect.id); }}
-                                            className="p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors"
+                                            className="p-1.5 sm:p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors"
                                         >
-                                            <Trash2 className="w-4 h-4" />
+                                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                         </button>
                                     </div>
                                 </div>

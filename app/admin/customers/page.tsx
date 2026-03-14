@@ -360,70 +360,75 @@ export default function CustomersSubscriptionsPage() {
                                 <div key={customer.id}>
                                     {/* Customer Row */}
                                     <div
-                                        className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-3 transition-colors"
+                                        className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex flex-col sm:flex-row sm:items-center gap-3 transition-colors"
                                         onClick={() => toggleCustomer(customer.id)}
                                     >
-                                        {expandedCustomers.has(customer.id) ? (
-                                            <ChevronDown className="w-5 h-5 text-gray-500" />
-                                        ) : (
-                                            <ChevronRight className="w-5 h-5 text-gray-500" />
-                                        )}
-                                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-900/30">
-                                            <User className="w-5 h-5 text-white" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-semibold text-white truncate">{customer.name}</div>
-                                            <div className="text-xs text-gray-500 flex items-center gap-2">
-                                                <span>{subs.length} subscription(s)</span>
-                                                {customer.mobile_number && (
-                                                    <><span className="text-gray-700">•</span><Phone className="w-3 h-3" />{customer.mobile_number}</>
-                                                )}
+                                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                                            {expandedCustomers.has(customer.id) ? (
+                                                <ChevronDown className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                                            ) : (
+                                                <ChevronRight className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                                            )}
+                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-900/30 flex-shrink-0">
+                                                <User className="w-5 h-5 text-white" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-white truncate text-sm sm:text-base">{customer.name}</div>
+                                                <div className="text-[10px] sm:text-xs text-gray-500 flex flex-wrap items-center gap-1 sm:gap-2 mt-0.5">
+                                                    <span>{subs.length} sub(s)</span>
+                                                    {customer.mobile_number && (
+                                                        <><span className="text-gray-700 hidden sm:inline">•</span><Phone className="w-3 h-3 flex-shrink-0" /><span className="truncate">{customer.mobile_number}</span></>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            {activeCount > 0 && (
-                                                <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-400 border border-emerald-700/50">
-                                                    {activeCount} Active
-                                                </span>
-                                            )}
-                                            {subs.length - activeCount > 0 && (
-                                                <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-red-900/40 text-red-400 border border-red-700/50">
-                                                    {subs.length - activeCount} Inactive
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <button
-                                                onClick={(e) => handleCopyLink(customer.id, e)}
-                                                className="group relative p-2 text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg transition-colors"
-                                            >
-                                                {copiedId === customer.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                                                    {copiedId === customer.id ? 'Copied!' : 'Copy Portal Link'}
-                                                </span>
-                                            </button>
-                                            <button
-                                                onClick={(e) => openEditModal(customer, undefined, e)}
-                                                className="group relative p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors"
-                                            >
-                                                <Edit className="w-4 h-4" />
-                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                                                    Edit Customer
-                                                </span>
-                                            </button>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedCustomer(customer);
-                                                    setIsAddSubscriptionModalOpen(true);
-                                                }}
-                                                className="group relative p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded-lg transition-colors"
-                                            >
-                                                <Plus className="w-4 h-4" />
-                                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                                                    Add Subscription
-                                                </span>
-                                            </button>
+
+                                        <div className="flex items-center justify-between sm:justify-end flex-wrap gap-2 w-full sm:w-auto pl-12 sm:pl-0 mt-2 sm:mt-0">
+                                            <div className="flex items-center gap-2">
+                                                {activeCount > 0 && (
+                                                    <span className="px-2 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-900/40 text-emerald-400 border border-emerald-700/50 whitespace-nowrap">
+                                                        {activeCount} Active
+                                                    </span>
+                                                )}
+                                                {subs.length - activeCount > 0 && (
+                                                    <span className="px-2 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium bg-red-900/40 text-red-400 border border-red-700/50 whitespace-nowrap">
+                                                        {subs.length - activeCount} Inact
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={(e) => handleCopyLink(customer.id, e)}
+                                                    className="group relative p-1.5 sm:p-2 text-gray-400 hover:text-white hover:bg-gray-800/50 rounded-lg transition-colors flex-shrink-0"
+                                                >
+                                                    {copiedId === customer.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                        {copiedId === customer.id ? 'Copied!' : 'Copy Portal Link'}
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => openEditModal(customer, undefined, e)}
+                                                    className="group relative p-1.5 sm:p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors flex-shrink-0"
+                                                >
+                                                    <Edit className="w-4 h-4" />
+                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                        Edit Customer
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedCustomer(customer);
+                                                        setIsAddSubscriptionModalOpen(true);
+                                                    }}
+                                                    className="group relative p-1.5 sm:p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded-lg transition-colors flex-shrink-0"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                        Add Subscription
+                                                    </span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -436,30 +441,35 @@ export default function CustomersSubscriptionsPage() {
                                                     <div key={sub.id} className="border-l-2 border-purple-800/50 ml-6">
                                                         {/* Subscription Row */}
                                                         <div
-                                                            className="p-3 hover:bg-[#121212] cursor-pointer flex items-center gap-3 transition-colors"
+                                                            className="p-3 hover:bg-[#121212] cursor-pointer flex flex-col sm:flex-row sm:items-center gap-3 transition-colors"
                                                             onClick={() => toggleSubscription(sub.id)}
                                                         >
-                                                            {expandedSubscriptions.has(sub.id) ? (
-                                                                <ChevronDown className="w-4 h-4 text-gray-500" />
-                                                            ) : (
-                                                                <ChevronRight className="w-4 h-4 text-gray-500" />
-                                                            )}
-                                                            <Wifi className={`w-4 h-4 ${sub.active ? 'text-emerald-500' : 'text-red-500'}`} />
-                                                            <div className="flex-1">
-                                                                <div className="text-sm text-white font-medium">
-                                                                    {sub.plans?.name || 'Unknown Plan'}
-                                                                    {sub.label && <span className="ml-2 text-xs text-gray-500">({sub.label})</span>}
-                                                                </div>
-                                                                <div className="text-xs text-gray-500">
-                                                                    {sub.business_units?.name} • ₱{sub.plans?.monthly_fee?.toLocaleString()}/mo
-                                                                    {ppp && <span className="ml-2 text-cyan-500">• PPP: {ppp.name}</span>}
+                                                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                                {expandedSubscriptions.has(sub.id) ? (
+                                                                    <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                                                ) : (
+                                                                    <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                                                )}
+                                                                <Wifi className={`w-4 h-4 flex-shrink-0 ${sub.active ? 'text-emerald-500' : 'text-red-500'}`} />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="text-sm text-white font-medium truncate">
+                                                                        {sub.plans?.name || 'Unknown Plan'}
+                                                                        {sub.label && <span className="ml-1 sm:ml-2 text-[10px] sm:text-xs text-gray-500">({sub.label})</span>}
+                                                                    </div>
+                                                                    <div className="text-[10px] sm:text-xs text-gray-500 flex flex-wrap items-center gap-1 sm:gap-1.5 mt-0.5">
+                                                                        <span className="truncate max-w-[120px] sm:max-w-none">{sub.business_units?.name}</span>
+                                                                        <span className="text-gray-700">•</span>
+                                                                        <span className="whitespace-nowrap">₱{sub.plans?.monthly_fee?.toLocaleString()}/mo</span>
+                                                                        {ppp && <><span className="text-gray-700">•</span><span className="truncate max-w-[120px] sm:max-w-none text-cyan-500">PPP: {ppp.name}</span></>}
+                                                                    </div>
                                                                 </div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
+
+                                                            <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto pl-8 sm:pl-0 mt-2 sm:mt-0 gap-2">
                                                                 <button
                                                                     onClick={(e) => handleToggleActive(sub, e)}
                                                                     disabled={togglingSubId === sub.id}
-                                                                    className="group relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                    className="group relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                                                                     style={{ background: sub.active ? '#059669' : '#374151' }}
                                                                 >
                                                                     {togglingSubId === sub.id ? (
@@ -469,16 +479,16 @@ export default function CustomersSubscriptionsPage() {
                                                                     ) : (
                                                                         <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${sub.active ? 'left-5' : 'left-0.5'}`} />
                                                                     )}
-                                                                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                                                                         {togglingSubId === sub.id ? 'Checking...' : sub.active ? 'Disable' : 'Enable'} Subscription
                                                                     </span>
                                                                 </button>
                                                                 <button
                                                                     onClick={(e) => openEditModal(customer, sub, e)}
-                                                                    className="group relative p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors"
+                                                                    className="group relative p-1.5 text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 rounded-lg transition-colors flex-shrink-0"
                                                                 >
-                                                                    <Edit className="w-3.5 h-3.5" />
-                                                                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                                    <Edit className="w-4 h-4" />
+                                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                                                                         Edit Subscription
                                                                     </span>
                                                                 </button>

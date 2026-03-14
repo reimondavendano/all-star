@@ -352,10 +352,10 @@ export default function VerificationPage() {
                     <p className="text-gray-400 mt-1">Verify manual payments and manage QR codes.</p>
                 </div>
 
-                <div className="flex bg-[#1a1a1a] p-1 rounded-lg border border-gray-800">
+                <div className="flex flex-wrap bg-[#1a1a1a] p-1 rounded-lg border border-gray-800 w-full md:w-auto">
                     <button
                         onClick={() => setActiveTab('verification')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'verification'
+                        className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'verification'
                             ? 'bg-emerald-600 text-white shadow-lg'
                             : 'text-gray-400 hover:text-white'
                             }`}
@@ -364,7 +364,7 @@ export default function VerificationPage() {
                     </button>
                     <button
                         onClick={() => setActiveTab('settings')}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'settings'
+                        className={`flex-1 md:flex-none px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'settings'
                             ? 'bg-violet-600 text-white shadow-lg'
                             : 'text-gray-400 hover:text-white'
                             }`}
@@ -397,10 +397,10 @@ export default function VerificationPage() {
                         </div>
 
                         {/* Status Tabs */}
-                        <div className="flex gap-2 mt-4">
+                        <div className="flex flex-wrap gap-2 mt-4">
                             <button
                                 onClick={() => setStatusTab('pending')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'pending'
+                                className={`flex-1 sm:flex-none justify-center flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${statusTab === 'pending'
                                     ? 'bg-amber-600 text-white shadow-lg'
                                     : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
                                     }`}
@@ -408,14 +408,14 @@ export default function VerificationPage() {
                                 <Clock className="w-4 h-4" />
                                 Pending
                                 {pendingCount > 0 && (
-                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                    <span className="ml-1 px-1.5 sm:px-2 py-0.5 bg-white/20 rounded-full text-[10px] sm:text-xs">
                                         {pendingCount}
                                     </span>
                                 )}
                             </button>
                             <button
                                 onClick={() => setStatusTab('approved')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'approved'
+                                className={`flex-1 sm:flex-none justify-center flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${statusTab === 'approved'
                                     ? 'bg-emerald-600 text-white shadow-lg'
                                     : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
                                     }`}
@@ -423,14 +423,14 @@ export default function VerificationPage() {
                                 <CheckCircle className="w-4 h-4" />
                                 Approved
                                 {approvedCount > 0 && (
-                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                    <span className="ml-1 px-1.5 sm:px-2 py-0.5 bg-white/20 rounded-full text-[10px] sm:text-xs">
                                         {approvedCount}
                                     </span>
                                 )}
                             </button>
                             <button
                                 onClick={() => setStatusTab('rejected')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${statusTab === 'rejected'
+                                className={`flex-1 sm:flex-none justify-center flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${statusTab === 'rejected'
                                     ? 'bg-red-600 text-white shadow-lg'
                                     : 'bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
                                     }`}
@@ -438,7 +438,7 @@ export default function VerificationPage() {
                                 <XCircle className="w-4 h-4" />
                                 Rejected
                                 {rejectedCount > 0 && (
-                                    <span className="ml-1 px-2 py-0.5 bg-white/20 rounded-full text-xs">
+                                    <span className="ml-1 px-1.5 sm:px-2 py-0.5 bg-white/20 rounded-full text-[10px] sm:text-xs">
                                         {rejectedCount}
                                     </span>
                                 )}
@@ -456,94 +456,173 @@ export default function VerificationPage() {
                             <p>No {statusTab} payments found for this month.</p>
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-gray-900/50 text-gray-400 text-xs uppercase border-b border-gray-800">
-                                        <th className="p-4 font-medium">Customer</th>
-                                        <th className="p-4 font-medium">Payment Details</th>
-                                        <th className="p-4 font-medium">Reference</th>
-                                        <th className="p-4 font-medium">Date/Period</th>
-                                        <th className="p-4 font-medium">Status</th>
-                                        <th className="p-4 font-medium text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-800">
-                                    {filteredPayments.map((payment) => (
-                                        <tr key={payment.id} className="hover:bg-white/5 transition-colors">
-                                            <td className="p-4">
-                                                <p className="font-bold text-white">{payment.subscription?.customer?.name || 'Unknown'}</p>
-                                                <p className="text-xs text-gray-500">{payment.subscription?.customer?.mobile_number}</p>
-                                                <div className="text-xs mt-1 text-violet-400 bg-violet-900/10 px-2 py-0.5 rounded w-fit">
-                                                    {(Array.isArray(payment.subscription?.plan) ? payment.subscription.plan[0]?.name : payment.subscription?.plan?.name) || 'No Plan'}
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <p className="font-mono text-emerald-400 font-bold">₱{payment.amount.toLocaleString()}</p>
-                                                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                                                    <CreditCard className="w-3 h-3" />
-                                                    {payment.mode}
-                                                </p>
-                                                <p className="text-xs text-gray-500">{payment.subscription?.address}</p>
-                                            </td>
-                                            <td className="p-4">
-                                                <div className="bg-gray-900 border border-gray-700 rounded px-2 py-1 font-mono text-sm text-yellow-500 w-fit select-all">
+                        <div className="overflow-hidden">
+                            {/* Desktop View */}
+                            <div className="hidden md:block overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-900/50 text-gray-400 text-xs uppercase border-b border-gray-800">
+                                            <th className="p-4 font-medium">Customer</th>
+                                            <th className="p-4 font-medium">Payment Details</th>
+                                            <th className="p-4 font-medium">Reference</th>
+                                            <th className="p-4 font-medium">Date/Period</th>
+                                            <th className="p-4 font-medium">Status</th>
+                                            <th className="p-4 font-medium text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800">
+                                        {filteredPayments.map((payment) => (
+                                            <tr key={payment.id} className="hover:bg-white/5 transition-colors">
+                                                <td className="p-4">
+                                                    <p className="font-bold text-white">{payment.subscription?.customer?.name || 'Unknown'}</p>
+                                                    <p className="text-xs text-gray-500">{payment.subscription?.customer?.mobile_number}</p>
+                                                    <div className="text-xs mt-1 text-violet-400 bg-violet-900/10 px-2 py-0.5 rounded w-fit">
+                                                        {(Array.isArray(payment.subscription?.plan) ? payment.subscription.plan[0]?.name : payment.subscription?.plan?.name) || 'No Plan'}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4">
+                                                    <p className="font-mono text-emerald-400 font-bold">₱{payment.amount.toLocaleString()}</p>
+                                                    <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                                                        <CreditCard className="w-3 h-3" />
+                                                        {payment.mode}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500 truncate max-w-[150px]">{payment.subscription?.address}</p>
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="bg-gray-900 border border-gray-700 rounded px-2 py-1 font-mono text-sm text-yellow-500 w-fit select-all truncate max-w-[150px]">
+                                                        {extractRefId(payment.notes)}
+                                                    </div>
+                                                    {extractProofUrl(payment.notes) && (
+                                                        <a
+                                                            href={extractProofUrl(payment.notes) || '#'}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="mt-2 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 underline"
+                                                        >
+                                                            <Eye className="w-3 h-3" />
+                                                            View Proof
+                                                        </a>
+                                                    )}
+                                                </td>
+                                                <td className="p-4">
+                                                    <p className="text-sm text-white">Due: {payment.invoice ? new Date(payment.invoice.due_date).toLocaleDateString() : 'N/A'}</p>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Period: {payment.invoice ? `${new Date(payment.invoice.from_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(payment.invoice.to_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'N/A'}
+                                                    </p>
+                                                    <p className="text-xs text-gray-600 mt-1">
+                                                        Submitted: {new Date(payment.created_at).toLocaleDateString()}
+                                                    </p>
+                                                </td>
+                                                <td className="p-4">
+                                                    {getStatusBadge(payment.status)}
+                                                </td>
+                                                <td className="p-4 text-right">
+                                                    {payment.status === 'pending' ? (
+                                                        <div className="flex gap-2 justify-end">
+                                                            <button
+                                                                onClick={() => handleApproveClick(payment)}
+                                                                disabled={processingId === payment.id}
+                                                                className="py-1.5 px-3 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-400 text-xs rounded border border-emerald-800 transition-colors flex items-center gap-1 font-medium"
+                                                            >
+                                                                <CheckCircle className="w-3 h-3" />
+                                                                {processingId === payment.id ? '...' : 'Approve'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleReject(payment.id)}
+                                                                disabled={processingId === payment.id}
+                                                                className="py-1.5 px-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 text-xs rounded border border-red-800 transition-colors flex items-center gap-1 font-medium"
+                                                            >
+                                                                <XCircle className="w-3 h-3" />
+                                                                Reject
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-500">
+                                                            {payment.status === 'approved' ? 'Verified' : 'Cancelled'}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            {/* Mobile View */}
+                            <div className="md:hidden space-y-4 p-4">
+                                {filteredPayments.map((payment) => (
+                                    <div key={payment.id} className="bg-[#151515] p-4 rounded-xl border border-gray-800 space-y-3">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <p className="font-bold text-white text-base">{payment.subscription?.customer?.name || 'Unknown'}</p>
+                                                <p className="text-xs text-gray-400">{payment.subscription?.customer?.mobile_number}</p>
+                                            </div>
+                                            {getStatusBadge(payment.status)}
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-2 text-sm">
+                                            <div className="flex flex-col">
+                                                <span className="text-gray-500 text-[10px] uppercase">Amount</span>
+                                                <span className="font-mono text-emerald-400 font-bold">₱{payment.amount.toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex flex-col text-right">
+                                                <span className="text-gray-500 text-[10px] uppercase">Reference</span>
+                                                <div className="bg-gray-900 border border-gray-700 rounded px-1.5 py-0.5 font-mono text-xs text-yellow-500 w-fit select-all ml-auto truncate max-w-[120px]">
                                                     {extractRefId(payment.notes)}
                                                 </div>
-                                                {extractProofUrl(payment.notes) && (
-                                                    <a
-                                                        href={extractProofUrl(payment.notes) || '#'}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="mt-2 inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 underline"
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-2 text-xs border-t border-gray-800 pt-2">
+                                            <div>
+                                                <span className="text-gray-500 block">Due Date:</span>
+                                                <span className="text-gray-300">{payment.invoice ? new Date(payment.invoice.due_date).toLocaleDateString() : 'N/A'}</span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-gray-500 block">Submitted:</span>
+                                                <span className="text-gray-300">{new Date(payment.created_at).toLocaleDateString()}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex justify-between items-center border-t border-gray-800 pt-3">
+                                            {extractProofUrl(payment.notes) ? (
+                                                <a
+                                                    href={extractProofUrl(payment.notes) || '#'}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-violet-900/30 text-violet-400 rounded-lg border border-violet-800 hover:bg-violet-900/50"
+                                                >
+                                                    <Eye className="w-3 h-3" />
+                                                    Proof
+                                                </a>
+                                            ) : <div />}
+                                            
+                                            {payment.status === 'pending' ? (
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleReject(payment.id)}
+                                                        disabled={processingId === payment.id}
+                                                        className="py-1.5 px-3 bg-red-900/40 text-red-400 text-xs rounded-lg border border-red-800"
                                                     >
-                                                        <Eye className="w-3 h-3" />
-                                                        View Proof
-                                                    </a>
-                                                )}
-                                            </td>
-                                            <td className="p-4">
-                                                <p className="text-sm text-white">Due: {payment.invoice ? new Date(payment.invoice.due_date).toLocaleDateString() : 'N/A'}</p>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    Period: {payment.invoice ? `${new Date(payment.invoice.from_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(payment.invoice.to_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'N/A'}
-                                                </p>
-                                                <p className="text-xs text-gray-600 mt-1">
-                                                    Submitted: {new Date(payment.created_at).toLocaleDateString()}
-                                                </p>
-                                            </td>
-                                            <td className="p-4">
-                                                {getStatusBadge(payment.status)}
-                                            </td>
-                                            <td className="p-4 text-right">
-                                                {payment.status === 'pending' ? (
-                                                    <div className="flex gap-2 justify-end">
-                                                        <button
-                                                            onClick={() => handleApproveClick(payment)}
-                                                            disabled={processingId === payment.id}
-                                                            className="py-1.5 px-3 bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-400 text-xs rounded border border-emerald-800 transition-colors flex items-center gap-1 font-medium"
-                                                        >
-                                                            <CheckCircle className="w-3 h-3" />
-                                                            {processingId === payment.id ? '...' : 'Approve'}
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleReject(payment.id)}
-                                                            disabled={processingId === payment.id}
-                                                            className="py-1.5 px-3 bg-red-900/40 hover:bg-red-800/60 text-red-400 text-xs rounded border border-red-800 transition-colors flex items-center gap-1 font-medium"
-                                                        >
-                                                            <XCircle className="w-3 h-3" />
-                                                            Reject
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-xs text-gray-500">
-                                                        {payment.status === 'approved' ? 'Verified' : 'Cancelled'}
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                                        Reject
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleApproveClick(payment)}
+                                                        disabled={processingId === payment.id}
+                                                        className="py-1.5 px-3 bg-emerald-900/40 text-emerald-400 text-xs rounded-lg border border-emerald-800"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-gray-500">
+                                                    {payment.status === 'approved' ? 'Verified' : 'Cancelled'}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>

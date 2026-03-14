@@ -301,15 +301,15 @@ export default function PaymentsPage() {
                                         onClick={() => toggleCustomer(group.customerId)}
                                         className="w-full flex items-center justify-between p-4 hover:bg-[#202020] transition-colors"
                                     >
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-purple-900/20 flex items-center justify-center text-purple-500">
+                                        <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                                            <div className="w-8 h-8 rounded-full bg-purple-900/20 flex items-center justify-center text-purple-500 shrink-0">
                                                 <User className="w-4 h-4" />
                                             </div>
-                                            <div className="text-left">
-                                                <h3 className="text-white font-medium">{group.customerName}</h3>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <Building2 className="w-3 h-3 text-gray-500" />
-                                                    <p className="text-xs text-gray-500">{group.businessUnitName} • {group.subscriptions.length} Subscription(s)</p>
+                                            <div className="text-left flex-1 min-w-0">
+                                                <h3 className="text-white font-medium truncate text-sm sm:text-base">{group.customerName}</h3>
+                                                <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5 sm:mt-1 truncate text-gray-500">
+                                                    <Building2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                                                    <p className="text-[10px] sm:text-xs truncate">{group.businessUnitName} • {group.subscriptions.length} <span className="hidden sm:inline">Subscription(s)</span><span className="sm:hidden">Sub(s)</span></p>
                                                 </div>
                                             </div>
                                         </div>
@@ -346,60 +346,64 @@ export default function PaymentsPage() {
 
                                                         <div className="space-y-2">
                                                             {sub.invoices.map((invoice) => (
-                                                                <div key={invoice.id} className="flex items-center justify-between p-3 bg-[#1a1a1a] rounded-lg">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div>
-                                                                            <div className="text-sm text-white">
-                                                                                {new Date(invoice.due_date).toLocaleDateString()}
+                                                                <div key={invoice.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-[#1a1a1a] rounded-lg gap-3">
+                                                                    <div className="flex items-center gap-3 w-full sm:w-auto overflow-hidden">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <div className="text-sm text-white flex justify-between items-center sm:block">
+                                                                                <span>{new Date(invoice.due_date).toLocaleDateString()}</span>
+                                                                                <span className={`sm:hidden px-2 py-0.5 rounded text-[9px] font-medium border ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400 border-green-700/50' :
+                                                                                    invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400 border-yellow-700/50' :
+                                                                                        invoice.payment_status === 'Pending Verification' ? 'bg-violet-900/30 text-violet-400 border-violet-700/50' :
+                                                                                            'bg-red-900/30 text-red-400 border-red-700/50'
+                                                                                    }`}>
+                                                                                    {invoice.payment_status}
+                                                                                </span>
                                                                             </div>
                                                                             {!invoice.is_virtual && (() => {
                                                                                 const dueDate = new Date(invoice.due_date);
                                                                                 const discDate = new Date(dueDate);
                                                                                 discDate.setDate(discDate.getDate() + 5);
                                                                                 return (
-                                                                                    <div className="text-xs text-red-400 mt-0.5">
+                                                                                    <div className="text-[10px] sm:text-xs text-red-400 mt-0.5 truncate">
                                                                                         Disconnection: {discDate.toLocaleDateString()}
                                                                                     </div>
                                                                                 );
                                                                             })()}
-                                                                            <div className="text-xs text-gray-500 mt-0.5">
+                                                                            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 truncate">
                                                                                 {invoice.is_virtual ? 'Ad-hoc Payment' : `${new Date(invoice.from_date).toLocaleDateString()} - ${new Date(invoice.to_date).toLocaleDateString()}`}
                                                                             </div>
                                                                         </div>
                                                                     </div>
 
-                                                                    <div className="flex items-center gap-8">
+                                                                    <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-8 w-full sm:w-auto bg-gray-900/40 sm:bg-transparent p-2 sm:p-0 rounded-lg shrink-0 border border-gray-800 sm:border-transparent">
                                                                         {!invoice.is_virtual && (
-                                                                            <>
-                                                                                <div className="text-right">
-                                                                                    <div className="text-xs text-gray-400">Amount Due</div>
-                                                                                    <div className="text-sm font-bold text-white">
-                                                                                        ₱{(() => {
-                                                                                            const baseAmount = Number(invoice.amount_due) || 0;
-                                                                                            // Only apply balance adjustment if invoice is Unpaid
-                                                                                            if (invoice.payment_status === 'Unpaid') {
-                                                                                                const balance = Number(sub.balance) || 0;
-                                                                                                return Math.round(Math.max(0, baseAmount + balance)).toLocaleString();
-                                                                                            }
-                                                                                            // For Paid or Partially Paid, show original amount
-                                                                                            return Math.round(baseAmount).toLocaleString();
-                                                                                        })()}
-                                                                                    </div>
+                                                                            <div className="text-left sm:text-right">
+                                                                                <div className="text-[9px] sm:text-xs text-gray-400 uppercase sm:normal-case font-medium sm:font-normal">Amount Due</div>
+                                                                                <div className="text-sm font-bold text-white">
+                                                                                    ₱{(() => {
+                                                                                        const baseAmount = Number(invoice.amount_due) || 0;
+                                                                                        // Only apply balance adjustment if invoice is Unpaid
+                                                                                        if (invoice.payment_status === 'Unpaid') {
+                                                                                            const balance = Number(sub.balance) || 0;
+                                                                                            return Math.round(Math.max(0, baseAmount + balance)).toLocaleString();
+                                                                                        }
+                                                                                        // For Paid or Partially Paid, show original amount
+                                                                                        return Math.round(baseAmount).toLocaleString();
+                                                                                    })()}
                                                                                 </div>
-                                                                            </>
+                                                                            </div>
                                                                         )}
                                                                         <div className="text-right">
-                                                                            <div className="text-xs text-gray-400">Amount Paid</div>
-                                                                            <div className="text-sm text-green-400">
+                                                                            <div className="text-[9px] sm:text-xs text-gray-400 uppercase sm:normal-case font-medium sm:font-normal">Amount Paid</div>
+                                                                            <div className="text-sm text-green-400 font-medium">
                                                                                 ₱{Math.round(invoice.total_paid || 0).toLocaleString()}
                                                                             </div>
                                                                         </div>
-
-                                                                        <div>
-                                                                            <span className={`px-2 py-1 rounded-full text-xs ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400' :
-                                                                                invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400' :
-                                                                                    invoice.payment_status === 'Pending Verification' ? 'bg-violet-900/30 text-violet-400' :
-                                                                                        'bg-red-900/30 text-red-400'
+                                                                        <div className="hidden sm:block">
+                                                                            <span className={`px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-medium border ${invoice.payment_status === 'Paid' ? 'bg-green-900/30 text-green-400 border-green-700/50' :
+                                                                                invoice.payment_status === 'Partially Paid' ? 'bg-yellow-900/30 text-yellow-400 border-yellow-700/50' :
+                                                                                    invoice.payment_status === 'Pending Verification' ? 'bg-violet-900/30 text-violet-400 border-violet-700/50' :
+                                                                                        'bg-red-900/30 text-red-400 border-red-700/50'
                                                                                 }`}>
                                                                                 {invoice.payment_status}
                                                                             </span>

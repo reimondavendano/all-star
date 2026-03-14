@@ -76,27 +76,30 @@ export default function PlansPage() {
                         </h1>
                         <p className="text-sm text-gray-400 mt-1">Manage internet service plans and pricing</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
+                    <div className="flex flex-wrap items-center gap-3 sm:w-auto">
+                        <div className="relative w-full sm:w-auto">
                             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                             <input
                                 type="text"
                                 placeholder="Search plans..."
                                 value={searchQuery}
                                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-teal-500 w-64"
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-teal-500 sm:w-64"
                             />
                         </div>
-                        <button onClick={fetchPlans} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                        </button>
-                        <button
-                            onClick={() => setIsAddModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-teal-900/30"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Plan
-                        </button>
+                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                            <button onClick={fetchPlans} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-teal-900/30 whitespace-nowrap"
+                            >
+                                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                <span className="hidden sm:inline">Add Plan</span>
+                                <span className="sm:hidden">Add</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -118,22 +121,24 @@ export default function PlansPage() {
                         {currentPlans.map((plan) => (
                             <div key={plan.id}>
                                 <div className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-3 transition-colors" onClick={() => toggleRow(plan.id)}>
-                                    {expandedRows.has(plan.id) ? <ChevronDown className="w-5 h-5 text-gray-500" /> : <ChevronRight className="w-5 h-5 text-gray-500" />}
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-600 to-cyan-600 flex items-center justify-center shadow-lg shadow-teal-900/30">
-                                        <Package className="w-5 h-5 text-white" />
+                                    <div className="shrink-0">
+                                        {expandedRows.has(plan.id) ? <ChevronDown className="w-5 h-5 text-gray-500" /> : <ChevronRight className="w-5 h-5 text-gray-500" />}
                                     </div>
-                                    <div className="flex-1">
-                                        <div className="font-semibold text-white">{plan.name}</div>
-                                        <div className="text-xs text-gray-500">Created {new Date(plan.created_at).toLocaleDateString()}</div>
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-teal-600 to-cyan-600 flex items-center justify-center shadow-lg shadow-teal-900/30 shrink-0">
+                                        <Package className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                                     </div>
-                                    <span className="px-4 py-2 rounded-xl text-lg font-bold bg-gradient-to-r from-emerald-900/40 to-teal-900/40 text-emerald-400 border border-emerald-700/50 flex items-center gap-1">
-                                        <DollarSign className="w-4 h-4" />₱{plan.monthly_fee.toLocaleString()}<span className="text-xs font-normal text-gray-500">/mo</span>
+                                    <div className="flex-1 min-w-0 pr-2">
+                                        <div className="font-semibold text-white truncate text-sm sm:text-base">{plan.name}</div>
+                                        <div className="text-[10px] sm:text-xs text-gray-500 truncate">Created {new Date(plan.created_at).toLocaleDateString()}</div>
+                                    </div>
+                                    <span className="shrink-0 px-2 sm:px-4 py-1 sm:py-2 rounded-xl text-sm sm:text-lg font-bold bg-gradient-to-r from-emerald-900/40 to-teal-900/40 text-emerald-400 border border-emerald-700/50 flex items-center gap-0.5 sm:gap-1">
+                                        <DollarSign className="w-3 h-3 sm:w-4 sm:h-4" />₱{plan.monthly_fee.toLocaleString()}<span className="text-[10px] sm:text-xs font-normal text-gray-500">/mo</span>
                                     </span>
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan); setIsEditModalOpen(true); }} className="p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors">
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button onClick={(e) => { e.stopPropagation(); setSelectedPlan(plan); setIsEditModalOpen(true); }} className="p-1 sm:p-2 text-blue-400 hover:text-blue-300 rounded-lg transition-colors">
                                             <Edit className="w-4 h-4" />
                                         </button>
-                                        <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(plan.id); }} className="p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors">
+                                        <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(plan.id); }} className="p-1 sm:p-2 text-red-400 hover:text-red-300 rounded-lg transition-colors">
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>

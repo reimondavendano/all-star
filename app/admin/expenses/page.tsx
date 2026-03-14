@@ -395,19 +395,19 @@ export default function ExpensesPage() {
                         </h1>
                         <p className="text-sm text-gray-400 mt-1">Track and manage business expenses</p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
-                            <div className="text-xs text-purple-400">Total Expenses</div>
-                            <div className="text-lg font-bold text-purple-300">₱{totalAmount.toLocaleString()}</div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50 flex-1 sm:flex-none">
+                            <div className="text-[10px] sm:text-xs text-purple-400">Total Expenses</div>
+                            <div className="text-sm sm:text-lg font-bold text-purple-300">₱{totalAmount.toLocaleString()}</div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
                             {/* Business Unit Filter */}
-                            <div className="relative">
+                            <div className="relative flex-1 sm:flex-none min-w-[120px]">
                                 <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                 <select
                                     value={filterBusinessUnit}
                                     onChange={(e) => { setFilterBusinessUnit(e.target.value); setCurrentPage(1); }}
-                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-8 py-2 text-sm text-white focus:outline-none focus:border-purple-500 appearance-none cursor-pointer"
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 sm:pl-10 pr-6 sm:pr-8 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-purple-500 appearance-none cursor-pointer"
                                 >
                                     <option value="">All Business Units</option>
                                     {businessUnits.map(bu => (
@@ -416,35 +416,38 @@ export default function ExpensesPage() {
                                 </select>
                             </div>
                             {/* Month Filter */}
-                            <div className="relative">
+                            <div className="relative flex-1 sm:flex-none min-w-[120px]">
                                 <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                 <input
                                     type="month"
                                     value={filterMonth}
                                     onChange={(e) => { setFilterMonth(e.target.value); setCurrentPage(1); }}
-                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-purple-500"
                                 />
                             </div>
-                            <div className="relative">
+                            <div className="relative w-full sm:w-auto">
                                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                 <input
                                     type="text"
                                     placeholder="Search..."
                                     value={searchQuery}
                                     onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500 w-48"
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-purple-500 sm:w-48"
                                 />
                             </div>
-                            <button onClick={fetchExpenses} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                            </button>
-                            <button
-                                onClick={openAdd}
-                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-purple-900/30"
-                            >
-                                <Plus className="w-4 h-4" />
-                                Add Expense
-                            </button>
+                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                                <button onClick={fetchExpenses} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                                </button>
+                                <button
+                                    onClick={openAdd}
+                                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-purple-900/30 whitespace-nowrap"
+                                >
+                                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                    <span className="hidden sm:inline">Add Expense</span>
+                                    <span className="sm:hidden">Add</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

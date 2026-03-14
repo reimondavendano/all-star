@@ -122,27 +122,30 @@ export default function BusinessUnitsPage() {
                         </h1>
                         <p className="text-sm text-gray-400 mt-1">Manage service areas and their subscriptions</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
+                    <div className="flex flex-wrap items-center gap-3 sm:w-auto">
+                        <div className="relative w-full sm:w-auto">
                             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                             <input
                                 type="text"
                                 placeholder="Search..."
                                 value={searchQuery}
                                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 w-64"
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500 sm:w-64"
                             />
                         </div>
-                        <button onClick={fetchBusinessUnits} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                        </button>
-                        <button
-                            onClick={() => setIsAddModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-indigo-900/30"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Business Unit
-                        </button>
+                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                            <button onClick={fetchBusinessUnits} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-indigo-900/30 whitespace-nowrap"
+                            >
+                                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                <span className="hidden sm:inline">Add Business Unit</span>
+                                <span className="sm:hidden">Add</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

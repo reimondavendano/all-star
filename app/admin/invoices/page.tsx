@@ -716,48 +716,42 @@ export default function InvoicesPaymentsPage() {
                         <p className="text-sm text-gray-400 mt-1">Manage billing, view invoices, and record payments</p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
+                    {/* Stats & Actions Container */}
+                    <div className="flex flex-col xl:flex-row xl:items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
                         {/* Stats */}
-                        <div className="px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
-                            <div className="text-xs text-purple-400">Total Billed</div>
-                            <div className="text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
-                        </div>
-                        <div className="px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
-                            <div className="text-xs text-emerald-400">Collected</div>
-                            <div className="text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
-                        </div>
-                        <div className="px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
-                            <div className="text-xs text-red-400">Unpaid</div>
-                            <div className="text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                        <div className="flex w-full xl:w-auto gap-2">
+                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
+                                <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
+                                <div className="text-sm sm:text-lg font-bold text-purple-300 truncate">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
+                            </div>
+                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
+                                <div className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">Collected</div>
+                                <div className="text-sm sm:text-lg font-bold text-emerald-300 truncate">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
+                            </div>
+                            <div className="flex-1 min-w-[25%] px-3 sm:px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
+                                <div className="text-[10px] sm:text-xs text-red-400 whitespace-nowrap">Unpaid</div>
+                                <div className="text-sm sm:text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                            </div>
                         </div>
 
-                        <button
-                            onClick={() => setIsQuickCollectOpen(true)}
-                            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium shadow-lg shadow-amber-900/20"
-                        >
-                            <Zap className="w-4 h-4" />
-                            Quick Collect
-                        </button>
+                        {/* Action Buttons */}
+                        <div className="flex w-full xl:w-auto gap-2 mt-2 xl:mt-0">
+                            <button
+                                onClick={() => setIsQuickCollectOpen(true)}
+                                className="flex-1 xl:flex-none justify-center px-2 sm:px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium shadow-lg shadow-amber-900/20 whitespace-nowrap"
+                            >
+                                <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                Quick Collect
+                            </button>
 
-                        <button
-                            onClick={() => setIsGenerateModalOpen(true)}
-                            className="px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Generate Invoices
-                        </button>
-
-                        {/* ⚠️ TEMPORARY MIGRATION BUTTON - REMOVE AFTER DATA MIGRATION */}
-                        {/* <button
-                            onClick={() => setIsMigrationModalOpen(true)}
-                            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium border-2 border-amber-400/30"
-                            title="Temporary: For migrating old invoices from legacy system"
-                        >
-                            <FileText className="w-4 h-4" />
-                            <span className="hidden sm:inline">Manual Invoice</span>
-                            <span className="sm:hidden">Migration</span>
-                            <span className="text-xs bg-amber-900/50 px-1.5 py-0.5 rounded">TEMP</span>
-                        </button> */}
+                            <button
+                                onClick={() => setIsGenerateModalOpen(true)}
+                                className="flex-1 xl:flex-none justify-center px-2 sm:px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl transition-colors flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium whitespace-nowrap"
+                            >
+                                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                Generate Invoices
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -895,26 +889,28 @@ export default function InvoicesPaymentsPage() {
                             <div key={group.customer.id}>
                                 {/* Customer Header */}
                                 <div
-                                    className="p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-3 transition-colors"
+                                    className="p-3 sm:p-4 hover:bg-[#1a1a1a] cursor-pointer flex items-center gap-2 sm:gap-3 transition-colors"
                                     onClick={() => toggleCustomer(group.customer.id)}
                                 >
-                                    {expandedCustomers.has(group.customer.id) ? (
-                                        <ChevronDown className="w-5 h-5 text-gray-500" />
-                                    ) : (
-                                        <ChevronRight className="w-5 h-5 text-gray-500" />
-                                    )}
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 flex items-center justify-center">
-                                        <User className="w-5 h-5 text-white" />
+                                    <div className="shrink-0">
+                                        {expandedCustomers.has(group.customer.id) ? (
+                                            <ChevronDown className="w-5 h-5 text-gray-500" />
+                                        ) : (
+                                            <ChevronRight className="w-5 h-5 text-gray-500" />
+                                        )}
                                     </div>
-                                    <div className="flex-1">
-                                        <div className="font-medium text-white">{group.customer.name}</div>
-                                        <div className="text-xs text-gray-500">
-                                            {group.subscriptions.length} subscription(s) • {group.customer.mobile_number || 'No phone'}
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-violet-600 to-purple-600 flex items-center justify-center shrink-0">
+                                        <User className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                                    </div>
+                                    <div className="flex-1 min-w-0 pr-2">
+                                        <div className="font-medium text-white truncate text-sm sm:text-base">{group.customer.name}</div>
+                                        <div className="text-[10px] sm:text-xs text-gray-500 truncate mt-0.5">
+                                            {group.subscriptions.length} <span className="hidden sm:inline">subscription(s)</span><span className="sm:hidden">sub(s)</span> • <span className="truncate">{group.customer.mobile_number || 'No phone'}</span>
                                         </div>
                                     </div>
                                     {group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0) > 0 && (
-                                        <div className="text-right">
-                                            <div className="text-sm text-gray-400">
+                                        <div className="text-right shrink-0">
+                                            <div className="text-[10px] sm:text-sm text-gray-400">
                                                 Total Due: <span className="text-white font-medium">
                                                     ₱{Math.round(group.subscriptions.reduce((sum, s) => sum + s.totalDue, 0)).toLocaleString()}
                                                 </span>
@@ -956,37 +952,39 @@ export default function InvoicesPaymentsPage() {
                                                 <div key={subscription.id} className="border-l-2 border-gray-800 ml-6">
                                                     {/* Subscription Header */}
                                                     <div
-                                                        className="p-3 hover:bg-[#151515] cursor-pointer flex items-center gap-3 transition-colors"
+                                                        className="p-3 hover:bg-[#151515] cursor-pointer flex items-center gap-2 sm:gap-3 transition-colors"
                                                         onClick={() => toggleSubscription(subscription.id)}
                                                     >
-                                                        {expandedSubscriptions.has(subscription.id) ? (
-                                                            <ChevronDown className="w-4 h-4 text-gray-500" />
-                                                        ) : (
-                                                            <ChevronRight className="w-4 h-4 text-gray-500" />
-                                                        )}
-                                                        <Wifi className="w-4 h-4 text-purple-500" />
-                                                        <div className="flex-1">
-                                                            <div className="text-sm text-white">
-                                                                {subscription.plans?.name || 'Unknown Plan'}
+                                                        <div className="shrink-0">
+                                                            {expandedSubscriptions.has(subscription.id) ? (
+                                                                <ChevronDown className="w-4 h-4 text-gray-500" />
+                                                            ) : (
+                                                                <ChevronRight className="w-4 h-4 text-gray-500" />
+                                                            )}
+                                                        </div>
+                                                        <Wifi className="w-4 h-4 text-purple-500 shrink-0" />
+                                                        <div className="flex-1 min-w-0 pr-1 sm:pr-2">
+                                                            <div className="text-[11px] sm:text-sm text-white flex flex-wrap items-center gap-1 sm:gap-2">
+                                                                <span className="truncate max-w-[80px] sm:max-w-none">{subscription.plans?.name || 'Unknown Plan'}</span>
                                                                 {subscription.mikrotik_ppp_secrets?.[0]?.name && (
-                                                                    <span className="ml-2 px-2 py-0.5 bg-purple-900/30 text-purple-400 text-xs rounded">
+                                                                    <span className="px-1 sm:px-2 py-0.5 bg-purple-900/30 text-purple-400 text-[9px] sm:text-xs rounded truncate max-w-[60px] sm:max-w-[100px]">
                                                                         {subscription.mikrotik_ppp_secrets[0].name}
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <div className="text-xs text-gray-500">
+                                                            <div className="text-[10px] sm:text-xs text-gray-500 truncate mt-0.5">
                                                                 {subscription.label || subscription.address || 'No location'}
                                                             </div>
                                                         </div>
 
                                                         {/* Invoice Summary with Status */}
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                                                             {hasInvoices ? (
                                                                 <>
                                                                     {totalDue > 0 && (
                                                                         <div className="text-right">
-                                                                            <div className="text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
-                                                                            <div className="text-xs text-gray-500">{invoices.filter(i => getEffectiveStatus(i) !== 'Paid').length} invoice(s)</div>
+                                                                            <div className="text-[11px] sm:text-sm font-medium text-white">₱{Math.round(totalDue).toLocaleString()}</div>
+                                                                            <div className="text-[9px] sm:text-xs text-gray-500">{invoices.filter(i => getEffectiveStatus(i) !== 'Paid').length} <span className="hidden sm:inline">invoice(s)</span><span className="sm:hidden">inv(s)</span></div>
                                                                         </div>
                                                                     )}
                                                                     {/* Breakdown icon */}
@@ -995,10 +993,10 @@ export default function InvoicesPaymentsPage() {
                                                                             e.stopPropagation();
                                                                             openBreakdownModal(group.customer, subscription, invoices, totalDue);
                                                                         }}
-                                                                        className="p-1.5 text-gray-500 hover:text-purple-400 hover:bg-purple-900/20 rounded-lg transition-colors"
+                                                                        className="p-1 sm:p-1.5 text-gray-500 hover:text-purple-400 hover:bg-purple-900/20 rounded-lg transition-colors"
                                                                         title="View breakdown"
                                                                     >
-                                                                        <Info className="w-4 h-4" />
+                                                                        <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                                                     </button>
                                                                     {/* Pay All button - only show when there's balance due */}
                                                                     {totalDue > 0 && invoices.some(i => getEffectiveStatus(i) !== 'Paid') && (
@@ -1007,18 +1005,18 @@ export default function InvoicesPaymentsPage() {
                                                                                 e.stopPropagation();
                                                                                 openPayAllModal(group.customer, subscription, invoices);
                                                                             }}
-                                                                            className="px-2.5 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs rounded-lg transition-colors flex items-center gap-1"
+                                                                            className="px-2 sm:px-2.5 py-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-[10px] sm:text-xs rounded-md sm:rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap"
                                                                         >
-                                                                            <Wallet className="w-3 h-3" />
+                                                                            <Wallet className="w-3 h-3 hidden sm:block" />
                                                                             Pay All
                                                                         </button>
                                                                     )}
-                                                                    <span className={`px-2 py-1 rounded text-xs font-medium border ${statusClass}`}>
+                                                                    <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-xs font-medium border whitespace-nowrap ${statusClass}`}>
                                                                         {statusText}
                                                                     </span>
                                                                 </>
                                                             ) : (
-                                                                <span className={`px-2 py-1 rounded text-xs font-medium border ${statusClass}`}>
+                                                                <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[9px] sm:text-xs font-medium border whitespace-nowrap ${statusClass}`}>
                                                                     {statusText}
                                                                 </span>
                                                             )}

@@ -588,28 +588,34 @@ export default function CollectorInvoicesPage() {
                         <p className="text-sm text-gray-400 mt-1">Record payments and track invoice status</p>
                     </div>
 
-                    {/* Stats */}
-                    <div className="flex flex-wrap items-center gap-3">
-                        <div className="px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
-                            <div className="text-xs text-purple-400">Total Billed</div>
-                            <div className="text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
-                        </div>
-                        <div className="px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
-                            <div className="text-xs text-emerald-400">Collected</div>
-                            <div className="text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
-                        </div>
-                        <div className="px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
-                            <div className="text-xs text-red-400">Unpaid</div>
-                            <div className="text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                    {/* Stats & Actions Container */}
+                    <div className="flex flex-col xl:flex-row xl:items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
+                        {/* Stats */}
+                        <div className="flex w-full xl:w-auto gap-2">
+                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
+                                <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
+                                <div className="text-sm sm:text-lg font-bold text-purple-300 truncate">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
+                            </div>
+                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
+                                <div className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">Collected</div>
+                                <div className="text-sm sm:text-lg font-bold text-emerald-300 truncate">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
+                            </div>
+                            <div className="flex-1 min-w-[25%] px-3 sm:px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
+                                <div className="text-[10px] sm:text-xs text-red-400 whitespace-nowrap">Unpaid</div>
+                                <div className="text-sm sm:text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                            </div>
                         </div>
 
-                        <button
-                            onClick={() => setIsQuickCollectOpen(true)}
-                            className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-2 font-medium shadow-lg shadow-amber-900/20"
-                        >
-                            <Zap className="w-4 h-4" />
-                            Quick Collect
-                        </button>
+                        {/* Action Buttons */}
+                        <div className="flex w-full xl:w-auto gap-2 mt-2 xl:mt-0">
+                            <button
+                                onClick={() => setIsQuickCollectOpen(true)}
+                                className="flex-1 xl:flex-none justify-center px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-1.5 sm:gap-2 text-sm font-medium shadow-lg shadow-amber-900/20 whitespace-nowrap"
+                            >
+                                <Zap className="w-4 h-4" />
+                                Quick Collect
+                            </button>
+                        </div>
                     </div>
                 </div>
 

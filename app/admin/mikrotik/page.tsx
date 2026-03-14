@@ -348,56 +348,60 @@ export default function MikrotikPage() {
                         </h1>
                         <p className="text-sm text-gray-400 mt-1">System status and network overview</p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto mt-4 md:mt-0 justify-start sm:justify-end">
                         <div className={`hidden md:inline-flex items-center px-3 py-1 rounded-full border ${!error
                             ? 'border-green-500/30 bg-green-900/10 text-green-400'
                             : 'border-red-500/30 bg-red-900/10 text-red-500'
-                            } text-xs font-mono animate-pulse-slow mr-2`}>
-                            <span className={`w-2 h-2 rounded-full mr-2 animate-pulse ${!error ? 'bg-green-500' : 'bg-red-500'
+                            } text-[10px] sm:text-xs font-mono animate-pulse-slow mr-1 sm:mr-2`}>
+                            <span className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1.5 sm:mr-2 animate-pulse ${!error ? 'bg-green-500' : 'bg-red-500'
                                 }`}></span>
                             {error ? 'OFFLINE' : 'ONLINE'}
                         </div>
                         {lastUpdated && (
-                            <span className="text-xs text-gray-500 font-mono hidden md:block">
+                            <span className="text-[10px] sm:text-xs text-gray-500 font-mono hidden md:block">
                                 Last updated: {lastUpdated.toLocaleTimeString()}
                             </span>
                         )}
                         <button
                             onClick={handleExportToExcel}
                             disabled={!data || isLoading}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-green-900/30 disabled:opacity-50"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-green-900/30 disabled:opacity-50 whitespace-nowrap min-w-[100px]"
                         >
-                            <Database className="w-4 h-4" />
-                            Export to Excel
+                            <Database className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="hidden lg:inline">Export to Excel</span>
+                            <span className="lg:hidden">Export</span>
                         </button>
                         <button
                             onClick={handleSyncToDatabase}
                             disabled={isSyncing}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-blue-900/30 disabled:opacity-50"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-blue-900/30 disabled:opacity-50 whitespace-nowrap min-w-[100px]"
                         >
-                            <ArrowRightLeft className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                            Sync to DB
+                            <ArrowRightLeft className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                            <span className="hidden lg:inline">Sync to DB</span>
+                            <span className="lg:hidden">Sync</span>
                         </button>
                         <button
                             onClick={() => setShowMigrationModal(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-purple-900/30"
+                            className="w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-purple-900/30 whitespace-nowrap"
                         >
-                            <Database className="w-4 h-4" />
-                            AutoGenerate Mikrotik + Data
+                            <Database className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="hidden lg:inline">AutoGenerate Mikrotik + Data</span>
+                            <span className="lg:hidden">Migrate Data</span>
                         </button>
                         <button
                             onClick={() => setShowAddPppModal(true)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg transition-all font-medium shadow-lg shadow-emerald-900/30"
+                            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-lg transition-all text-xs sm:text-sm font-medium shadow-lg shadow-emerald-900/30 whitespace-nowrap min-w-[100px]"
                         >
-                            <Plus className="w-4 h-4" />
-                            Add User
+                            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            <span className="hidden lg:inline">Add User</span>
+                            <span className="lg:hidden">Add</span>
                         </button>
                         <button
                             onClick={fetchData}
                             disabled={isLoading}
-                            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50"
+                            className="p-1.5 sm:p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 shrink-0"
                         >
-                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isLoading ? 'animate-spin' : ''}`} />
                         </button>
                     </div>
                 </div>
