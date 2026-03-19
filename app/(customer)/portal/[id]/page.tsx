@@ -761,8 +761,8 @@ export default function CustomerPortalPage() {
                                         </div>
                                     </div>
 
-                                    {/* Change Plan Button - More Prominent */}
-                                    {/* Change Plan Button - More Prominent */}
+                                    {/* Change Plan Button - More Prominent - Temporarily hidden */}
+                                    {/*
                                     {sub.balance <= 0 ? (
                                         <button
                                             onClick={() => handleOpenChangePlan(sub)}
@@ -787,6 +787,7 @@ export default function CustomerPortalPage() {
                                             </span>
                                         </div>
                                     )}
+                                    */}
                                 </div>
                             </div>
 
