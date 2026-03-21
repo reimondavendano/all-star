@@ -128,7 +128,7 @@ export const SMSTemplates = {
     invoiceGenerated: (customerName: string, amount: number, dueDate: string, businessUnit: string, portalLink: string, unpaidBalance?: number) => {
         let message = `Hi ${customerName}!\n\n`;
         message += `Your ${businessUnit} internet bill is ready:\n\n`;
-        
+
         if (unpaidBalance && unpaidBalance > 0) {
             const totalAmount = amount + unpaidBalance;
             message += `Total to Pay: P${totalAmount.toLocaleString()}\n`;
@@ -139,16 +139,16 @@ export const SMSTemplates = {
             message += `Amount: P${amount.toLocaleString()}\n`;
             message += `Due Date: ${dueDate}\n`;
         }
-        
+
         message += `\nView your account & pay online:\n${portalLink}\n`;
         message += `\nPlease pay on time to avoid disconnection.\n`;
         message += `Thank you! - Allstar`;
-        
+
         return message;
     },
 
     dueDateReminder: (customerName: string, amount: number, dueDate: string, portalLink: string) => {
-        let message = `⏰ REMINDER\n\n`;
+        let message = `REMINDER\n\n`;
         message += `Hi ${customerName},\n\n`;
         message += `Your internet bill is due soon:\n`;
         message += `Amount: P${amount.toLocaleString()}\n`;
@@ -156,23 +156,23 @@ export const SMSTemplates = {
         message += `View & pay online:\n${portalLink}\n`;
         message += `\nPlease settle to avoid service interruption.\n`;
         message += `Thank you! - Allstar`;
-        
+
         return message;
     },
 
     disconnectionWarning: (customerName: string, disconnectionDate: string, portalLink: string, unpaidAmount?: number) => {
-        let message = `🚨 URGENT NOTICE\n\n`;
+        let message = `URGENT NOTICE\n\n`;
         message += `Hi ${customerName},\n\n`;
         message += `Your internet service will be disconnected on ${disconnectionDate} due to unpaid balance.\n`;
-        
+
         if (unpaidAmount && unpaidAmount > 0) {
             message += `\nAmount Due: P${unpaidAmount.toLocaleString()}\n`;
         }
-        
+
         message += `\nView your account:\n${portalLink}\n`;
         message += `\nPlease pay immediately to continue service.\n`;
         message += `- Allstar`;
-        
+
         return message;
     },
 
@@ -180,40 +180,40 @@ export const SMSTemplates = {
         let message = `Hi ${customerName}!\n\n`;
         message += `Your ${businessUnit} internet service is currently disconnected due to an unpaid balance.\n\n`;
         message += `Amount to Reconnect: P${Math.round(totalAmount).toLocaleString()}`;
-        
+
         if (outstandingBalance > 0 && proratedCharges > 0) {
             message += ` (Outstanding Balance: P${Math.round(outstandingBalance).toLocaleString()} + Pro-rated Charges: P${Math.round(proratedCharges).toLocaleString()})`;
         }
-        
+
         message += `\n\nView your account & pay online:\n${portalLink}\n`;
         message += `\nPlease settle this amount to restore your internet service.\n\n`;
-        message += `Thank you! – Allstar`;
-        
+        message += `Thank you! - Allstar`;
+
         return message;
     },
 
     paymentReceived: (customerName: string, amount: number, newBalance: number, portalLink: string) => {
-        let message = `✅ PAYMENT RECEIVED\n\n`;
+        let message = `PAYMENT RECEIVED\n\n`;
         message += `Hi ${customerName}!\n\n`;
         message += `We received your payment:\n`;
         message += `Amount Paid: P${amount.toLocaleString()}\n\n`;
-        
+
         if (newBalance > 0) {
             message += `Remaining Balance: P${newBalance.toLocaleString()}\n`;
         } else if (newBalance < 0) {
             message += `Credit Balance: P${Math.abs(newBalance).toLocaleString()}\n`;
         } else {
-            message += `✓ Account Fully Paid\n`;
+            message += `Account Fully Paid\n`;
         }
-        
+
         message += `\nView your account:\n${portalLink}\n`;
         message += `\nThank you! - Allstar`;
-        
+
         return message;
     },
 
     newSubscription: (customerName: string, planName: string, amount: number, portalLink: string) => {
-        let message = `🎉 WELCOME!\n\n`;
+        let message = `WELCOME!\n\n`;
         message += `Hi ${customerName}!\n\n`;
         message += `Your subscription is now active:\n`;
         message += `Plan: ${planName}\n`;
@@ -221,7 +221,7 @@ export const SMSTemplates = {
         message += `Manage your account online:\n${portalLink}\n`;
         message += `\nThank you for choosing Allstar!\n`;
         message += `- Allstar`;
-        
+
         return message;
     },
 };
@@ -236,7 +236,7 @@ export async function sendBulkSMS(messages: SendSMSParams[]): Promise<{
     results: SendSMSResponse[];
 }> {
     const { sendBulkSMSWithRateLimit } = await import('./smsQueue');
-    
+
     // Wrapper function to match queue interface
     const sendFunction = async (to: string, message: string) => {
         const result = await sendSMS({ to, message });
@@ -245,10 +245,10 @@ export async function sendBulkSMS(messages: SendSMSParams[]): Promise<{
             error: result.error
         };
     };
-    
+
     // Use rate-limited queue
     const summary = await sendBulkSMSWithRateLimit(messages, sendFunction);
-    
+
     // Return in expected format (results array not available in queue mode)
     return {
         sent: summary.sent,
