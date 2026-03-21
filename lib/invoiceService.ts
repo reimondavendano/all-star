@@ -322,7 +322,7 @@ export async function generateInvoicesForBusinessUnit(
                 const outstandingBalance = currentBalance > 0 ? currentBalance : 0;
 
                 // Build full portal URL using masked domain for iOS compatibility
-                const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 const smsMessage = SMSTemplates.invoiceGenerated(
                     customer.name,
@@ -431,7 +431,7 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
                 // Build full portal URL using masked domain for iOS compatibility
-                const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -578,7 +578,7 @@ export async function generateDisconnectionInvoice(
             const totalAmount = newBalance;
 
             // Build full portal URL using masked domain for iOS compatibility
-            const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+            const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
             await sendSMS({
                 to: customer.mobile_number,
@@ -740,7 +740,7 @@ export async function generateActivationInvoice(
             const outstandingBalance = previousBalance > 0 ? previousBalance : 0;
 
             // Build full portal URL using masked domain for iOS compatibility
-            const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+            const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
             await sendSMS({
                 to: customer.mobile_number,
@@ -843,7 +843,7 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
                 // Build full portal URL using masked domain for iOS compatibility
-                const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1093,7 +1093,7 @@ export async function generateInvoicesForExtension(
                 // Queue SMS
                 if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
                     // Build full portal URL using masked domain for iOS compatibility
-                    const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                    const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                     smsMessages.push({
                         to: customer.mobile_number,
@@ -1195,7 +1195,7 @@ export async function sendDueDateRemindersForExtension(
 
             if (customer?.mobile_number) {
                 // Build full portal URL using masked domain for iOS compatibility
-                const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 smsMessages.push({
                     to: customer.mobile_number,
@@ -1290,7 +1290,7 @@ export async function sendDisconnectionWarningsForExtension(
 
             if (customer?.mobile_number) {
                 // Build full portal URL using masked domain for iOS compatibility
-                const portalLink = `https://allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 smsMessages.push({
                     to: customer.mobile_number,

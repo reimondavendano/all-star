@@ -214,11 +214,8 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         if (params.sendSmsNotification) {
             const customer = subscription.customers as any;
             if (customer?.mobile_number) {
-                // TEMPORARILY COMMENTED OUT - Testing iOS SMS issue with portal links
-                // Build portal link (remove https:// for iOS SMS compatibility)
-                // const portalPath = subscription.customer_portal || `/portal/${customer.id}`;
-                // const fullPortalLink = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://all-star-three.vercel.app'}${portalPath}`;
-                // const portalLink = removeHttpsProtocol(fullPortalLink);
+                // Build full portal URL using masked domain for iOS compatibility
+                const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
 
                 await sendSMS({
                     to: customer.mobile_number,
@@ -226,7 +223,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
                         customer.name,
                         paymentAmount,
                         newBalance,
-                        '' // portalLink - TEMPORARILY REMOVED FOR TESTING
+                        portalLink
                     ),
                 });
             }
