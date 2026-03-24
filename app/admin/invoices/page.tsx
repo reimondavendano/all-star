@@ -722,11 +722,11 @@ export default function InvoicesPaymentsPage() {
                         <div className="flex w-full xl:w-auto gap-2">
                             <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
                                 <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
-                                <div className="text-sm sm:text-lg font-bold text-purple-300 truncate">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
+                                <div className="text-sm sm:text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
                             </div>
                             <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
                                 <div className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">Collected</div>
-                                <div className="text-sm sm:text-lg font-bold text-emerald-300 truncate">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
+                                <div className="text-sm sm:text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
                             </div>
                             <div className="flex-1 min-w-[25%] px-3 sm:px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
                                 <div className="text-[10px] sm:text-xs text-red-400 whitespace-nowrap">Unpaid</div>

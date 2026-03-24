@@ -288,7 +288,7 @@ export default function DashboardPage() {
             // Fetch invoices with subscription info to filter
             let currentInvoicesQuery = supabase
                 .from('invoices')
-                .select('id, amount_due, payment_status, subscription_id, subscriptions(business_unit_id, balance, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name, monthly_fee))');
+                .select('id, amount_due, amount_paid, original_amount, discount_applied, credits_applied, payment_status, subscription_id, subscriptions(business_unit_id, balance, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name, monthly_fee))');
 
             currentInvoicesQuery = applyDateFilter(currentInvoicesQuery, 'due_date', startOfMonth, startOfNextMonth);
 
@@ -299,29 +299,46 @@ export default function DashboardPage() {
                 ? (currentInvoicesRaw || [])
                 : (currentInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
 
-            // Monthly revenue = PAID invoices only (not billed)
-            const monthlyRevenue = currentInvoices.filter(inv => inv.payment_status === 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const currentMonthOutstanding = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const paidAmount = monthlyRevenue; // Same as monthly revenue now
-            const totalBilled = currentInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
-            const collectionRate = totalBilled > 0 ? (paidAmount / totalBilled) * 100 : 0;
+            // Current Month Payments for accurate monthly revenue
+            let currentPaymentsQuery = supabase
+                .from('payments')
+                .select('amount, mode, subscription_id');
+            currentPaymentsQuery = applyDateFilter(currentPaymentsQuery, 'settlement_date', startOfMonth, startOfNextMonth);
+            const { data: currentPaymentsRaw } = await currentPaymentsQuery;
+            
+            const currentPayments = selectedBusinessUnit === 'all'
+                ? (currentPaymentsRaw || [])
+                : (currentPaymentsRaw || []).filter(pmt => subscriptionIdsForBU.includes(pmt.subscription_id));
+            
+            const monthlyRevenue = currentPayments.reduce((sum, pmt) => sum + (pmt.amount || 0), 0);
+
+            const currentMonthOutstanding = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => {
+                const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                    : (inv.amount_due || 0);
+                const paid = inv.amount_paid || 0;
+                return sum + Math.max(0, effectiveAmount - paid);
+            }, 0);
+            
+            const totalBilled = currentInvoices.reduce((sum, inv) => {
+                const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                    : (inv.amount_due || 0);
+                return sum + effectiveAmount;
+            }, 0);
+            const collectionRate = totalBilled > 0 ? (monthlyRevenue / totalBilled) * 100 : 0;
 
             // 5. Previous month revenue for comparison (filtered by BU)
-            // 5. Previous month revenue for comparison (filtered by BU)
-            // The original logic filtered implicitly by only getting those >= startOfPrevMonth AND < startOfMonth
-            // which matches our helper
-            let prevInvoicesQuery = supabase
-                .from('invoices')
-                .select('amount_due, subscription_id');
+            let prevPaymentsQuery = supabase
+                .from('payments')
+                .select('amount, subscription_id');
+            prevPaymentsQuery = applyDateFilter(prevPaymentsQuery, 'settlement_date', startOfPrevMonth, startOfMonth);
+            const { data: prevPaymentsRaw } = await prevPaymentsQuery;
 
-            prevInvoicesQuery = applyDateFilter(prevInvoicesQuery, 'due_date', startOfPrevMonth, startOfMonth);
-
-            const { data: prevInvoicesRaw } = await prevInvoicesQuery;
-
-            const prevInvoices = selectedBusinessUnit === 'all'
-                ? (prevInvoicesRaw || [])
-                : (prevInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
-            const previousMonthRevenue = prevInvoices.reduce((sum, inv) => sum + (inv.amount_due || 0), 0);
+            const prevPayments = selectedBusinessUnit === 'all'
+                ? (prevPaymentsRaw || [])
+                : (prevPaymentsRaw || []).filter(pmt => subscriptionIdsForBU.includes(pmt.subscription_id));
+            const previousMonthRevenue = prevPayments.reduce((sum, pmt) => sum + (pmt.amount || 0), 0);
 
             // 6. Unpaid invoices count and TOTAL outstanding amount (filtered by selected month)
             const unpaidInvoicesCount = currentInvoices.filter(inv => inv.payment_status !== 'Paid').length;
@@ -555,23 +572,12 @@ export default function DashboardPage() {
             };
 
             // 14. Payment Methods Breakdown (filtered by selected month and BU)
-            let paymentsQueryMethod = supabase
-                .from('payments')
-                .select('amount, mode, subscription_id');
-
-            paymentsQueryMethod = applyDateFilter(paymentsQueryMethod, 'settlement_date', startOfMonth, startOfNextMonth);
-
-            const { data: paymentsDataRawMethod } = await paymentsQueryMethod;
-
-            const paymentsDataFilteredMethod = selectedBusinessUnit === 'all'
-                ? (paymentsDataRawMethod || [])
-                : (paymentsDataRawMethod || []).filter(pmt => subscriptionIdsForBU.includes(pmt.subscription_id));
-
             const paymentMethodsMap: { [key: string]: { count: number; total: number } } = {};
-            paymentsDataFilteredMethod.forEach((pmt: any) => {
+            currentPayments.forEach((pmt: any) => {
                 const methodRaw = pmt.mode ? String(pmt.mode).toLowerCase() : 'cash';
                 let normalizedMethod = 'Cash';
-                if (methodRaw.includes('gcash')) normalizedMethod = 'GCash';
+                if (methodRaw.includes('e-wallet')) normalizedMethod = 'E-Wallet';
+                else if (methodRaw.includes('gcash')) normalizedMethod = 'GCash';
                 else if (methodRaw.includes('maya') || methodRaw.includes('paymaya')) normalizedMethod = 'Maya';
                 else if (methodRaw.includes('bank')) normalizedMethod = 'Bank Transfer';
 
@@ -889,12 +895,25 @@ export default function DashboardPage() {
                 {/* Monthly Revenue */}
                 <div className="glass-card p-5">
                     <div className="flex items-start justify-between">
-                        <div>
-                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Monthly Revenue</p>
-                            <p className="text-3xl font-bold text-white">{formatCurrency(data.monthlyRevenue)}</p>
-                            <p className="text-sm text-gray-500 mt-1">Total paid this month</p>
+                        <div className="w-full pr-4">
+                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Monthly Revenue</p>
+                            <div className="space-y-1 mb-2">
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-gray-400">Cash:</span>
+                                    <span className="text-emerald-400 font-medium">{formatCurrency(data.paymentMethodsBreakdown.find(pm => pm.method === 'Cash')?.total || 0)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-gray-400">E-Payment:</span>
+                                    <span className="text-emerald-400 font-medium">{formatCurrency(data.paymentMethodsBreakdown.filter(pm => pm.method !== 'Cash').reduce((sum, pm) => sum + pm.total, 0))}</span>
+                                </div>
+                                <div className="border-t border-gray-700/50 pt-1 flex justify-between items-center">
+                                    <span className="text-gray-300 font-medium text-sm">Total:</span>
+                                    <span className="text-2xl font-bold text-white">{formatCurrency(data.monthlyRevenue)}</span>
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-500">Total paid this month</p>
                         </div>
-                        <div className="p-3 bg-emerald-900/30 rounded-xl">
+                        <div className="p-3 bg-emerald-900/30 rounded-xl shrink-0">
                             <DollarSign className="w-6 h-6 text-emerald-400" />
                         </div>
                     </div>
