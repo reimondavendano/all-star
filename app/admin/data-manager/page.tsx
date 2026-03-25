@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
     Database, Search, Plus, Save, Trash2, Edit, ChevronDown, 
-    X, RefreshCw, FileJson, Building2, User, Lock, Eye, EyeOff, ShieldAlert, LogOut
+    X, RefreshCw, FileJson, Building2, User, Lock, Eye, EyeOff, ShieldAlert, LogOut, Copy, ClipboardPaste
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -24,6 +24,75 @@ const SUB_LINKED_TABLES = ['invoices', 'payments', 'mikrotik_ppp_secrets'];
 const VALID_USERNAME = 'Ced@123';
 const VALID_PASSWORD = 'DataSecrets@123';
 const SESSION_KEY = 'data_manager_auth';
+
+function SearchableSelect({ value, options, onChange, placeholder, className }: any) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const filteredOptions = options.filter((o: any) => 
+        o.label.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const selectedOption = options.find((o: any) => o.value === value);
+
+    return (
+        <div className={clsx("relative w-full", isOpen ? "z-50" : "z-10")} ref={wrapperRef}>
+            <div 
+                className={clsx("w-full bg-[#0a0a0a] focus-within:border-red-500 rounded-lg px-3 py-2 text-sm text-white flex items-center justify-between cursor-text transition-colors", className || "border border-gray-800")}
+                onClick={() => setIsOpen(true)}
+            >
+                {isOpen ? (
+                    <input 
+                        type="text" 
+                        className="bg-transparent outline-none w-full"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        placeholder="Type to search..."
+                        autoFocus
+                    />
+                ) : (
+                    <div className="px-1 truncate w-[90%] text-left">
+                        {selectedOption ? selectedOption.label : <span className="text-gray-500">{placeholder}</span>}
+                    </div>
+                )}
+                <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            </div>
+            
+            {isOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-[#111] border border-gray-800 rounded-lg shadow-[0_4px_20px_rgba(0,0,0,0.5)] max-h-60 overflow-y-auto">
+                    {filteredOptions.length === 0 ? (
+                        <div className="p-3 text-sm text-gray-500 text-center">No results found</div>
+                    ) : (
+                        filteredOptions.map((o: any) => (
+                            <div 
+                                key={o.value}
+                                className={clsx("px-3 py-2 text-sm cursor-pointer hover:bg-red-900/30 text-left", value === o.value ? "bg-red-900/20 text-red-400" : "text-gray-300")}
+                                onClick={() => {
+                                    onChange(o.value);
+                                    setIsOpen(false);
+                                    setSearch('');
+                                }}
+                            >
+                                {o.label}
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function DataManager() {
     // Auth state
@@ -59,6 +128,8 @@ export default function DataManager() {
     const [editRecord, setEditRecord] = useState<any>(null);
     const [recordFields, setRecordFields] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [copiedRecord, setCopiedRecord] = useState<any>(null);
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
 
     // Check session on mount
     useEffect(() => {
@@ -140,6 +211,8 @@ export default function DataManager() {
     const fetchTableData = async () => {
         setIsLoading(true);
         try {
+            await fetchInitialData(); // ensure lookup maps are up-to-date
+            
             let query = supabase.from(selectedTable).select('*');
             
             // Apply relation filters
@@ -191,8 +264,9 @@ export default function DataManager() {
     const getSubLabel = (subId: string) => {
         const info = subMap[subId];
         if (!info) return subId;
-        const loc = [info.address, info.landmark].filter(Boolean).join(' - ');
-        return `${info.customerName} → ${loc || 'No address'}`;
+        const address = info.address || 'No Address';
+        const landmark = info.landmark || 'No Landmark';
+        return `${info.customerName} > ${address} > ${landmark}`;
     };
 
     // Get human-readable customer name for a subscription_id  
@@ -231,7 +305,15 @@ export default function DataManager() {
 
     const handleAdd = () => {
         const newRecord: any = {};
-        recordFields.forEach(f => newRecord[f] = '');
+        recordFields.forEach(f => {
+            if (f === 'is_free' || f === 'is_prorated' || f === 'referral_credit_applied') {
+                newRecord[f] = 'false';
+            } else if (f === 'active' || f === 'is_active') {
+                newRecord[f] = 'true';
+            } else {
+                newRecord[f] = '';
+            }
+        });
         
         if (selectedTable === 'subscriptions' && selectedCustomerId) {
             newRecord.subscriber_id = selectedCustomerId;
@@ -262,11 +344,30 @@ export default function DataManager() {
         }
     };
 
-    const handleSave = async () => {
+    const handleSave = () => {
+        setShowConfirmModal(true);
+    };
+
+    const executeSave = async () => {
         setIsSaving(true);
         try {
             const payload = { ...editRecord };
             if (!payload.id) delete payload.id;
+
+            // Clean payload: convert empty strings to null (fixes numeric/boolean column errors)
+            Object.keys(payload).forEach(key => {
+                if (payload[key] === '') {
+                    payload[key] = null;
+                }
+                // Convert string 'true'/'false' to boolean for boolean fields
+                if (payload[key] === 'true') payload[key] = true;
+                if (payload[key] === 'false') payload[key] = false;
+
+                // Specifically omit empty created_at from inserts/updates to avoid not-null constraint errors
+                if (key === 'created_at' && payload[key] === null) {
+                    delete payload[key];
+                }
+            });
 
             if (editRecord.id) {
                 const { error } = await supabase.from(selectedTable).update(payload).eq('id', editRecord.id);
@@ -278,12 +379,35 @@ export default function DataManager() {
             
             setIsEditing(false);
             setEditRecord(null);
+            setShowConfirmModal(false);
             fetchTableData();
         } catch (error: any) {
             alert('Error saving record: ' + error.message);
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleCopy = (record: any) => {
+        setCopiedRecord({ ...record });
+        // Brief visual feedback
+        const el = document.getElementById(`copy-btn-${record.id}`);
+        if (el) {
+            el.classList.add('!text-emerald-400');
+            setTimeout(() => el.classList.remove('!text-emerald-400'), 1000);
+        }
+    };
+
+    const handlePaste = () => {
+        if (!copiedRecord) return;
+        const pasted: any = {};
+        // Only paste fields that exist in the current table's schema (prevents cross-table errors like amount_due in subscriptions)
+        recordFields.forEach(field => {
+            if (field !== 'id' && field !== 'created_at' && copiedRecord[field] !== undefined) {
+                pasted[field] = copiedRecord[field];
+            }
+        });
+        setEditRecord({ ...editRecord, ...pasted });
     };
 
     // ========== RENDER HELPERS ==========
@@ -334,25 +458,21 @@ export default function DataManager() {
         }
         
         if (field === 'subscription_id') {
+            const subOptions = subList.map(s => {
+                const address = s.address || 'No Address';
+                const landmark = s.landmark || 'No Landmark';
+                return {
+                    value: s.id,
+                    label: `${s.customerName} > ${address} > ${landmark}`
+                };
+            });
             return (
-                <div className="relative">
-                    <select 
-                        value={editRecord[field] || ''}
-                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
-                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
-                    >
-                        <option value="">-- Select Customer & Subscription --</option>
-                        {subList.map(s => {
-                            const loc = [s.address, s.landmark].filter(Boolean).join(' - ');
-                            return (
-                                <option key={s.id} value={s.id}>
-                                    {s.customerName} → {loc || 'No address'}
-                                </option>
-                            );
-                        })}
-                    </select>
-                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                </div>
+                <SearchableSelect 
+                    value={editRecord[field] || ''}
+                    options={subOptions}
+                    onChange={(val: string) => setEditRecord({ ...editRecord, [field]: val })}
+                    placeholder="-- Select Customer & Subscription --"
+                />
             );
         }
         
@@ -404,6 +524,26 @@ export default function DataManager() {
                         {customers.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                </div>
+            );
+        }
+
+        // Boolean dropdowns
+        const booleanFields = ['is_free', 'active', 'is_active', 'is_prorated', 'referral_credit_applied'];
+        if (booleanFields.includes(field)) {
+            // Convert current value safely to 'true' or 'false' for select state
+            const strVal = editRecord[field] === true ? 'true' : editRecord[field] === false ? 'false' : String(editRecord[field] || 'false');
+            return (
+                <div className="relative">
+                    <select 
+                        value={strVal}
+                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
+                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
+                    >
+                        <option value="true">True</option>
+                        <option value="false">False</option>
                     </select>
                     <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                 </div>
@@ -544,7 +684,7 @@ export default function DataManager() {
 
     return (
         <div className="space-y-6 pb-20">
-            <div className="glass-card p-6 border-b border-red-900/30">
+            <div className="glass-card p-6 border-b border-red-900/30 relative z-50 !overflow-visible">
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-red-900/20 rounded-xl shadow-[0_0_15px_rgba(255,0,0,0.2)]">
@@ -594,17 +734,16 @@ export default function DataManager() {
                             </label>
                             <div className="relative flex items-center gap-1">
                                 <div className="relative flex-1">
-                                    <select 
+                                    <SearchableSelect 
                                         value={selectedCustomerId}
-                                        onChange={(e) => setSelectedCustomerId(e.target.value)}
-                                        className="w-full bg-[#0a0a0a] border border-red-900/30 text-white rounded-lg px-4 py-2.5 pr-8 appearance-none focus:outline-none focus:border-red-500 transition-colors"
-                                    >
-                                        <option value="">-- All Customers --</option>
-                                        {customers.map(c => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                        options={[
+                                            { value: '', label: '-- All Customers --' },
+                                            ...customers.map(c => ({ value: c.id, label: c.name }))
+                                        ]}
+                                        onChange={(val: string) => setSelectedCustomerId(val)}
+                                        placeholder="-- All Customers --"
+                                        className="border border-red-900/30 py-2.5 px-4"
+                                    />
                                 </div>
                                 {selectedCustomerId && (
                                     <button onClick={() => setSelectedCustomerId('')} className="p-2 text-gray-400 hover:text-white hover:bg-red-900/30 rounded-lg transition-colors" title="Clear filter">
@@ -624,20 +763,19 @@ export default function DataManager() {
                                 </label>
                                 <div className="relative flex items-center gap-1">
                                     <div className="relative flex-1">
-                                        <select 
+                                        <SearchableSelect 
                                             value={selectedCustomerId}
-                                            onChange={(e) => {
-                                                setSelectedCustomerId(e.target.value);
+                                            options={[
+                                                { value: '', label: '-- All Customers --' },
+                                                ...customers.map(c => ({ value: c.id, label: c.name }))
+                                            ]}
+                                            onChange={(val: string) => {
+                                                setSelectedCustomerId(val);
                                                 setSelectedSubscriptionId('');
                                             }}
-                                            className="w-full bg-[#0a0a0a] border border-red-900/30 text-white rounded-lg px-4 py-2.5 pr-8 appearance-none focus:outline-none focus:border-red-500 transition-colors"
-                                        >
-                                            <option value="">-- All Customers --</option>
-                                            {customers.map(c => (
-                                                <option key={c.id} value={c.id}>{c.name}</option>
-                                            ))}
-                                        </select>
-                                        <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                            placeholder="-- All Customers --"
+                                            className="border border-red-900/30 py-2.5 px-4"
+                                        />
                                     </div>
                                     {selectedCustomerId && (
                                         <button onClick={() => { setSelectedCustomerId(''); setSelectedSubscriptionId(''); }} className="p-2 text-gray-400 hover:text-white hover:bg-red-900/30 rounded-lg transition-colors" title="Clear filter">
@@ -652,22 +790,23 @@ export default function DataManager() {
                                 </label>
                                 <div className="relative flex items-center gap-1">
                                     <div className="relative flex-1">
-                                        <select 
+                                        <SearchableSelect 
                                             value={selectedSubscriptionId}
-                                            onChange={(e) => setSelectedSubscriptionId(e.target.value)}
-                                            className="w-full bg-[#0a0a0a] border border-red-900/30 text-white rounded-lg px-4 py-2.5 pr-8 appearance-none focus:outline-none focus:border-red-500 transition-colors"
-                                        >
-                                            <option value="">-- All Subscriptions --</option>
-                                            {filteredSubList.map(s => {
-                                                const loc = [s.address, s.landmark].filter(Boolean).join(' - ');
-                                                return (
-                                                    <option key={s.id} value={s.id}>
-                                                        {s.customerName} → {loc || 'No address'}
-                                                    </option>
-                                                );
-                                            })}
-                                        </select>
-                                        <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                            options={[
+                                                { value: '', label: '-- All Subscriptions --' },
+                                                ...filteredSubList.map(s => {
+                                                    const address = s.address || 'No Address';
+                                                    const landmark = s.landmark || 'No Landmark';
+                                                    return {
+                                                        value: s.id,
+                                                        label: `${s.customerName} > ${address} > ${landmark}`
+                                                    };
+                                                })
+                                            ]}
+                                            onChange={(val: string) => setSelectedSubscriptionId(val)}
+                                            placeholder="-- All Subscriptions --"
+                                            className="border border-gray-800 py-2.5 px-4"
+                                        />
                                     </div>
                                     {selectedSubscriptionId && (
                                         <button onClick={() => setSelectedSubscriptionId('')} className="p-2 text-gray-400 hover:text-white hover:bg-red-900/30 rounded-lg transition-colors" title="Clear filter">
@@ -687,17 +826,16 @@ export default function DataManager() {
                             </label>
                             <div className="relative flex items-center gap-1">
                                 <div className="relative flex-1">
-                                    <select 
+                                     <SearchableSelect 
                                         value={selectedBusinessUnitId}
-                                        onChange={(e) => setSelectedBusinessUnitId(e.target.value)}
-                                        className="w-full bg-[#0a0a0a] border border-red-900/30 text-white rounded-lg px-4 py-2.5 pr-8 appearance-none focus:outline-none focus:border-red-500 transition-colors"
-                                    >
-                                        <option value="">-- All Units --</option>
-                                        {businessUnits.map(b => (
-                                            <option key={b.id} value={b.id}>{b.name}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                        options={[
+                                            { value: '', label: '-- All Units --' },
+                                            ...businessUnits.map(b => ({ value: b.id, label: b.name }))
+                                        ]}
+                                        onChange={(val: string) => setSelectedBusinessUnitId(val)}
+                                        placeholder="-- All Units --"
+                                        className="border border-red-900/30 py-2.5 px-4"
+                                    />
                                 </div>
                                 {selectedBusinessUnitId && (
                                     <button onClick={() => setSelectedBusinessUnitId('')} className="p-2 text-gray-400 hover:text-white hover:bg-red-900/30 rounded-lg transition-colors" title="Clear filter">
@@ -747,9 +885,21 @@ export default function DataManager() {
                             <FileJson className="w-5 h-5 text-red-400" />
                             {editRecord.id ? `Edit ${selectedTable} Record` : `New ${selectedTable} Record`}
                         </h2>
-                        <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-white/10">
-                            <X className="w-5 h-5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {copiedRecord && !editRecord.id && (
+                                <button 
+                                    onClick={handlePaste}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-emerald-900/30 hover:bg-emerald-900/50 text-emerald-400 hover:text-emerald-300 border border-emerald-700/50 rounded-lg transition-all"
+                                    title="Paste copied record fields"
+                                >
+                                    <ClipboardPaste className="w-4 h-4" />
+                                    Paste Copied Data
+                                </button>
+                            )}
+                            <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-white p-1 rounded-md hover:bg-white/10">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
                     </div>
                     
                     <div className="p-6">
@@ -831,7 +981,15 @@ export default function DataManager() {
 
                             <div className="flex justify-between items-start mb-4 pb-3 border-b border-gray-800/50">
                                 <div className="text-sm font-mono text-red-400 truncate max-w-[80%]">ID: {item.id || 'N/A'}</div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                    <button 
+                                        id={`copy-btn-${item.id}`}
+                                        onClick={() => handleCopy(item)}
+                                        className="p-1.5 text-gray-500 hover:text-emerald-400 hover:bg-emerald-900/30 rounded transition-colors"
+                                        title="Copy record for pasting"
+                                    >
+                                        <Copy className="w-4 h-4" />
+                                    </button>
                                     <button 
                                         onClick={() => handleEdit(item)}
                                         className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded"
@@ -861,6 +1019,37 @@ export default function DataManager() {
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Confirmation Modal */}
+            {showConfirmModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="glass-card w-full max-w-md p-6 border border-red-900/50 shadow-[0_0_50px_rgba(220,38,38,0.15)] flex flex-col items-center">
+                        <div className="w-16 h-16 rounded-full bg-red-900/30 flex items-center justify-center mb-4">
+                            <Save className="w-8 h-8 text-red-500" />
+                        </div>
+                        <h2 className="text-xl font-bold text-white mb-2 text-center">Confirm Action</h2>
+                        <p className="text-gray-400 mb-6 text-center">Are you sure you want to save these changes to the database?</p>
+                        
+                        <div className="flex items-center gap-3 w-full">
+                            <button 
+                                onClick={() => setShowConfirmModal(false)}
+                                disabled={isSaving}
+                                className="flex-1 px-4 py-3 rounded-lg text-gray-400 hover:text-white bg-gray-800/50 hover:bg-gray-700 border border-gray-700 transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={executeSave}
+                                disabled={isSaving}
+                                className="flex-1 bg-red-600 hover:bg-red-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium disabled:opacity-50 transition-colors shadow-[0_0_15px_rgba(220,38,38,0.4)]"
+                            >
+                                {isSaving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                                Confirm Save
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
