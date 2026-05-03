@@ -211,19 +211,21 @@ export default function DashboardPage() {
             // Ideally we'd rewrite the whole logic for flexible ranges, but for now we default to Current Month for those
             // or we could implement them. Given the user asked for "Specific Months" to work, we verify that first.
 
-            const currentMonthISO = targetDate.toISOString().slice(0, 7); // YYYY-MM
+            const year = targetDate.getFullYear();
+            const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+            const currentMonthISO = `${year}-${month}`; // YYYY-MM
+            
             const prevMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() - 1, 1);
-            const prevMonthISO = prevMonthDate.toISOString().slice(0, 7);
+            const prevMonthYear = prevMonthDate.getFullYear();
+            const prevMonthMonth = String(prevMonthDate.getMonth() + 1).padStart(2, '0');
+            const prevMonthISO = `${prevMonthYear}-${prevMonthMonth}`;
 
             const startOfMonth = `${currentMonthISO}-01`;
-            // Calculate end of month for upper bound if specific month selected (though queries usually use >= startOfMonth)
-            // But if we are viewing a past month, we want explicitly that month's data, not "everything since then".
-            // The original code used `.gte('due_date', startOfMonth)`. 
-            // If I look at "April 2025" and we are in "Dec 2025", `gte` would show all months since April.
-            // We need an upper bound!
 
             const nextMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 1);
-            const startOfNextMonth = nextMonthDate.toISOString().slice(0, 10); // YYYY-MM-DD
+            const nextMonthYear = nextMonthDate.getFullYear();
+            const nextMonthMonth = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
+            const startOfNextMonth = `${nextMonthYear}-${nextMonthMonth}-01`; // YYYY-MM-DD
 
             const startOfPrevMonth = `${prevMonthISO}-01`;
 
@@ -534,11 +536,14 @@ export default function DashboardPage() {
             // 13. Expenses Summary (filtered by BU)
             let expensesQuery = supabase
                 .from('expenses')
-                .select('amount, reason, subscription_id, business_unit_id');
+                .select('amount, reason, subscription_id, business_unit_id, date, created_at');
 
-            expensesQuery = applyDateFilter(expensesQuery, 'created_at', startOfMonth, startOfNextMonth);
+            const { data: allExpensesDataRaw } = await expensesQuery;
 
-            const { data: expensesDataRaw } = await expensesQuery;
+            const expensesDataRaw = (allExpensesDataRaw || []).filter(exp => {
+                const dateStr = exp.date || exp.created_at;
+                return dateStr && dateStr.startsWith(currentMonthISO);
+            });
 
             // Filter expenses by business unit if selected
             const expensesData = selectedBusinessUnit === 'all'
@@ -657,10 +662,14 @@ export default function DashboardPage() {
                     targetDate = parsedDate;
                 }
             }
-            const currentMonthISO = targetDate.toISOString().slice(0, 7); // YYYY-MM
+            const year = targetDate.getFullYear();
+            const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+            const currentMonthISO = `${year}-${month}`; // YYYY-MM
             const startOfMonth = `${currentMonthISO}-01`;
             const nextMonthDate = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 1);
-            const startOfNextMonth = nextMonthDate.toISOString().slice(0, 10); // YYYY-MM-DD
+            const nextMonthYear = nextMonthDate.getFullYear();
+            const nextMonthMonth = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
+            const startOfNextMonth = `${nextMonthYear}-${nextMonthMonth}-01`; // YYYY-MM-DD
 
             // Query invoices
             let currentInvoicesQuery = supabase
