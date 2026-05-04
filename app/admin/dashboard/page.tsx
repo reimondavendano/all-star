@@ -240,10 +240,31 @@ export default function DashboardPage() {
             setBusinessUnits(buData || []);
 
             let selectedBuIds: string[] = [];
-            if (selectedBusinessUnit === 'malanggam_ext') {
-                selectedBuIds = (buData || [])
-                    .filter(bu => bu.name.toLowerCase().includes('malanggam') || bu.name.toLowerCase().includes('extension'))
+            let malanggamExt30thSubIds: string[] | null = null; // explicit sub IDs for 30th filter
+
+            if (selectedBusinessUnit === 'malanggam_ext_30th') {
+                const malanggamBuIds = (buData || [])
+                    .filter(bu => bu.name.toLowerCase().includes('malanggam'))
                     .map(bu => bu.id);
+                const extensionBuIds = (buData || [])
+                    .filter(bu => bu.name.toLowerCase().includes('extension'))
+                    .map(bu => bu.id);
+
+                // Get all Malanggam sub IDs
+                const { data: malanggamSubs } = await supabase
+                    .from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
+                // Get only Extension sub IDs with invoice_date = '30th'
+                const { data: ext30thSubs } = await supabase
+                    .from('subscriptions').select('id')
+                    .in('business_unit_id', extensionBuIds)
+                    .eq('invoice_date', '30th');
+
+                malanggamExt30thSubIds = [
+                    ...(malanggamSubs || []).map(s => s.id),
+                    ...(ext30thSubs || []).map(s => s.id)
+                ];
+                // selectedBuIds covers both BUs for BU performance table display
+                selectedBuIds = [...malanggamBuIds, ...extensionBuIds];
             } else if (selectedBusinessUnit !== 'all') {
                 selectedBuIds = [selectedBusinessUnit];
             }
@@ -288,7 +309,10 @@ export default function DashboardPage() {
             // 4. Invoice totals for current month - FILTER BY BUSINESS UNIT through subscriptions
             // First get subscription IDs for the selected business unit
             let subscriptionIdsForBU: string[] = [];
-            if (selectedBusinessUnit !== 'all') {
+            if (malanggamExt30thSubIds !== null) {
+                // Already computed specific sub IDs for Malanggam + Ext (30th)
+                subscriptionIdsForBU = malanggamExt30thSubIds;
+            } else if (selectedBusinessUnit !== 'all') {
                 const { data: buSubs } = await supabase
                     .from('subscriptions')
                     .select('id')
@@ -704,7 +728,7 @@ export default function DashboardPage() {
             // Query invoices
             let currentInvoicesQuery = supabase
                 .from('invoices')
-                .select('id, amount_due, payment_status, due_date, subscriptions(business_unit_id, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name))')
+                .select('id, subscription_id, amount_due, payment_status, due_date, subscriptions(id, business_unit_id, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name))')
                 .gte('due_date', startOfMonth)
                 .lt('due_date', startOfNextMonth);
 
@@ -713,18 +737,27 @@ export default function DashboardPage() {
 
             // Filter by business unit
             let filterBuIds: string[] = [];
-            if (selectedBusinessUnit === 'malanggam_ext') {
+            let filterSubIds: string[] | null = null;
+
+            if (selectedBusinessUnit === 'malanggam_ext_30th') {
                 const { data: buData } = await supabase.from('business_units').select('id, name');
-                filterBuIds = (buData || [])
-                    .filter(bu => bu.name.toLowerCase().includes('malanggam') || bu.name.toLowerCase().includes('extension'))
-                    .map(bu => bu.id);
+                const malanggamBuIds = (buData || []).filter(bu => bu.name.toLowerCase().includes('malanggam')).map(bu => bu.id);
+                const extensionBuIds = (buData || []).filter(bu => bu.name.toLowerCase().includes('extension')).map(bu => bu.id);
+                const { data: malanggamSubs } = await supabase.from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
+                const { data: ext30Subs } = await supabase.from('subscriptions').select('id').in('business_unit_id', extensionBuIds).eq('invoice_date', '30th');
+                filterSubIds = [
+                    ...(malanggamSubs || []).map((s: any) => s.id),
+                    ...(ext30Subs || []).map((s: any) => s.id)
+                ];
             } else if (selectedBusinessUnit !== 'all') {
                 filterBuIds = [selectedBusinessUnit];
             }
 
             const filteredInvoices = selectedBusinessUnit === 'all'
                 ? (rawInvoices || [])
-                : (rawInvoices || []).filter((inv: any) => filterBuIds.includes(inv.subscriptions?.business_unit_id));
+                : filterSubIds !== null
+                    ? (rawInvoices || []).filter((inv: any) => filterSubIds!.includes(inv.subscriptions?.id ?? inv.subscription_id))
+                    : (rawInvoices || []).filter((inv: any) => filterBuIds.includes(inv.subscriptions?.business_unit_id));
 
             // Build CSV
             const headers = ['Invoice ID', 'Customer Name', 'Business Unit', 'Plan', 'Due Date', 'Amount Due', 'Payment Status'];
@@ -771,8 +804,8 @@ export default function DashboardPage() {
             addRow(['Dashboard Report', '']);
             addRow(['Period', selectedPeriod]);
             let businessUnitName = 'All Business Units';
-            if (selectedBusinessUnit === 'malanggam_ext') {
-                businessUnitName = 'Malanggam + Ext.';
+            if (selectedBusinessUnit === 'malanggam_ext_30th') {
+                businessUnitName = 'Malanggam + Ext. (30th)';
             } else if (selectedBusinessUnit !== 'all') {
                 const found = businessUnits.find(b => b.id === selectedBusinessUnit);
                 if (found) businessUnitName = found.name;
@@ -909,7 +942,7 @@ export default function DashboardPage() {
                             className="bg-gray-900/50 border border-gray-700 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-purple-500"
                         >
                             <option value="all">All Business Units</option>
-                            <option value="malanggam_ext">Malanggam + Ext.</option>
+                            <option value="malanggam_ext_30th">Malanggam + Ext. (30th)</option>
                             {businessUnits.map(bu => (
                                 <option key={bu.id} value={bu.id}>{bu.name}</option>
                             ))}
