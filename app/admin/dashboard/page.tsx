@@ -41,6 +41,7 @@ interface BusinessUnitPerformance {
     collected: number;
     outstanding: number;
     subscribers: number;
+    cashRevenue: number;
 }
 
 interface MonthlyRevenue {
@@ -238,6 +239,15 @@ export default function DashboardPage() {
             const { data: buData } = await supabase.from('business_units').select('id, name');
             setBusinessUnits(buData || []);
 
+            let selectedBuIds: string[] = [];
+            if (selectedBusinessUnit === 'malanggam_ext') {
+                selectedBuIds = (buData || [])
+                    .filter(bu => bu.name.toLowerCase().includes('malanggam') || bu.name.toLowerCase().includes('extension'))
+                    .map(bu => bu.id);
+            } else if (selectedBusinessUnit !== 'all') {
+                selectedBuIds = [selectedBusinessUnit];
+            }
+
             // 1. Total customers - need to filter if business unit selected
             let totalCustomers = 0;
             if (selectedBusinessUnit === 'all') {
@@ -248,7 +258,7 @@ export default function DashboardPage() {
                 const { data: custData } = await supabase
                     .from('subscriptions')
                     .select('subscriber_id')
-                    .eq('business_unit_id', selectedBusinessUnit);
+                    .in('business_unit_id', selectedBuIds);
                 const uniqueCustomers = new Set((custData || []).map(s => s.subscriber_id));
                 totalCustomers = uniqueCustomers.size;
             }
@@ -256,14 +266,14 @@ export default function DashboardPage() {
             // 2. Active subscriptions
             let subsQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('active', true);
             if (selectedBusinessUnit !== 'all') {
-                subsQuery = subsQuery.eq('business_unit_id', selectedBusinessUnit);
+                subsQuery = subsQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: activeSubscriptions } = await subsQuery;
 
             // 3. Subscription Stats (filtered by BU)
             let inactiveQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('active', false);
             if (selectedBusinessUnit !== 'all') {
-                inactiveQuery = inactiveQuery.eq('business_unit_id', selectedBusinessUnit);
+                inactiveQuery = inactiveQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: inactiveSubs } = await inactiveQuery;
 
@@ -271,7 +281,7 @@ export default function DashboardPage() {
             newThisMonthQuery = applyDateFilter(newThisMonthQuery, 'created_at', startOfMonth, startOfNextMonth);
 
             if (selectedBusinessUnit !== 'all') {
-                newThisMonthQuery = newThisMonthQuery.eq('business_unit_id', selectedBusinessUnit);
+                newThisMonthQuery = newThisMonthQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: newThisMonth } = await newThisMonthQuery;
 
@@ -282,7 +292,7 @@ export default function DashboardPage() {
                 const { data: buSubs } = await supabase
                     .from('subscriptions')
                     .select('id')
-                    .eq('business_unit_id', selectedBusinessUnit);
+                    .in('business_unit_id', selectedBuIds);
                 subscriptionIdsForBU = (buSubs || []).map(s => s.id);
             }
 
@@ -304,7 +314,7 @@ export default function DashboardPage() {
             // Current Month Payments for accurate monthly revenue
             let currentPaymentsQuery = supabase
                 .from('payments')
-                .select('amount, mode, subscription_id');
+                .select('amount, mode, subscription_id, subscriptions(business_unit_id, business_units(name))');
             currentPaymentsQuery = applyDateFilter(currentPaymentsQuery, 'settlement_date', startOfMonth, startOfNextMonth);
             const { data: currentPaymentsRaw } = await currentPaymentsQuery;
             
@@ -356,11 +366,18 @@ export default function DashboardPage() {
             // 8. Business Unit Performance (filtered by selected month)
             const buPerfMap: { [key: string]: BusinessUnitPerformance } = {};
             (buData || []).forEach(bu => {
-                buPerfMap[bu.name] = { name: bu.name, billed: 0, collected: 0, outstanding: 0, subscribers: 0 };
+                if (selectedBusinessUnit === 'all' || selectedBuIds.includes(bu.id)) {
+                    buPerfMap[bu.name] = { name: bu.name, billed: 0, collected: 0, outstanding: 0, subscribers: 0, cashRevenue: 0 };
+                }
             });
 
             // Tally subscribers from active subscriptions for accurate overall subscriber count per BU
-            const { data: buSubsActive } = await supabase.from('subscriptions').select('business_units(name)').eq('active', true);
+            let buSubsQuery = supabase.from('subscriptions').select('business_units(name)').eq('active', true);
+            if (selectedBusinessUnit !== 'all') {
+                buSubsQuery = buSubsQuery.in('business_unit_id', selectedBuIds);
+            }
+            const { data: buSubsActive } = await buSubsQuery;
+
             (buSubsActive || []).forEach((sub: any) => {
                 const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
                 if (buName && buPerfMap[buName]) {
@@ -374,14 +391,27 @@ export default function DashboardPage() {
                 if (!sub) return;
                 const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
                 if (buName && buPerfMap[buName]) {
-                    buPerfMap[buName].billed += inv.amount_due || 0;
-                    if (inv.payment_status === 'Paid') {
-                        buPerfMap[buName].collected += inv.amount_due || 0;
-                    } else {
-                        buPerfMap[buName].outstanding += inv.amount_due || 0;
-                    }
+                    const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                        ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                        : (inv.amount_due || 0);
+                    const paid = inv.amount_paid || 0;
+                    
+                    buPerfMap[buName].billed += effectiveAmount;
+                    buPerfMap[buName].collected += paid;
+                    buPerfMap[buName].outstanding += Math.max(0, effectiveAmount - paid);
                 }
             });
+
+            // Tally cash revenue from payments per BU
+            currentPayments.forEach((pmt: any) => {
+                const sub = pmt.subscriptions;
+                if (!sub) return;
+                const buName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
+                if (buName && buPerfMap[buName]) {
+                    buPerfMap[buName].cashRevenue += (pmt.amount || 0);
+                }
+            });
+
             const businessUnitPerformance = Object.values(buPerfMap).sort((a, b) => b.billed - a.billed);
 
             // 9. Revenue by month (last 6 months) - FILTERED BY BU
@@ -440,7 +470,7 @@ export default function DashboardPage() {
                 .limit(10);
 
             if (selectedBusinessUnit !== 'all') {
-                paymentsQuery = paymentsQuery.eq('subscriptions.business_unit_id', selectedBusinessUnit);
+                paymentsQuery = paymentsQuery.in('subscriptions.business_unit_id', selectedBuIds);
             }
 
             const { data: recentPayments } = await paymentsQuery;
@@ -464,7 +494,7 @@ export default function DashboardPage() {
                 .limit(10);
 
             if (selectedBusinessUnit !== 'all') {
-                invoicesQuery = invoicesQuery.eq('subscriptions.business_unit_id', selectedBusinessUnit);
+                invoicesQuery = invoicesQuery.in('subscriptions.business_unit_id', selectedBuIds);
             }
 
             const { data: recentInvoices } = await invoicesQuery;
@@ -488,7 +518,7 @@ export default function DashboardPage() {
                 .limit(10);
 
             if (selectedBusinessUnit !== 'all') {
-                subscribersQuery = subscribersQuery.eq('business_unit_id', selectedBusinessUnit);
+                subscribersQuery = subscribersQuery.in('business_unit_id', selectedBuIds);
             }
 
             const { data: recentSubscribers } = await subscribersQuery;
@@ -550,7 +580,7 @@ export default function DashboardPage() {
                 ? (expensesDataRaw || [])
                 : (expensesDataRaw || []).filter(exp => {
                     // Include if expense has direct business_unit_id match
-                    if (exp.business_unit_id === selectedBusinessUnit) {
+                    if (exp.business_unit_id && selectedBuIds.includes(exp.business_unit_id)) {
                         return true;
                     }
                     // Include if expense is linked to subscription in this business unit
@@ -682,9 +712,19 @@ export default function DashboardPage() {
             if (error) throw error;
 
             // Filter by business unit
+            let filterBuIds: string[] = [];
+            if (selectedBusinessUnit === 'malanggam_ext') {
+                const { data: buData } = await supabase.from('business_units').select('id, name');
+                filterBuIds = (buData || [])
+                    .filter(bu => bu.name.toLowerCase().includes('malanggam') || bu.name.toLowerCase().includes('extension'))
+                    .map(bu => bu.id);
+            } else if (selectedBusinessUnit !== 'all') {
+                filterBuIds = [selectedBusinessUnit];
+            }
+
             const filteredInvoices = selectedBusinessUnit === 'all'
                 ? (rawInvoices || [])
-                : (rawInvoices || []).filter((inv: any) => inv.subscriptions?.business_unit_id === selectedBusinessUnit);
+                : (rawInvoices || []).filter((inv: any) => filterBuIds.includes(inv.subscriptions?.business_unit_id));
 
             // Build CSV
             const headers = ['Invoice ID', 'Customer Name', 'Business Unit', 'Plan', 'Due Date', 'Amount Due', 'Payment Status'];
@@ -731,7 +771,9 @@ export default function DashboardPage() {
             addRow(['Dashboard Report', '']);
             addRow(['Period', selectedPeriod]);
             let businessUnitName = 'All Business Units';
-            if (selectedBusinessUnit !== 'all') {
+            if (selectedBusinessUnit === 'malanggam_ext') {
+                businessUnitName = 'Malanggam + Ext.';
+            } else if (selectedBusinessUnit !== 'all') {
                 const found = businessUnits.find(b => b.id === selectedBusinessUnit);
                 if (found) businessUnitName = found.name;
             }
@@ -741,8 +783,8 @@ export default function DashboardPage() {
             addRow(['--- SUMMARY ---', '']);
             addRow(['Total Customers', data.totalCustomers.toString()]);
             addRow(['Active Subscriptions', data.activeSubscriptions.toString()]);
-            addRow(['Monthly Revenue (PHP)', data.monthlyRevenue.toString()]);
-            addRow(['Outstanding Balance (PHP)', data.outstandingAmount.toString()]);
+            addRow(['Total Cash Received (PHP)', data.monthlyRevenue.toString()]);
+            addRow(['Outstanding Invoice Balance (PHP)', data.outstandingAmount.toString()]);
             addRow(['Collection Rate (%)', data.collectionRate.toFixed(2)]);
             addRow(['Unpaid Invoices Count', data.unpaidInvoicesCount.toString()]);
 
@@ -765,9 +807,9 @@ export default function DashboardPage() {
             });
 
             addRow([]);
-            addRow(['--- BUSINESS UNIT PERFORMANCE ---', 'Subscribers', 'Billed (PHP)', 'Collected (PHP)', 'Outstanding (PHP)']);
+            addRow([`--- BUSINESS UNIT PERFORMANCE (${selectedPeriod}) ---`, 'Subscribers', 'Total Cash Revenue (PHP)', 'Billed for Month (PHP)', 'Paid Towards Invoices (PHP)', 'Outstanding Balance (PHP)']);
             data.businessUnitPerformance.forEach(bu => {
-                addRow([bu.name, bu.subscribers.toString(), bu.billed.toString(), bu.collected.toString(), bu.outstanding.toString()]);
+                addRow([bu.name, bu.subscribers.toString(), bu.cashRevenue.toString(), bu.billed.toString(), bu.collected.toString(), bu.outstanding.toString()]);
             });
 
             addRow([]);
@@ -867,6 +909,7 @@ export default function DashboardPage() {
                             className="bg-gray-900/50 border border-gray-700 text-white rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-purple-500"
                         >
                             <option value="all">All Business Units</option>
+                            <option value="malanggam_ext">Malanggam + Ext.</option>
                             {businessUnits.map(bu => (
                                 <option key={bu.id} value={bu.id}>{bu.name}</option>
                             ))}
