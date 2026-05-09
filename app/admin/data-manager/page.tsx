@@ -166,8 +166,8 @@ export default function DataManager() {
         ] = await Promise.all([
             supabase.from('customers').select('id, name').order('name'),
             supabase.from('business_units').select('id, name').order('name'),
-            supabase.from('plans').select('id, name').order('name'),
-            supabase.from('subscriptions').select('id, subscriber_id, address, landmark')
+            supabase.from('plans').select('id, name, monthly_fee').order('name'),
+            supabase.from('subscriptions').select('id, subscriber_id, address, landmark, plan_id')
         ]);
         
         if (cData) {
@@ -184,20 +184,21 @@ export default function DataManager() {
         }
         if (pData) {
             setPlans(pData);
-            const pm: Record<string, string> = {};
-            pData.forEach((p: any) => { pm[p.id] = p.name; });
+            const pm: Record<string, any> = {};
+            pData.forEach((p: any) => { pm[p.id] = p; });
             setPlanMap(pm);
         }
         if (sData && cData) {
             const cMap: Record<string, string> = {};
             cData.forEach((c: any) => { cMap[c.id] = c.name; });
             
-            const sm: Record<string, { customerName: string; address: string; landmark: string }> = {};
+            const sm: Record<string, { customerName: string; address: string; landmark: string; plan_id: string }> = {};
             sData.forEach((s: any) => {
                 sm[s.id] = {
                     customerName: cMap[s.subscriber_id] || 'Unknown',
                     address: s.address || '',
-                    landmark: s.landmark || ''
+                    landmark: s.landmark || '',
+                    plan_id: s.plan_id || ''
                 };
             });
             setSubMap(sm);
@@ -306,10 +307,14 @@ export default function DataManager() {
     const handleAdd = () => {
         const newRecord: any = {};
         recordFields.forEach(f => {
-            if (f === 'is_free' || f === 'is_prorated' || f === 'referral_credit_applied') {
+            if (f === 'is_free' || f === 'is_prorated' || f === 'referral_credit_applied' || f === 'disabled') {
                 newRecord[f] = 'false';
-            } else if (f === 'active' || f === 'is_active') {
+            } else if (f === 'active' || f === 'is_active' || f === 'enabled') {
                 newRecord[f] = 'true';
+            } else if (selectedTable === 'mikrotik_ppp_secrets' && f === 'password') {
+                newRecord[f] = '1111';
+            } else if (selectedTable === 'mikrotik_ppp_secrets' && f === 'service') {
+                newRecord[f] = 'pppoe';
             } else {
                 newRecord[f] = '';
             }
@@ -370,11 +375,19 @@ export default function DataManager() {
             });
 
             if (editRecord.id) {
+                if (selectedTable === 'subscriptions' && (!payload.customer_portal || payload.customer_portal.trim() === '')) {
+                    payload.customer_portal = `/portal/${editRecord.id}`;
+                }
                 const { error } = await supabase.from(selectedTable).update(payload).eq('id', editRecord.id);
                 if (error) throw error;
             } else {
-                const { error } = await supabase.from(selectedTable).insert([payload]);
+                const { data: insertedData, error } = await supabase.from(selectedTable).insert([payload]).select();
                 if (error) throw error;
+                
+                if (selectedTable === 'subscriptions' && insertedData && insertedData[0]) {
+                    const newId = insertedData[0].id;
+                    await supabase.from('subscriptions').update({ customer_portal: `/portal/${newId}` }).eq('id', newId);
+                }
             }
             
             setIsEditing(false);
@@ -441,8 +454,8 @@ export default function DataManager() {
         }
         // Resolve plan_id → Plan Name
         if (key === 'plan_id' && typeof val === 'string') {
-            const name = planMap[val];
-            if (name) return <div><span className="text-pink-400 font-bold not-italic">{name}</span><div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div></div>;
+            const plan = planMap[val];
+            if (plan && plan.name) return <div><span className="text-pink-400 font-bold not-italic">{plan.name}</span><div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div></div>;
         }
 
         if (typeof val === 'boolean') return <span className={val ? "text-emerald-400" : "text-red-400"}>{val.toString()}</span>;
@@ -458,7 +471,12 @@ export default function DataManager() {
         }
         
         if (field === 'subscription_id') {
-            const subOptions = subList.map(s => {
+            const currentCustomerId = editRecord['customer_id'] || editRecord['subscriber_id'];
+            const filteredSubList = currentCustomerId 
+                ? subList.filter(s => s.subscriber_id === currentCustomerId)
+                : subList;
+
+            const subOptions = filteredSubList.map(s => {
                 const address = s.address || 'No Address';
                 const landmark = s.landmark || 'No Landmark';
                 return {
@@ -470,8 +488,30 @@ export default function DataManager() {
                 <SearchableSelect 
                     value={editRecord[field] || ''}
                     options={subOptions}
-                    onChange={(val: string) => setEditRecord({ ...editRecord, [field]: val })}
-                    placeholder="-- Select Customer & Subscription --"
+                    onChange={(val: string) => {
+                        const sub = subList.find(s => s.id === val);
+                        const updates: any = { [field]: val };
+                        if (sub) {
+                            if ('customer_id' in editRecord && !editRecord['customer_id']) {
+                                updates['customer_id'] = sub.subscriber_id;
+                            }
+                            if ('subscriber_id' in editRecord && !editRecord['subscriber_id']) {
+                                updates['subscriber_id'] = sub.subscriber_id;
+                            }
+                            if (selectedTable === 'invoices') {
+                                const subInfo = subMap[val];
+                                if (subInfo && subInfo.plan_id) {
+                                    const plan = planMap[subInfo.plan_id];
+                                    if (plan && plan.monthly_fee) {
+                                        if (recordFields.includes('original_amount')) updates['original_amount'] = plan.monthly_fee;
+                                        if (recordFields.includes('amount_due')) updates['amount_due'] = plan.monthly_fee;
+                                    }
+                                }
+                            }
+                        }
+                        setEditRecord({ ...editRecord, ...updates });
+                    }}
+                    placeholder="-- Select Subscription --"
                 />
             );
         }
@@ -512,7 +552,28 @@ export default function DataManager() {
             );
         }
     
-        if (field === 'subscriber_id') {
+        if (field === 'subscriber_id' || field === 'customer_id') {
+            return (
+                <SearchableSelect 
+                    value={editRecord[field] || ''}
+                    options={[
+                        { value: '', label: '-- Select Customer --' },
+                        ...customers.map(c => ({ value: c.id, label: c.name }))
+                    ]}
+                    onChange={(val: string) => {
+                        const updates: any = { [field]: val };
+                        if ('subscription_id' in editRecord) {
+                            updates['subscription_id'] = '';
+                        }
+                        setEditRecord({ ...editRecord, ...updates });
+                    }}
+                    placeholder="-- Select Customer --"
+                />
+            );
+        }
+
+        if (field === 'profile') {
+            const profiles = ['DC', '50MBPS', '50MMBPS-2', '100MBPS', '100MBPS-2', '130MBPS', '130MBPS-2', '150MBPS', '150MBPS-2'];
             return (
                 <div className="relative">
                     <select 
@@ -520,9 +581,9 @@ export default function DataManager() {
                         onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
                         className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
                     >
-                        <option value="">-- Select Customer --</option>
-                        {customers.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
+                        <option value="">-- Select Profile --</option>
+                        {profiles.map(p => (
+                            <option key={p} value={p}>{p}</option>
                         ))}
                     </select>
                     <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
@@ -531,7 +592,7 @@ export default function DataManager() {
         }
 
         // Boolean dropdowns
-        const booleanFields = ['is_free', 'active', 'is_active', 'is_prorated', 'referral_credit_applied'];
+        const booleanFields = ['is_free', 'active', 'is_active', 'is_prorated', 'referral_credit_applied', 'enabled', 'disabled'];
         if (booleanFields.includes(field)) {
             // Convert current value safely to 'true' or 'false' for select state
             const strVal = editRecord[field] === true ? 'true' : editRecord[field] === false ? 'false' : String(editRecord[field] || 'false');
@@ -550,6 +611,77 @@ export default function DataManager() {
             );
         }
     
+        // Date inputs for reconnection/disconnection/invoices/subscriptions
+        const dateFields = ['last_reconnection_date', 'last_disconnection_date', 'from_date', 'to_date', 'due_date', 'date_installed'];
+        if (dateFields.includes(field)) {
+            const toLocalFormat = (val: any) => {
+                if (!val || typeof val !== 'string') return '';
+                return val.substring(0, 10);
+            };
+            const toDbFormat = (val: string) => {
+                if (!val) return null;
+                const timestampFields = ['last_reconnection_date', 'last_disconnection_date'];
+                return timestampFields.includes(field) ? val + ' 00:00:00+00' : val;
+            };
+
+            return (
+                <input
+                    type="date"
+                    value={toLocalFormat(editRecord[field])}
+                    onChange={(e) => setEditRecord({ ...editRecord, [field]: toDbFormat(e.target.value) })}
+                    className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white font-mono [color-scheme:dark]"
+                />
+            );
+        }
+
+        if (field === 'customer_portal' && selectedTable === 'subscriptions') {
+            const displayValue = editRecord.id ? `/portal/${editRecord.id}` : '/portal/{id}';
+            return (
+                <input
+                    type="text"
+                    value={displayValue}
+                    disabled
+                    className="w-full bg-[#0a0a0a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-500 font-mono cursor-not-allowed opacity-70"
+                />
+            );
+        }
+
+        if (field === 'invoice_date' && selectedTable === 'subscriptions') {
+            return (
+                <div className="relative">
+                    <select 
+                        value={editRecord[field] || ''}
+                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
+                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
+                    >
+                        <option value="">-- Select Invoice Date --</option>
+                        <option value="15th">15th</option>
+                        <option value="30th">30th</option>
+                    </select>
+                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                </div>
+            );
+        }
+
+        if (field === 'payment_status' && selectedTable === 'invoices') {
+            const statuses = ['Paid', 'Unpaid', 'Partially Paid'];
+            return (
+                <div className="relative">
+                    <select 
+                        value={editRecord[field] || ''}
+                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
+                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
+                    >
+                        <option value="">-- Select Status --</option>
+                        {statuses.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                </div>
+            );
+        }
+
         // Default text input
         return (
             <input
