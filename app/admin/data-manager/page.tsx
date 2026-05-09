@@ -112,11 +112,11 @@ export default function DataManager() {
     const [businessUnits, setBusinessUnits] = useState<any[]>([]);
     const [plans, setPlans] = useState<any[]>([]);
     // subscriptionMap: id -> { customerName, address, landmark }
-    const [subMap, setSubMap] = useState<Record<string, { customerName: string; address: string; landmark: string }>>({});
+    const [subMap, setSubMap] = useState<Record<string, { customerName: string; address: string; landmark: string; plan_id: string }>>({});
     const [subList, setSubList] = useState<any[]>([]); // for dropdown
     const [customerMap, setCustomerMap] = useState<Record<string, string>>({});
     const [buMap, setBuMap] = useState<Record<string, string>>({});
-    const [planMap, setPlanMap] = useState<Record<string, string>>({});
+    const [planMap, setPlanMap] = useState<Record<string, any>>({});
 
     // Filters
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
