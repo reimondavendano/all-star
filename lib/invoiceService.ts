@@ -77,7 +77,8 @@ export async function generateInvoicesForBusinessUnit(
     businessUnitId: string,
     year: number,
     month: number, // 1-12
-    sendSmsNotifications: boolean = true
+    sendSmsNotifications: boolean = true,
+    invoiceDateOverride?: '15th' | '30th'
 ): Promise<GenerateInvoiceResult> {
     const supabase = getSupabaseAdmin();
     const result: GenerateInvoiceResult = {
@@ -103,10 +104,10 @@ export async function generateInvoicesForBusinessUnit(
         }
 
         // 2. Calculate billing dates
-        const dates = calculateBillingDates(businessUnit.name, year, month);
+        const dates = calculateBillingDates(businessUnit.name, year, month, invoiceDateOverride);
 
         // 3. Get all active subscriptions for this business unit
-        const { data: subscriptions, error: subError } = await supabase
+        let query = supabase
             .from('subscriptions')
             .select(`
                 id,
@@ -137,6 +138,12 @@ export async function generateInvoicesForBusinessUnit(
             .eq('business_unit_id', businessUnitId)
             .eq('active', true)
             .eq('is_free', false); // Exclude free subscriptions
+
+        if (invoiceDateOverride) {
+            query = query.eq('invoice_date', invoiceDateOverride);
+        }
+
+        const { data: subscriptions, error: subError } = await query;
 
         if (subError) {
             result.errors.push(`Error fetching subscriptions: ${subError.message}`);
@@ -950,181 +957,28 @@ export async function generateInvoicesForExtension(
     sendSmsNotifications: boolean = true
 ): Promise<GenerateInvoiceResult> {
     const supabase = getSupabaseAdmin();
-    const result: GenerateInvoiceResult = {
-        success: false,
-        generated: 0,
-        skipped: 0,
-        smsSent: 0,
-        errors: [],
-        invoices: [],
-    };
+    
+    // Find Extension business unit
+    const { data: extensionBU, error: buError } = await supabase
+        .from('business_units')
+        .select('id, name')
+        .ilike('name', '%extension%')
+        .single();
 
-    try {
-        // Find Extension business unit
-        const { data: extensionBU, error: buError } = await supabase
-            .from('business_units')
-            .select('id, name')
-            .ilike('name', '%extension%')
-            .single();
-
-        if (buError || !extensionBU) {
-            result.errors.push('Extension business unit not found');
-            return result;
-        }
-
-        // Use the same invoice generation logic but for filtered subscriptions
-        const { data: subscriptions, error: subError } = await supabase
-            .from('subscriptions')
-            .select(`
-                id,
-                subscriber_id,
-                business_unit_id,
-                plan_id,
-                date_installed,
-                balance,
-                active,
-                invoice_date,
-                referral_credit_applied,
-                customer_portal,
-                customers!subscriptions_subscriber_id_fkey (
-                    id,
-                    name,
-                    mobile_number
-                ),
-                plans (
-                    name,
-                    monthly_fee
-                ),
-                business_units (
-                    id,
-                    name
-                )
-            `)
-            .eq('business_unit_id', extensionBU.id)
-            .eq('active', true)
-            .eq('invoice_date', invoiceDate)
-            .eq('is_free', false); // Exclude free subscriptions
-
-        if (subError) {
-            result.errors.push(`Error fetching Extension subscriptions: ${subError.message}`);
-            return result;
-        }
-
-        if (!subscriptions || subscriptions.length === 0) {
-            result.success = true;
-            return result;
-        }
-
-        // Use the same invoice generation logic but for filtered subscriptions
-        // Calculate dates based on the invoice_date cycle
-        const schedule = invoiceDate === '15th'
-            ? { generationDay: 10, dueDay: 15, disconnectionDay: 20, disconnectionNextMonth: false }
-            : { generationDay: 25, dueDay: 30, disconnectionDay: 5, disconnectionNextMonth: true };
-
-        // ... Process subscriptions similar to generateInvoicesForBusinessUnit
-        // For now, call the main function with filtered processing
-        // The main function already handles subscription-level processing
-
-        // Actually, we need to process these subscriptions directly
-        // Let me add the processing logic here
-
-        const dates = calculateBillingDates('Extension', year, month, invoiceDate);
-        const smsMessages: Array<{ to: string; message: string }> = [];
-
-        for (const sub of subscriptions) {
-            try {
-                const customer = sub.customers as any;
-                const plan = sub.plans as any;
-
-                if (!customer || !plan) {
-                    result.skipped++;
-                    continue;
-                }
-
-                // Check if invoice already exists for this period
-                const startDate = toISODateString(new Date(year, month - 1, 1));
-                const endDate = toISODateString(new Date(year, month, 0));
-
-                const { data: existing } = await supabase
-                    .from('invoices')
-                    .select('id')
-                    .eq('subscription_id', sub.id)
-                    .gte('due_date', startDate)
-                    .lte('due_date', endDate)
-                    .limit(1);
-
-                if (existing && existing.length > 0) {
-                    result.skipped++;
-                    continue;
-                }
-
-                // Calculate amount
-                const amount = plan.monthly_fee;
-                const balance = Number(sub.balance) || 0;
-                const outstandingBalance = balance > 0 ? balance : 0;
-                const finalAmount = amount + outstandingBalance;
-
-                // Create invoice
-                const { error: invoiceError } = await supabase
-                    .from('invoices')
-                    .insert({
-                        subscription_id: sub.id,
-                        due_date: toISODateString(dates.dueDate),
-                        from_date: toISODateString(dates.fromDate),
-                        to_date: toISODateString(dates.toDate),
-                        amount_due: finalAmount,
-                        original_amount: amount,
-                        payment_status: finalAmount === 0 ? 'Paid' : 'Unpaid',
-                    });
-
-                if (invoiceError) {
-                    result.errors.push(`Failed to create invoice for ${customer.name}: ${invoiceError.message}`);
-                    continue;
-                }
-
-                // Update subscription balance
-                await supabase
-                    .from('subscriptions')
-                    .update({ balance: finalAmount })
-                    .eq('id', sub.id);
-
-                result.generated++;
-
-                // Queue SMS
-                if (sendSmsNotifications && customer.mobile_number && finalAmount > 0) {
-                    // Build full portal URL using masked domain for iOS compatibility
-                    const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
-
-                    smsMessages.push({
-                        to: customer.mobile_number,
-                        message: SMSTemplates.invoiceGenerated(
-                            customer.name,
-                            amount, // Current invoice amount
-                            formatDatePH(dates.dueDate),
-                            'Extension',
-                            portalLink,
-                            outstandingBalance > 0 ? outstandingBalance : undefined // Previous unpaid balance
-                        ),
-                    });
-                }
-            } catch (subErr) {
-                result.errors.push(`Error processing subscription: ${subErr instanceof Error ? subErr.message : 'Unknown'}`);
-            }
-        }
-
-        // Send SMS notifications
-        if (smsMessages.length > 0) {
-            const smsResult = await sendBulkSMS(smsMessages);
-            result.smsSent = smsResult.sent;
-        }
-
-        result.success = true;
-        return result;
-
-    } catch (error) {
-        result.errors.push(`Error: ${error instanceof Error ? error.message : 'Unknown'}`);
-        return result;
+    if (buError || !extensionBU) {
+        return {
+            success: false, generated: 0, skipped: 0, smsSent: 0,
+            errors: ['Extension business unit not found'], invoices: []
+        };
     }
+
+    return generateInvoicesForBusinessUnit(
+        extensionBU.id,
+        year,
+        month,
+        sendSmsNotifications,
+        invoiceDate
+    );
 }
 
 /**
