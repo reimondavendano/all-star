@@ -128,15 +128,15 @@ export async function getMikrotikData() {
             try {
                 console.log(`[Mikrotik] Attempting REST connection via Tunnel: ${host}...`);
                 const [resources, interfaces, leases, hotspotUsers, activeUsers, pppActive, pppSecrets, pppProfiles, ipAddresses] = await Promise.all([
-                    fetchRestData(host, 'system/resource'),
-                    fetchRestData(host, 'interface'),
-                    fetchRestData(host, 'ip/dhcp-server/lease'),
-                    fetchRestData(host, 'ip/hotspot/user'),
-                    fetchRestData(host, 'ip/hotspot/active'),
-                    fetchRestData(host, 'ppp/active'),
-                    fetchRestData(host, 'ppp/secret'),
-                    fetchRestData(host, 'ppp/profile'),
-                    fetchRestData(host, 'ip/address')
+                    fetchRestData(host || '', 'system/resource'),
+                    fetchRestData(host || '', 'interface'),
+                    fetchRestData(host || '', 'ip/dhcp-server/lease'),
+                    fetchRestData(host || '', 'ip/hotspot/user'),
+                    fetchRestData(host || '', 'ip/hotspot/active'),
+                    fetchRestData(host || '', 'ppp/active'),
+                    fetchRestData(host || '', 'ppp/secret'),
+                    fetchRestData(host || '', 'ppp/profile'),
+                    fetchRestData(host || '', 'ip/address')
                 ]);
 
                 // Filter interfaces locally since we fetch all
@@ -260,7 +260,7 @@ export async function addPppSecret(secretData: { name: string, password: string,
             try {
                 console.log(`[Mikrotik] Adding PPP Secret via Tunnel REST API...`);
                 // Use PUT to create new entry in RouterOS v7 REST API
-                await fetchRestData(host, 'ppp/secret', 'PUT', dataToSend);
+                await fetchRestData(host || '', 'ppp/secret', 'PUT', dataToSend);
                 return { success: true };
             } catch (e: any) {
                 console.error(`Tunnel add failed: ${e.message}`);
@@ -295,7 +295,7 @@ export async function togglePppConnection(
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
-                const secrets = await fetchRestData(host, 'ppp/secret');
+                const secrets = await fetchRestData(host || '', 'ppp/secret');
                 const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
 
                 if (!secret) {
@@ -307,17 +307,17 @@ export async function togglePppConnection(
                 }
 
                 // Update the secret's disabled status
-                await fetchRestData(host, `ppp/secret/${secret['.id']}`, 'PATCH', {
+                await fetchRestData(host || '', `ppp/secret/${secret['.id']}`, 'PATCH', {
                     disabled: enable ? 'false' : 'true'
                 });
 
                 // If disabling, also remove any active connection
                 if (!enable) {
-                    const activeConnections = await fetchRestData(host, 'ppp/active');
+                    const activeConnections = await fetchRestData(host || '', 'ppp/active');
                     const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => a.name === username) : null;
                     if (activeConn) {
                         console.log(`[PPP] Removing active connection for ${username}`);
-                        await fetchRestData(host, `ppp/active/${activeConn['.id']}`, 'DELETE');
+                        await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
                     }
                 }
 
@@ -389,7 +389,7 @@ export async function updatePppSecret(username: string, updates: any) {
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
-                const secrets = await fetchRestData(host, 'ppp/secret');
+                const secrets = await fetchRestData(host || '', 'ppp/secret');
                 const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
 
                 if (!secret) {
@@ -397,16 +397,16 @@ export async function updatePppSecret(username: string, updates: any) {
                 }
 
                 // Update the secret
-                await fetchRestData(host, `ppp/secret/${secret['.id']}`, 'PATCH', updates);
+                await fetchRestData(host || '', `ppp/secret/${secret['.id']}`, 'PATCH', updates);
 
                 // If profile changed, remove active connection to enforce new profile immediately (optional, or let it apply on reconnect)
                 // Often better to kick the user so they reconnect with new profile
                 if (updates.profile) {
-                    const activeConnections = await fetchRestData(host, 'ppp/active');
+                    const activeConnections = await fetchRestData(host || '', 'ppp/active');
                     const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => a.name === username) : null;
                     if (activeConn) {
                         console.log(`[PPP] Removing active connection for ${username} to apply profile change`);
-                        await fetchRestData(host, `ppp/active/${activeConn['.id']}`, 'DELETE');
+                        await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
                     }
                 }
 
@@ -474,7 +474,7 @@ export async function removeActivePppConnection(username: string) {
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // Get active connections
-                const activeConnections = await fetchRestData(host, 'ppp/active');
+                const activeConnections = await fetchRestData(host || '', 'ppp/active');
                 const activeConn = Array.isArray(activeConnections) 
                     ? activeConnections.find((a: any) => a.name === username) 
                     : null;
@@ -485,7 +485,7 @@ export async function removeActivePppConnection(username: string) {
                 }
 
                 // Remove the active connection
-                await fetchRestData(host, `ppp/active/${activeConn['.id']}`, 'DELETE');
+                await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
                 console.log(`[PPP] Successfully removed active connection for ${username}`);
                 return { success: true, message: 'Active connection removed' };
             } catch (error: any) {
