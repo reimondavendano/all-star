@@ -17,8 +17,36 @@ function checkCredentials() {
     }
 }
 
-// REST API Helper (Cloudflare/Ngrok)
+// REST API Helper (Cloudflare/Ngrok or VPS Proxy)
 async function fetchRestData(hostUrl: string, path: string, method: string = 'GET', body: any = null) {
+    const proxyUrl = process.env.MIKROTIK_PROXY_URL?.replace(/\/$/, '');
+    
+    // If we have a proxy URL, forward the request to the proxy server
+    if (proxyUrl) {
+        const url = `${proxyUrl}/api/${path}`;
+        const options: RequestInit = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        if (body && method !== 'GET') {
+            options.body = JSON.stringify(body);
+        }
+
+        const res = await fetch(url, options);
+        if (!res.ok) {
+            throw new Error(`Proxy HTTP Status ${res.status}: ${await res.text()}`);
+        }
+        
+        try {
+            return await res.json();
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // Original behavior for direct tunnel (Ngrok/Cloudflare)
     return new Promise((resolve, reject) => {
         const cleanHost = hostUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
         const bodyString = body ? JSON.stringify(body) : null;
@@ -45,7 +73,6 @@ async function fetchRestData(hostUrl: string, path: string, method: string = 'GE
                     try {
                         resolve(data ? JSON.parse(data) : {});
                     } catch (e) {
-                        // Sometimes POST returns empty body on success
                         resolve({});
                     }
                 } else {
@@ -54,7 +81,6 @@ async function fetchRestData(hostUrl: string, path: string, method: string = 'GE
             });
         });
 
-        // Add timeout to prevent long hangs
         req.setTimeout(3000, () => {
             req.destroy();
             reject(new Error('Connection timed out'));
@@ -98,7 +124,7 @@ export async function getMikrotikData() {
         checkCredentials();
 
         // STRATEGY 1: REST API via Tunnel
-        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 console.log(`[Mikrotik] Attempting REST connection via Tunnel: ${host}...`);
                 const [resources, interfaces, leases, hotspotUsers, activeUsers, pppActive, pppSecrets, pppProfiles, ipAddresses] = await Promise.all([
@@ -230,7 +256,7 @@ export async function addPppSecret(secretData: { name: string, password: string,
         delete (dataToSend as any).enabled;
 
         // 1. Try REST API (Tunnel)
-        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 console.log(`[Mikrotik] Adding PPP Secret via Tunnel REST API...`);
                 // Use PUT to create new entry in RouterOS v7 REST API
@@ -266,7 +292,7 @@ export async function togglePppConnection(
         console.log(`[PPP] ${enable ? 'Enabling' : 'Disabling'} PPP secret: ${username}`);
 
         // 1. Try REST API (Tunnel)
-        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
                 const secrets = await fetchRestData(host, 'ppp/secret');
@@ -360,7 +386,7 @@ export async function updatePppSecret(username: string, updates: any) {
         console.log(`[PPP] Updating PPP secret ${username}:`, updates);
 
         // 1. Try REST API (Tunnel)
-        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
                 const secrets = await fetchRestData(host, 'ppp/secret');
@@ -445,7 +471,7 @@ export async function removeActivePppConnection(username: string) {
         console.log(`[PPP] Removing active connection for: ${username}`);
 
         // 1. Try REST API (Tunnel)
-        if (host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) {
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // Get active connections
                 const activeConnections = await fetchRestData(host, 'ppp/active');
