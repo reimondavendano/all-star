@@ -43,6 +43,7 @@ interface Subscription {
     business_unit_id: string;
     balance: number;
     active: boolean;
+    promised_date?: string | null;
     label?: string;
     address?: string;
     invoice_date?: string;
@@ -81,9 +82,11 @@ interface Payment {
     subscription_id: string;
     settlement_date: string;
     amount: number;
-    mode: 'Cash' | 'E-Wallet';
+    mode: 'Cash' | 'E-Wallet' | 'Referral Credit';
     notes?: string;
 }
+
+type PaymentExtensionFilter = 'all' | 'extension' | 'non-extension';
 
 interface GroupedData {
     customer: Customer;
@@ -103,6 +106,7 @@ export default function InvoicesPaymentsPage() {
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [statusFilter, setStatusFilter] = useState<'all' | 'Paid' | 'Unpaid' | 'Partially Paid'>('all');
+    const [paymentExtensionFilter, setPaymentExtensionFilter] = useState<PaymentExtensionFilter>('all');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -160,7 +164,9 @@ export default function InvoicesPaymentsPage() {
     const [monthlyStats, setMonthlyStats] = useState({
         billed: 0,
         collected: 0,
-        unpaidCount: 0
+        unpaidCount: 0,
+        extensionToCollect: 0,
+        extensionCollected: 0
     });
 
     useEffect(() => {
@@ -169,7 +175,7 @@ export default function InvoicesPaymentsPage() {
 
     useEffect(() => {
         fetchData();
-    }, [selectedBusinessUnit, selectedMonth, statusFilter]);
+    }, [selectedBusinessUnit, selectedMonth, statusFilter, paymentExtensionFilter]);
 
     // Real-time subscription for invoices and payments
     useMultipleRealtimeSubscriptions(
@@ -272,6 +278,7 @@ export default function InvoicesPaymentsPage() {
                     business_unit_id,
                     balance,
                     active,
+                    promised_date,
                     label,
                     address,
                     invoice_date,
@@ -305,13 +312,21 @@ export default function InvoicesPaymentsPage() {
 
             if (subError) throw subError;
 
-            if (!subscriptions || subscriptions.length === 0) {
+            const filteredSubscriptions = (subscriptions || []).filter(sub => {
+                const hasPaymentExtension = Boolean(sub.promised_date);
+                if (paymentExtensionFilter === 'extension') return hasPaymentExtension;
+                if (paymentExtensionFilter === 'non-extension') return !hasPaymentExtension;
+                return true;
+            });
+
+            if (filteredSubscriptions.length === 0) {
                 setGroupedData([]);
+                setMonthlyStats({ billed: 0, collected: 0, unpaidCount: 0, extensionToCollect: 0, extensionCollected: 0 });
                 setIsLoading(false);
                 return;
             }
 
-            const subIds = subscriptions.map(s => s.id);
+            const subIds = filteredSubscriptions.map(s => s.id);
 
             // Fetch ALL unpaid invoices + invoices in the wide date range
             let invoicesQuery = supabase
@@ -372,12 +387,12 @@ export default function InvoicesPaymentsPage() {
                 return !(paid >= due && due > 0);
             }).length;
 
-            setMonthlyStats({ billed: statsBilled, collected: statsCollected, unpaidCount: statsUnpaidCount });
-
             // Group by customer
             const customerMap = new Map<string, GroupedData>();
+            let extensionToCollect = 0;
+            let extensionCollected = 0;
 
-            for (const sub of subscriptions) {
+            for (const sub of filteredSubscriptions) {
                 const customerData = sub.customers as any;
                 const customer: Customer = Array.isArray(customerData) ? customerData[0] : customerData;
                 if (!customer) continue;
@@ -402,6 +417,14 @@ export default function InvoicesPaymentsPage() {
                 if (periodInvoices.length === 0) continue;
 
                 const totalPaid = subInvoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
+                if (sub.promised_date) {
+                    extensionToCollect += Number(sub.balance) || 0;
+                    extensionCollected += subPayments.reduce((sum, payment) => {
+                        if (!payment.settlement_date?.startsWith(selectedMonth)) return sum;
+                        if (payment.mode === 'Referral Credit') return sum;
+                        return sum + (Number(payment.amount) || 0);
+                    }, 0);
+                }
 
                 if (!customerMap.has(customer.id)) {
                     customerMap.set(customer.id, {
@@ -427,6 +450,13 @@ export default function InvoicesPaymentsPage() {
                 .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
 
             setGroupedData(grouped);
+            setMonthlyStats({
+                billed: statsBilled,
+                collected: statsCollected,
+                unpaidCount: statsUnpaidCount,
+                extensionToCollect,
+                extensionCollected
+            });
 
             // Auto-expand if few customers
             if (grouped.length <= 5) {
@@ -438,7 +468,7 @@ export default function InvoicesPaymentsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBusinessUnit, selectedMonth, statusFilter]);
+    }, [selectedBusinessUnit, selectedMonth, statusFilter, paymentExtensionFilter]);
 
     const toggleCustomer = (customerId: string) => {
         const newSet = new Set(expandedCustomers);
@@ -720,6 +750,20 @@ export default function InvoicesPaymentsPage() {
                     <div className="flex flex-col xl:flex-row xl:items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
                         {/* Stats */}
                         <div className="flex w-full xl:w-auto gap-2">
+                            <div className="flex-1 min-w-[42%] sm:min-w-[190px] px-3 sm:px-4 py-2 bg-sky-950/30 rounded-xl border border-sky-700/50">
+                                <div className="text-[10px] sm:text-xs text-sky-300 whitespace-nowrap">Payment Extension</div>
+                                <div className="mt-1 flex items-end justify-between gap-3">
+                                    <div>
+                                        <div className="text-[10px] text-gray-500 whitespace-nowrap">To Collect</div>
+                                        <div className="text-sm sm:text-base font-bold text-sky-200">₱{Math.round(monthlyStats.extensionToCollect).toLocaleString()}</div>
+                                    </div>
+                                    <div className="h-8 border-l border-sky-700/40" />
+                                    <div className="text-right">
+                                        <div className="text-[10px] text-gray-500 whitespace-nowrap">Collected</div>
+                                        <div className="text-sm sm:text-base font-bold text-emerald-300">₱{Math.round(monthlyStats.extensionCollected).toLocaleString()}</div>
+                                    </div>
+                                </div>
+                            </div>
                             <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
                                 <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
                                 <div className="text-sm sm:text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
@@ -781,6 +825,22 @@ export default function InvoicesPaymentsPage() {
                             {months.slice(0, 24).map(m => (
                                 <option key={m.value} value={m.value}>{m.label}</option>
                             ))}
+                        </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-gray-500" />
+                        <select
+                            value={paymentExtensionFilter}
+                            onChange={(e) => {
+                                setPaymentExtensionFilter(e.target.value as PaymentExtensionFilter);
+                                setCurrentPage(1);
+                            }}
+                            className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                        >
+                            <option value="all">All Extensions</option>
+                            <option value="extension">Payment Extension</option>
+                            <option value="non-extension">Non-Extension</option>
                         </select>
                     </div>
 

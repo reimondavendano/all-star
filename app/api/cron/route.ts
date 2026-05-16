@@ -206,14 +206,14 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        // 4. Auto Disconnection Daily Batch
+        // 4. Payment Extension Auto Disconnection Daily Batch
         const autoDisconnectResult = await runAutoDisconnectionBatch(today);
         results.autoDisconnections = autoDisconnectResult;
         if (autoDisconnectResult.due > 0) {
-            results.tasksExecuted.push(`Auto Disconnection: ${autoDisconnectResult.disconnected}/${autoDisconnectResult.due}`);
+            results.tasksExecuted.push(`Payment Extension Auto Disconnection: ${autoDisconnectResult.disconnected}/${autoDisconnectResult.due}`);
         }
         if (autoDisconnectResult.errors.length > 0) {
-            results.errors.push(...autoDisconnectResult.errors.map(error => `Auto Disconnection: ${error}`));
+            results.errors.push(...autoDisconnectResult.errors.map(error => `Payment Extension Auto Disconnection: ${error}`));
         }
 
         // If no tasks were scheduled for today

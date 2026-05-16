@@ -44,6 +44,7 @@ interface Subscription {
     business_unit_id: string;
     balance: number;
     active: boolean;
+    promised_date?: string | null;
     label?: string;
     address?: string;
     customers: Customer;
@@ -74,10 +75,12 @@ interface Payment {
     subscription_id: string;
     settlement_date: string;
     amount: number;
-    mode: 'Cash' | 'E-Wallet';
+    mode: 'Cash' | 'E-Wallet' | 'Referral Credit';
     notes?: string;
     invoice_id?: string;
 }
+
+type PaymentExtensionFilter = 'all' | 'extension' | 'non-extension';
 
 interface GroupedData {
     customer: Customer;
@@ -97,6 +100,7 @@ export default function CollectorInvoicesPage() {
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [statusTab, setStatusTab] = useState<'All' | 'Unpaid' | 'Partially Paid' | 'Paid'>('All');
+    const [paymentExtensionFilter, setPaymentExtensionFilter] = useState<PaymentExtensionFilter>('all');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
@@ -137,7 +141,9 @@ export default function CollectorInvoicesPage() {
     const [monthlyStats, setMonthlyStats] = useState({
         billed: 0,
         collected: 0,
-        unpaidCount: 0
+        unpaidCount: 0,
+        extensionToCollect: 0,
+        extensionCollected: 0
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -147,7 +153,7 @@ export default function CollectorInvoicesPage() {
 
     useEffect(() => {
         fetchData();
-    }, [selectedBusinessUnit, selectedMonth, statusTab]);
+    }, [selectedBusinessUnit, selectedMonth, statusTab, paymentExtensionFilter]);
 
     // Real-time subscription for invoices and payments
     useMultipleRealtimeSubscriptions(
@@ -214,7 +220,7 @@ export default function CollectorInvoicesPage() {
             let subscriptionsQuery = supabase
                 .from('subscriptions')
                 .select(`
-                    id, subscriber_id, plan_id, business_unit_id, balance, active, label, address,
+                    id, subscriber_id, plan_id, business_unit_id, balance, active, promised_date, label, address,
                     customers!subscriptions_subscriber_id_fkey (id, name, mobile_number),
                     plans (name, monthly_fee),
                     business_units (name)
@@ -227,15 +233,23 @@ export default function CollectorInvoicesPage() {
 
             const { data: subscriptions } = await subscriptionsQuery;
 
-            if (!subscriptions || subscriptions.length === 0) {
+            const filteredSubscriptions = (subscriptions || []).filter(sub => {
+                const hasPaymentExtension = Boolean(sub.promised_date);
+                if (paymentExtensionFilter === 'extension') return hasPaymentExtension;
+                if (paymentExtensionFilter === 'non-extension') return !hasPaymentExtension;
+                return true;
+            });
+
+            if (filteredSubscriptions.length === 0) {
                 setGroupedData([]);
                 setCashCollected(0);
                 setEwalletCollected(0);
+                setMonthlyStats({ billed: 0, collected: 0, unpaidCount: 0, extensionToCollect: 0, extensionCollected: 0 });
                 setIsLoading(false);
                 return;
             }
 
-            const subIds = subscriptions.map(s => s.id);
+            const subIds = filteredSubscriptions.map(s => s.id);
 
             // Fetch ALL unpaid invoices + invoices in the wide date range
             let invoicesQuery = supabase
@@ -298,12 +312,12 @@ export default function CollectorInvoicesPage() {
                 return !(paid >= due && due > 0);
             }).length;
 
-            setMonthlyStats({ billed: statsBilled, collected: statsCollected, unpaidCount: statsUnpaidCount });
-
             // Group by customer
             const customerMap = new Map<string, GroupedData>();
+            let extensionToCollect = 0;
+            let extensionCollected = 0;
 
-            subscriptions.forEach((sub: any) => {
+            filteredSubscriptions.forEach((sub: any) => {
                 const customer = sub.customers as Customer;
                 if (!customer) return;
 
@@ -351,6 +365,14 @@ export default function CollectorInvoicesPage() {
                 // If filtering by status, we might show valid invoices from history too if Unpaid.
 
                 const totalPaid = subInvoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
+                if (sub.promised_date && periodInvoices.length > 0) {
+                    extensionToCollect += Number(sub.balance) || 0;
+                    extensionCollected += subPayments.reduce((sum, payment) => {
+                        if (!payment.settlement_date?.startsWith(selectedMonth)) return sum;
+                        if (payment.mode === 'Referral Credit') return sum;
+                        return sum + (Number(payment.amount) || 0);
+                    }, 0);
+                }
 
                 customerMap.get(customer.id)!.subscriptions.push({
                     subscription: sub as Subscription,
@@ -368,6 +390,13 @@ export default function CollectorInvoicesPage() {
                 .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
 
             setGroupedData(grouped);
+            setMonthlyStats({
+                billed: statsBilled,
+                collected: statsCollected,
+                unpaidCount: statsUnpaidCount,
+                extensionToCollect,
+                extensionCollected
+            });
         } catch (error) {
             console.error('Error fetching data:', error);
         } finally {
@@ -592,6 +621,20 @@ export default function CollectorInvoicesPage() {
                     <div className="flex flex-col xl:flex-row xl:items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
                         {/* Stats */}
                         <div className="flex w-full xl:w-auto gap-2">
+                            <div className="flex-1 min-w-[42%] sm:min-w-[190px] px-3 sm:px-4 py-2 bg-sky-950/30 rounded-xl border border-sky-700/50">
+                                <div className="text-[10px] sm:text-xs text-sky-300 whitespace-nowrap">Payment Extension</div>
+                                <div className="mt-1 flex items-end justify-between gap-3">
+                                    <div>
+                                        <div className="text-[10px] text-gray-500 whitespace-nowrap">To Collect</div>
+                                        <div className="text-sm sm:text-base font-bold text-sky-200">₱{Math.round(monthlyStats.extensionToCollect).toLocaleString()}</div>
+                                    </div>
+                                    <div className="h-8 border-l border-sky-700/40" />
+                                    <div className="text-right">
+                                        <div className="text-[10px] text-gray-500 whitespace-nowrap">Collected</div>
+                                        <div className="text-sm sm:text-base font-bold text-emerald-300">₱{Math.round(monthlyStats.extensionCollected).toLocaleString()}</div>
+                                    </div>
+                                </div>
+                            </div>
                             <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
                                 <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
                                 <div className="text-sm sm:text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
@@ -692,6 +735,18 @@ export default function CollectorInvoicesPage() {
                             {businessUnits.map(bu => (
                                 <option key={bu.id} value={bu.id}>{bu.name}</option>
                             ))}
+                        </select>
+                        <select
+                            value={paymentExtensionFilter}
+                            onChange={(e) => {
+                                setPaymentExtensionFilter(e.target.value as PaymentExtensionFilter);
+                                setCurrentPage(1);
+                            }}
+                            className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
+                        >
+                            <option value="all">All Extensions</option>
+                            <option value="extension">Payment Extension</option>
+                            <option value="non-extension">Non-Extension</option>
                         </select>
                         <button onClick={fetchData} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
                             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />

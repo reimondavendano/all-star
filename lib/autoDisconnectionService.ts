@@ -12,22 +12,13 @@ type SubscriptionForAutoDisconnection = {
     customers?: { name: string } | Array<{ name: string }> | null;
 };
 
-type InvoiceWithSubscription = {
-    id: string;
-    due_date: string;
-    subscription_id: string;
-    subscriptions: SubscriptionForAutoDisconnection | SubscriptionForAutoDisconnection[] | null;
-};
-
 type AutoDisconnectionCandidate = {
     subscriptionId: string;
     customerName: string;
     businessUnitName: string;
-    invoiceId: string;
-    invoiceDueDate: string;
-    promisedDate: string | null;
+    promisedDate: string;
     disconnectOn: string;
-    reason: 'normal_schedule' | 'payment_extension';
+    reason: 'payment_extension';
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -72,28 +63,8 @@ function addDaysISO(dateISO: string, days: number): string {
     return date.toISOString().split('T')[0];
 }
 
-function normalDisconnectionDateFromInvoice(
-    invoiceDueDate: string,
-    invoiceDate: '15th' | '30th' | null,
-    businessUnitName: string
-): string {
-    const dueDate = new Date(`${invoiceDueDate}T00:00:00Z`);
-    const normalizedName = businessUnitName.toLowerCase();
-    const isThirtyCycle = invoiceDate === '30th' || normalizedName.includes('malanggam');
-
-    if (isThirtyCycle) {
-        return new Date(Date.UTC(
-            dueDate.getUTCFullYear(),
-            dueDate.getUTCMonth() + 1,
-            5
-        )).toISOString().split('T')[0];
-    }
-
-    return new Date(Date.UTC(
-        dueDate.getUTCFullYear(),
-        dueDate.getUTCMonth(),
-        25
-    )).toISOString().split('T')[0];
+function dateOnlyToUTCNoon(dateISO: string): Date {
+    return new Date(`${dateISO}T12:00:00Z`);
 }
 
 export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoDisconnectionBatchResult> {
@@ -110,60 +81,43 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
     };
 
     try {
-        const { data: invoices, error } = await supabase
-            .from('invoices')
+        const { data: subscriptions, error } = await supabase
+            .from('subscriptions')
             .select(`
                 id,
-                due_date,
-                subscription_id,
-                subscriptions!inner (
-                    id,
-                    active,
-                    promised_date,
-                    invoice_date,
-                    balance,
-                    is_free,
-                    business_units ( name ),
-                    customers!subscriptions_subscriber_id_fkey ( name )
-                )
+                active,
+                promised_date,
+                invoice_date,
+                balance,
+                is_free,
+                business_units ( name ),
+                customers!subscriptions_subscriber_id_fkey ( name )
             `)
-            .in('payment_status', ['Unpaid', 'Partially Paid'])
-            .eq('subscriptions.active', true)
-            .order('due_date', { ascending: true });
+            .eq('active', true)
+            .not('promised_date', 'is', null)
+            .gt('balance', 0)
+            .order('promised_date', { ascending: true });
 
         if (error) {
-            result.errors.push(`Error fetching unpaid invoices: ${error.message}`);
+            result.errors.push(`Error fetching promised-date subscriptions: ${error.message}`);
             return result;
         }
 
-        const earliestBySubscription = new Map<string, InvoiceWithSubscription>();
-
-        for (const invoice of (invoices || []) as InvoiceWithSubscription[]) {
-            const subscription = firstRelation(invoice.subscriptions);
-            if (!subscription?.active || subscription.is_free || Number(subscription.balance || 0) <= 0) {
-                result.skipped += 1;
-                continue;
-            }
-
-            if (!earliestBySubscription.has(subscription.id)) {
-                earliestBySubscription.set(subscription.id, invoice);
-            }
-        }
-
-        result.checked = earliestBySubscription.size;
+        result.checked = subscriptions?.length || 0;
 
         const candidates: AutoDisconnectionCandidate[] = [];
-        for (const invoice of earliestBySubscription.values()) {
-            const subscription = firstRelation(invoice.subscriptions);
-            if (!subscription) continue;
-
+        for (const subscription of (subscriptions || []) as SubscriptionForAutoDisconnection[]) {
             const businessUnit = firstRelation(subscription.business_units);
             const customer = firstRelation(subscription.customers);
             const businessUnitName = businessUnit?.name || '';
             const promisedDate = subscription.promised_date;
-            const disconnectOn = promisedDate
-                ? addDaysISO(promisedDate, 1)
-                : normalDisconnectionDateFromInvoice(invoice.due_date, subscription.invoice_date, businessUnitName);
+
+            if (!subscription.active || subscription.is_free || !promisedDate || Number(subscription.balance || 0) <= 0) {
+                result.skipped += 1;
+                continue;
+            }
+
+            const disconnectOn = addDaysISO(promisedDate, 1);
 
             if (todayISO < disconnectOn) {
                 continue;
@@ -173,11 +127,9 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
                 subscriptionId: subscription.id,
                 customerName: customer?.name || 'Unknown',
                 businessUnitName,
-                invoiceId: invoice.id,
-                invoiceDueDate: invoice.due_date,
                 promisedDate,
                 disconnectOn,
-                reason: promisedDate ? 'payment_extension' : 'normal_schedule',
+                reason: 'payment_extension',
             });
         }
 
@@ -186,7 +138,7 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
         for (const candidate of candidates) {
             const disconnectResult = await processSubscriptionDisconnection(
                 candidate.subscriptionId,
-                new Date(`${todayISO}T00:00:00+08:00`),
+                dateOnlyToUTCNoon(candidate.promisedDate),
                 true
             );
 
