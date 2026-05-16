@@ -18,7 +18,8 @@ import {
     Router,
     CheckCircle,
     Database,
-    Send
+    Send,
+    ArrowUpDown
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -29,6 +30,7 @@ const navigation = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, badge: null },
     { name: 'Prospects', href: '/admin/prospects', icon: UserPlus, badge: 'openProspects' },
     { name: 'Customers & Subscriptions', href: '/admin/customers', icon: Users, badge: null },
+    { name: 'Upgrade/Downgrade Requests', href: '/admin/plan-change-requests', icon: ArrowUpDown, badge: 'planChangeRequests' },
     { name: 'Invoices & Payments', href: '/admin/invoices', icon: FileText, badge: null },
     { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle, badge: 'unverifiedPayments' },
     { name: 'Expenses', href: '/admin/expenses', icon: DollarSign, badge: null },
@@ -50,6 +52,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const { logout, user } = useAuth();
     const [openProspectsCount, setOpenProspectsCount] = useState(0);
     const [unverifiedPaymentsCount, setUnverifiedPaymentsCount] = useState(0);
+    const [planChangeRequestCount, setPlanChangeRequestCount] = useState(0);
 
     // Fetch counts
     const fetchCounts = async () => {
@@ -73,6 +76,15 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             if (!paymentsError && paymentsData) {
                 setUnverifiedPaymentsCount(paymentsData.length);
             }
+
+            const { count: requestsCount, error: requestsError } = await supabase
+                .from('plan_changes')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+
+            if (!requestsError && requestsCount !== null) {
+                setPlanChangeRequestCount(requestsCount);
+            }
         } catch (error) {
             console.error('Error fetching counts:', error);
         }
@@ -94,10 +106,16 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
         onAny: fetchCounts
     });
 
+    useRealtimeSubscription({
+        table: 'plan_changes',
+        onAny: fetchCounts
+    });
+
     const getBadgeCount = (badgeType: string | null) => {
         if (!badgeType) return 0;
         if (badgeType === 'openProspects') return openProspectsCount;
         if (badgeType === 'unverifiedPayments') return unverifiedPaymentsCount;
+        if (badgeType === 'planChangeRequests') return planChangeRequestCount;
         return 0;
     };
 

@@ -2,7 +2,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { processPlanChange, previewPlanChange, getBillingPeriodStart, getBillingPeriodEnd } from '@/lib/planChangeService';
-import { toISODateString } from '@/lib/billing';
+import { getPlanChangeDateWindow, toISODateString } from '@/lib/billing';
 
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -18,13 +18,19 @@ const supabase = createClient(supabaseUrl, supabaseKey);
  * 3. Updates MikroTik profile if applicable
  * 4. Records the plan change for future invoice generation
  */
-export async function changeSubscriptionPlan(subscriptionId: string, newPlanId: string, changeDate?: string) {
+export async function changeSubscriptionPlan(
+    subscriptionId: string,
+    newPlanId: string,
+    changeDate?: string,
+    planChangeRequestId?: string
+) {
     try {
         // 1. Process plan change with prorated invoicing
         const result = await processPlanChange(
             subscriptionId,
             newPlanId,
-            changeDate ? new Date(`${changeDate}T00:00:00`) : new Date()
+            changeDate ? new Date(`${changeDate}T00:00:00`) : new Date(),
+            { planChangeId: planChangeRequestId }
         );
 
         if (!result.success) {
@@ -57,6 +63,185 @@ export async function changeSubscriptionPlan(subscriptionId: string, newPlanId: 
 }
 
 /**
+ * Customer submits a plan-change request.
+ * This only records a pending request; it does not update the subscription,
+ * invoices, balances, or MikroTik profile.
+ */
+export async function submitPlanChangeRequest(subscriptionId: string, newPlanId: string, changeDate?: string) {
+    try {
+        const { data: subscription, error: subError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id,
+                subscriber_id,
+                plan_id,
+                invoice_date,
+                date_installed,
+                plans!subscriptions_plan_id_fkey (
+                    id,
+                    name,
+                    monthly_fee
+                )
+            `)
+            .eq('id', subscriptionId)
+            .single();
+
+        if (subError || !subscription) {
+            return { success: false, error: 'Subscription not found' };
+        }
+
+        const currentPlan = Array.isArray(subscription.plans)
+            ? subscription.plans[0]
+            : subscription.plans;
+
+        if (!currentPlan) {
+            return { success: false, error: 'Current plan not found' };
+        }
+
+        if (currentPlan.id === newPlanId) {
+            return { success: false, error: 'Selected plan is already active' };
+        }
+
+        const { data: existingPending } = await supabase
+            .from('plan_changes')
+            .select('id')
+            .eq('subscription_id', subscriptionId)
+            .eq('status', 'pending')
+            .maybeSingle();
+
+        if (existingPending) {
+            return { success: false, error: 'You already have a pending plan-change request for this subscription.' };
+        }
+
+        const { data: newPlan, error: planError } = await supabase
+            .from('plans')
+            .select('id, name, monthly_fee')
+            .eq('id', newPlanId)
+            .single();
+
+        if (planError || !newPlan) {
+            return { success: false, error: 'New plan not found' };
+        }
+
+        const oldPlanEndDate = changeDate ? new Date(`${changeDate}T00:00:00`) : new Date();
+        oldPlanEndDate.setHours(0, 0, 0, 0);
+        const dateWindow = getPlanChangeDateWindow(subscription.invoice_date || '15th', oldPlanEndDate);
+        if (!dateWindow.isOpen) {
+            return {
+                success: false,
+                error: `${dateWindow.message} Next available date: ${dateWindow.nextOpenDate}.`
+            };
+        }
+
+        const billingPeriodStart = getBillingPeriodStart(subscription.invoice_date || '15th', oldPlanEndDate);
+        const billingPeriodEnd = getBillingPeriodEnd(subscription.invoice_date || '15th', oldPlanEndDate);
+        const preview = previewPlanChange(
+            currentPlan.monthly_fee,
+            newPlan.monthly_fee,
+            subscription.invoice_date || '15th',
+            oldPlanEndDate,
+            false,
+            subscription.date_installed
+        );
+        const requestType = newPlan.monthly_fee > currentPlan.monthly_fee
+            ? 'upgrade'
+            : newPlan.monthly_fee < currentPlan.monthly_fee
+                ? 'downgrade'
+                : 'same';
+
+        const { data: request, error: insertError } = await supabase
+            .from('plan_changes')
+            .insert({
+                subscription_id: subscriptionId,
+                old_plan_id: currentPlan.id,
+                new_plan_id: newPlan.id,
+                status: 'pending',
+                request_type: requestType,
+                requested_by_customer_id: subscription.subscriber_id,
+                requested_at: new Date().toISOString(),
+                requested_old_plan_end_date: toISODateString(oldPlanEndDate),
+                old_monthly_fee: currentPlan.monthly_fee,
+                new_monthly_fee: newPlan.monthly_fee,
+                change_date: toISODateString(oldPlanEndDate),
+                prorated_amount: preview.oldPlan.amount + preview.newPlan.amount,
+                prorated_days: preview.oldPlan.days + preview.newPlan.days,
+                billing_period_start: toISODateString(billingPeriodStart),
+                billing_period_end: toISODateString(billingPeriodEnd),
+                processed: false
+            })
+            .select('id')
+            .single();
+
+        if (insertError) {
+            throw insertError;
+        }
+
+        return {
+            success: true,
+            requestId: request?.id,
+            message: 'Plan-change request submitted. An admin will review it before any billing or service changes are applied.'
+        };
+    } catch (error: any) {
+        console.error('Submit Plan Change Request Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function getCustomerPendingPlanChangeRequests(customerId: string) {
+    try {
+        const { data, error } = await supabase
+            .from('plan_changes')
+            .select(`
+                id,
+                subscription_id,
+                status,
+                new_plan_id,
+                new_plan:plans!plan_changes_new_plan_id_fkey (
+                    name
+                )
+            `)
+            .eq('requested_by_customer_id', customerId)
+            .eq('status', 'pending');
+
+        if (error) throw error;
+
+        return {
+            success: true,
+            requests: (data || []).map((request: any) => ({
+                id: request.id,
+                subscriptionId: request.subscription_id,
+                status: request.status,
+                newPlanId: request.new_plan_id,
+                newPlanName: (Array.isArray(request.new_plan) ? request.new_plan[0] : request.new_plan)?.name || 'selected plan'
+            }))
+        };
+    } catch (error: any) {
+        console.error('Get Pending Plan Change Requests Error:', error);
+        return { success: false, requests: [], error: error.message };
+    }
+}
+
+export async function declinePlanChangeRequest(planChangeId: string, reason?: string) {
+    try {
+        const { error } = await supabase
+            .from('plan_changes')
+            .update({
+                status: 'declined',
+                reviewed_at: new Date().toISOString(),
+                decision_notes: reason || null
+            })
+            .eq('id', planChangeId)
+            .eq('status', 'pending');
+
+        if (error) throw error;
+        return { success: true };
+    } catch (error: any) {
+        console.error('Decline Plan Change Request Error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Preview what invoices would be created for a plan change
  * (Does not make any changes - for UI display only)
  */
@@ -71,6 +256,7 @@ export async function previewPlanChangeInvoices(
             .from('subscriptions')
             .select(`
                 invoice_date,
+                date_installed,
                 plans!subscriptions_plan_id_fkey (name, monthly_fee)
             `)
             .eq('id', subscriptionId)
@@ -118,7 +304,8 @@ export async function previewPlanChangeInvoices(
             newPlan.monthly_fee,
             invoiceDate,
             today,
-            isPaid
+            isPaid,
+            subscription.date_installed
         );
 
         return {

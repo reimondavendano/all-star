@@ -38,6 +38,7 @@ interface DashboardData {
     newInstallations: { date: string; count: number }[];
     newInstallationsTotal: number;
     newInstallationsList: NewInstallation[];
+    paymentExtensionAnalytics: PaymentExtensionAnalytics;
 }
 
 interface BusinessUnitPerformance {
@@ -100,6 +101,27 @@ interface NewInstallation {
     label: string | null;
 }
 
+interface PaymentExtensionAccount {
+    id: string;
+    customerName: string;
+    planName: string;
+    businessUnitName: string;
+    promisedDate: string | null;
+    balance: number;
+    collected: number;
+    active: boolean;
+    label: string | null;
+}
+
+interface PaymentExtensionAnalytics {
+    toCollect: number;
+    collected: number;
+    extensionCustomers: number;
+    nonExtensionCustomers: number;
+    extensionSubscriptions: number;
+    accounts: PaymentExtensionAccount[];
+}
+
 interface SubscriptionStats {
     active: number;
     inactive: number;
@@ -107,6 +129,7 @@ interface SubscriptionStats {
 }
 
 const CATEGORY_COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
+const PAYMENT_METHOD_COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#22c55e', '#8b5cf6', '#ef4444'];
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -719,6 +742,78 @@ export default function DashboardPage() {
                 .map(([method, data]) => ({ method, ...data }))
                 .sort((a, b) => b.total - a.total);
 
+            // 15. Payment Extension Analytics (filtered by current dashboard BU/month)
+            let extensionSubsQuery = supabase
+                .from('subscriptions')
+                .select(`
+                    id,
+                    subscriber_id,
+                    balance,
+                    promised_date,
+                    active,
+                    label,
+                    is_free,
+                    customers!subscriptions_subscriber_id_fkey(name),
+                    plans!plan_id(name),
+                    business_units!business_unit_id(name)
+                `)
+                .eq('active', true)
+                .or('is_free.is.null,is_free.eq.false');
+
+            if (malanggamExt30thSubIds !== null) {
+                if (subscriptionIdsForBU.length > 0) {
+                    extensionSubsQuery = extensionSubsQuery.in('id', subscriptionIdsForBU);
+                }
+            } else if (selectedBusinessUnit !== 'all') {
+                extensionSubsQuery = extensionSubsQuery.in('business_unit_id', selectedBuIds);
+            }
+
+            const { data: extensionSubsRaw } = malanggamExt30thSubIds !== null && subscriptionIdsForBU.length === 0
+                ? { data: [] }
+                : await extensionSubsQuery;
+
+            const extensionSubs = (extensionSubsRaw || []) as any[];
+            const extensionAccountsRaw = extensionSubs.filter(sub => Boolean(sub.promised_date));
+            const extensionSubIds = new Set(extensionAccountsRaw.map(sub => sub.id));
+            const extensionCustomerIds = new Set(extensionAccountsRaw.map(sub => sub.subscriber_id).filter(Boolean));
+            const nonExtensionCustomerIds = new Set(
+                extensionSubs
+                    .filter(sub => !sub.promised_date)
+                    .map(sub => sub.subscriber_id)
+                    .filter(Boolean)
+            );
+
+            const extensionCollectedBySub: Record<string, number> = {};
+            currentPayments.forEach((pmt: any) => {
+                if (!extensionSubIds.has(pmt.subscription_id)) return;
+                extensionCollectedBySub[pmt.subscription_id] = (extensionCollectedBySub[pmt.subscription_id] || 0) + (pmt.amount || 0);
+            });
+
+            const paymentExtensionAnalytics: PaymentExtensionAnalytics = {
+                toCollect: extensionAccountsRaw.reduce((sum, sub) => sum + (Number(sub.balance) || 0), 0),
+                collected: Object.values(extensionCollectedBySub).reduce((sum, amount) => sum + amount, 0),
+                extensionCustomers: extensionCustomerIds.size,
+                nonExtensionCustomers: nonExtensionCustomerIds.size,
+                extensionSubscriptions: extensionAccountsRaw.length,
+                accounts: extensionAccountsRaw
+                    .map((sub): PaymentExtensionAccount => ({
+                        id: sub.id,
+                        customerName: sub.customers?.name || 'Unknown customer',
+                        planName: sub.plans?.name || 'Unknown plan',
+                        businessUnitName: sub.business_units?.name || 'Unknown business unit',
+                        promisedDate: sub.promised_date || null,
+                        balance: Number(sub.balance) || 0,
+                        collected: extensionCollectedBySub[sub.id] || 0,
+                        active: Boolean(sub.active),
+                        label: sub.label || null
+                    }))
+                    .sort((a, b) => {
+                        const dateA = a.promisedDate ? new Date(a.promisedDate).getTime() : Number.MAX_SAFE_INTEGER;
+                        const dateB = b.promisedDate ? new Date(b.promisedDate).getTime() : Number.MAX_SAFE_INTEGER;
+                        return dateA - dateB;
+                    })
+            };
+
             // Customer Growth (vs last month)
             // Customer Growth (vs last month)
             // Need count of customers created BEFORE startOfMonth
@@ -808,7 +903,8 @@ export default function DashboardPage() {
                 paymentMethodsBreakdown,
                 newInstallations,
                 newInstallationsTotal,
-                newInstallationsList
+                newInstallationsList,
+                paymentExtensionAnalytics
             });
         } catch (error) {
             console.error('Dashboard error:', error);
@@ -1013,6 +1109,15 @@ export default function DashboardPage() {
     const revenueChange = data.previousMonthRevenue > 0
         ? ((data.monthlyRevenue - data.previousMonthRevenue) / data.previousMonthRevenue) * 100
         : 0;
+    const paymentExtensionPieData = [
+        { name: 'Payment Extension', value: data.paymentExtensionAnalytics.extensionCustomers, fill: '#38bdf8' },
+        { name: 'Non-Extension', value: data.paymentExtensionAnalytics.nonExtensionCustomers, fill: '#475569' },
+    ].filter(item => item.value > 0);
+    const paymentExtensionCollectionData = [
+        { name: 'To Collect', amount: data.paymentExtensionAnalytics.toCollect },
+        { name: 'Collected', amount: data.paymentExtensionAnalytics.collected },
+    ];
+    const paymentMethodsChartData = data.paymentMethodsBreakdown.filter(pm => pm.total > 0);
 
     return (
         <div className="space-y-6">
@@ -1334,6 +1439,135 @@ export default function DashboardPage() {
                                     No expenses recorded this month
                                 </div>
                             )}
+                            <div className="mt-6 border-t border-gray-800 pt-5">
+                                <div className="flex items-center justify-between gap-3 mb-4">
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-white">Payment Extension</h4>
+                                        <p className="text-xs text-gray-500">
+                                            {data.paymentExtensionAnalytics.extensionSubscriptions.toLocaleString()} subscription(s) currently extended
+                                        </p>
+                                    </div>
+                                    <div className="text-right text-xs">
+                                        <div className="text-sky-300 font-semibold">{formatCurrency(data.paymentExtensionAnalytics.toCollect)}</div>
+                                        <div className="text-gray-500">to collect</div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div className="bg-[#0a0a0a] rounded-xl border border-gray-800 p-3">
+                                        <div className="h-36">
+                                            {paymentExtensionPieData.length > 0 ? (
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <PieChart>
+                                                        <Pie
+                                                            data={paymentExtensionPieData}
+                                                            dataKey="value"
+                                                            nameKey="name"
+                                                            innerRadius={34}
+                                                            outerRadius={58}
+                                                            paddingAngle={3}
+                                                        >
+                                                            {paymentExtensionPieData.map(item => (
+                                                                <Cell key={item.name} fill={item.fill} />
+                                                            ))}
+                                                        </Pie>
+                                                        <RechartsTooltip
+                                                            formatter={(value: number | string) => `${Number(value) || 0} customer(s)`}
+                                                            contentStyle={{
+                                                                backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                                border: '1px solid rgba(56, 189, 248, 0.35)',
+                                                                borderRadius: '8px',
+                                                                color: '#fff'
+                                                            }}
+                                                        />
+                                                    </PieChart>
+                                                </ResponsiveContainer>
+                                            ) : (
+                                                <div className="h-full flex items-center justify-center text-xs text-gray-500">No extension data</div>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="flex items-center gap-2 text-gray-400">
+                                                <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                                                Extension: <span className="text-white font-semibold">{data.paymentExtensionAnalytics.extensionCustomers}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-gray-400">
+                                                <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
+                                                Non: <span className="text-white font-semibold">{data.paymentExtensionAnalytics.nonExtensionCustomers}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-[#0a0a0a] rounded-xl border border-gray-800 p-3">
+                                        <div className="h-36">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={paymentExtensionCollectionData}>
+                                                    <XAxis
+                                                        dataKey="name"
+                                                        axisLine={false}
+                                                        tickLine={false}
+                                                        tick={{ fill: '#9ca3af', fontSize: 10 }}
+                                                    />
+                                                    <YAxis hide />
+                                                    <RechartsTooltip
+                                                        formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                                        contentStyle={{
+                                                            backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                            border: '1px solid rgba(16, 185, 129, 0.35)',
+                                                            borderRadius: '8px',
+                                                            color: '#fff'
+                                                        }}
+                                                    />
+                                                    <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                                                        <Cell fill="#38bdf8" />
+                                                        <Cell fill="#10b981" />
+                                                    </Bar>
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div>
+                                                <div className="text-gray-500">To Collect</div>
+                                                <div className="text-sky-300 font-semibold">{formatCurrency(data.paymentExtensionAnalytics.toCollect)}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-gray-500">Collected</div>
+                                                <div className="text-emerald-300 font-semibold">{formatCurrency(data.paymentExtensionAnalytics.collected)}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <p className="text-sm font-medium text-white">Customer / Subscription List</p>
+                                        <p className="text-xs text-gray-500">Payment extension</p>
+                                    </div>
+                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                        {data.paymentExtensionAnalytics.accounts.slice(0, 8).map(account => (
+                                            <div key={account.id} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-medium text-white truncate">{account.customerName}</p>
+                                                        <p className="text-xs text-gray-500 truncate">
+                                                            {account.planName}
+                                                            {account.label ? ` (${account.label})` : ''} / {account.businessUnitName}
+                                                        </p>
+                                                    </div>
+                                                    <span className="text-xs font-semibold text-sky-300 whitespace-nowrap">{formatCurrency(account.balance)}</span>
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                    <span>Promise: {formatShortDate(account.promisedDate)}</span>
+                                                    <span>Collected: {formatCurrency(account.collected)}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {data.paymentExtensionAnalytics.accounts.length === 0 && (
+                                            <p className="text-gray-500 text-center py-4 text-sm">No payment extensions for this filter</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="glass-card p-6">
@@ -1639,6 +1873,35 @@ export default function DashboardPage() {
                     {/* Payment Methods Breakdown */}
                     <div className="glass-card p-5">
                         <h3 className="text-sm text-gray-400 uppercase mb-4">Payment Methods</h3>
+                        {paymentMethodsChartData.length > 0 && (
+                            <div className="h-44 mb-4">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={paymentMethodsChartData}
+                                            dataKey="total"
+                                            nameKey="method"
+                                            innerRadius={44}
+                                            outerRadius={70}
+                                            paddingAngle={3}
+                                        >
+                                            {paymentMethodsChartData.map((pm, idx) => (
+                                                <Cell key={pm.method} fill={PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <RechartsTooltip
+                                            formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                            contentStyle={{
+                                                backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                                borderRadius: '8px',
+                                                color: '#fff'
+                                            }}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                         <div className="space-y-3">
                             {data.paymentMethodsBreakdown.map((pm, idx) => (
                                 <div key={idx} className="flex flex-col p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
@@ -1649,7 +1912,10 @@ export default function DashboardPage() {
                                             ) : pm.method === 'Maya' ? (
                                                 <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center text-[10px] font-bold text-black">M</div>
                                             ) : (
-                                                <Banknote className="w-4 h-4 text-emerald-500" />
+                                                <Banknote
+                                                    className="w-4 h-4"
+                                                    style={{ color: PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length] }}
+                                                />
                                             )}
                                             {pm.method}
                                         </span>

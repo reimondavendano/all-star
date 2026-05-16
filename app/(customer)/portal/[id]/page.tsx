@@ -5,12 +5,14 @@ import { supabase } from '@/lib/supabase';
 import { useParams } from 'next/navigation';
 import { CreditCard, Calendar, Wifi, AlertCircle, Loader2, Share2, MapPin, Router, Phone, Download, ChevronDown, FileText, Clock, CheckCircle, XCircle, TrendingUp, Zap, DollarSign } from 'lucide-react';
 import axios from 'axios';
-import { changeSubscriptionPlan, submitManualPayment, previewPlanChangeInvoices } from '@/app/actions/subscription';
+import { getCustomerPendingPlanChangeRequests, submitManualPayment, previewPlanChangeInvoices, submitPlanChangeRequest } from '@/app/actions/subscription';
 import ManualPaymentModal from '@/components/customer/ManualPaymentModal';
+import { getPlanChangeDateWindow, toISODateString } from '@/lib/billing';
 
 interface Subscription {
     id: string;
     active: boolean;
+    plan_id: string;
     invoice_date: string;
     date_installed: string;
     address: string;
@@ -40,6 +42,11 @@ interface Subscription {
         created_at: string;
         notes: string;
     }[];
+    pendingPlanChange?: {
+        id: string;
+        newPlanId: string;
+        newPlanName: string;
+    } | null;
 }
 
 interface PortalData {
@@ -86,6 +93,7 @@ export default function CustomerPortalPage() {
     const [planPreview, setPlanPreview] = useState<PlanPreview | null>(null);
     const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
     const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+    const [planChangeDate, setPlanChangeDate] = useState(toISODateString(new Date()));
 
     useEffect(() => {
         if (params.id) {
@@ -117,6 +125,7 @@ export default function CustomerPortalPage() {
                 .select(`
                     id,
                     active,
+                    plan_id,
                     invoice_date,
                     date_installed,
                     address,
@@ -130,6 +139,9 @@ export default function CustomerPortalPage() {
                 .order('created_at', { ascending: false });
 
             if (subsError) throw subsError;
+
+            const pendingResult = await getCustomerPendingPlanChangeRequests(customerId);
+            const pendingRequests = pendingResult.requests || [];
 
             const subscriptionsWithDetails = await Promise.all(
                 (subscriptionsData || []).map(async (sub: any) => {
@@ -152,6 +164,7 @@ export default function CustomerPortalPage() {
                     return {
                         id: sub.id,
                         active: sub.active,
+                        plan_id: sub.plan_id,
                         invoice_date: sub.invoice_date,
                         date_installed: sub.date_installed,
                         address: sub.address,
@@ -165,7 +178,8 @@ export default function CustomerPortalPage() {
                             details: plan?.details || ''
                         },
                         invoices: recentInvoices,
-                        payments: allPayments || []
+                        payments: allPayments || [],
+                        pendingPlanChange: pendingRequests.find(request => request.subscriptionId === sub.id) || null
                     };
                 })
             );
@@ -299,6 +313,8 @@ export default function CustomerPortalPage() {
         setSelectedSubscription(subscription);
         setPlanPreview(null);
         setSelectedPlanId(null);
+        const window = getPlanChangeDateWindow(subscription.invoice_date);
+        setPlanChangeDate(window.isOpen ? toISODateString(new Date()) : window.nextOpenDate);
 
         // Fetch plans if not loaded
         if (availablePlans.length === 0) {
@@ -308,14 +324,14 @@ export default function CustomerPortalPage() {
         setShowChangePlanModal(true);
     };
 
-    const handlePreviewPlan = async (planId: string) => {
+    const handlePreviewPlan = async (planId: string, date = planChangeDate) => {
         if (!selectedSubscription) return;
         setSelectedPlanId(planId);
         setIsPreviewLoading(true);
         setPlanPreview(null);
 
         try {
-            const result = await previewPlanChangeInvoices(selectedSubscription.id, planId);
+            const result = await previewPlanChangeInvoices(selectedSubscription.id, planId, date);
             if (result.success && result.preview) {
                 setPlanPreview(result.preview);
             } else {
@@ -333,17 +349,17 @@ export default function CustomerPortalPage() {
         setIsProcessingPayment(true);
 
         try {
-            const result = await changeSubscriptionPlan(selectedSubscription.id, selectedPlanId);
+            const result = await submitPlanChangeRequest(selectedSubscription.id, selectedPlanId, planChangeDate);
             if (result.success) {
-                alert(result.message || 'Plan updated successfully!');
+                alert(result.message || 'Plan-change request submitted.');
                 setShowChangePlanModal(false);
                 fetchPortalData(); // Refresh data
             } else {
-                alert('Failed to update plan: ' + result.error);
+                alert('Failed to submit request: ' + result.error);
             }
         } catch (error: any) {
             console.error('Plan update error:', error);
-            alert('An error occurred while updating the plan.');
+            alert('An error occurred while submitting the request.');
         } finally {
             setIsProcessingPayment(false);
         }
@@ -761,9 +777,18 @@ export default function CustomerPortalPage() {
                                         </div>
                                     </div>
 
-                                    {/* Change Plan Button - More Prominent - Temporarily hidden */}
-                                    {/*
-                                    {sub.balance <= 0 ? (
+                                    {/* Change Plan Request Button */}
+                                    {sub.pendingPlanChange ? (
+                                        <div className="flex flex-col items-end">
+                                            <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-900/20 border border-amber-700/50 text-amber-300 rounded-xl">
+                                                <Clock className="w-4 h-4" />
+                                                <span className="text-sm font-medium">Request Pending</span>
+                                            </div>
+                                            <span className="text-[10px] text-gray-500 mt-1">
+                                                {sub.pendingPlanChange.newPlanName}
+                                            </span>
+                                        </div>
+                                    ) : (
                                         <button
                                             onClick={() => handleOpenChangePlan(sub)}
                                             className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600/20 to-purple-600/20 hover:from-violet-600 hover:to-purple-600 border border-violet-500/50 hover:border-violet-400 text-violet-400 hover:text-white rounded-xl transition-all duration-200 group"
@@ -771,23 +796,7 @@ export default function CustomerPortalPage() {
                                             <TrendingUp className="w-4 h-4 group-hover:scale-110 transition-transform" />
                                             <span className="text-sm font-medium">Upgrade Plan</span>
                                         </button>
-                                    ) : (
-                                        <div className="flex flex-col items-end">
-                                            <button
-                                                disabled
-                                                className="flex items-center gap-2 px-4 py-2.5 bg-gray-800/50 border border-gray-700 text-gray-500 rounded-xl cursor-not-allowed opacity-70"
-                                                title="Please settle your outstanding balance to change plan"
-                                            >
-                                                <TrendingUp className="w-4 h-4" />
-                                                <span className="text-sm font-medium">Upgrade Plan</span>
-                                            </button>
-                                            <span className="text-[10px] text-amber-500 mt-1 flex items-center gap-1">
-                                                <AlertCircle className="w-3 h-3" />
-                                                Pay balance to upgrade
-                                            </span>
-                                        </div>
                                     )}
-                                    */}
                                 </div>
                             </div>
 
@@ -965,6 +974,11 @@ export default function CustomerPortalPage() {
 
             {/* Change Plan Modal */}
             {showChangePlanModal && selectedSubscription && (
+                (() => {
+                    const changeWindow = getPlanChangeDateWindow(selectedSubscription.invoice_date);
+                    const isPlanChangeAllowed = changeWindow.isOpen;
+
+                    return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowChangePlanModal(false)} />
                     <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-violet-900/50 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto shadow-[0_0_60px_rgba(139,92,246,0.15)]">
@@ -975,17 +989,43 @@ export default function CustomerPortalPage() {
                                 <div className="w-14 h-14 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-violet-900/30">
                                     <Zap className="w-7 h-7 text-white" />
                                 </div>
-                                <h3 className="text-xl font-bold text-white mb-2 text-center">Change Subscription Plan</h3>
+                                <h3 className="text-xl font-bold text-white mb-2 text-center">Request Plan Change</h3>
                                 <p className="text-gray-400 text-center text-sm mb-6">
-                                    Choose a new plan for your subscription. Changes apply immediately.
+                                    Choose a new plan for your subscription. An admin will review the request before changes apply.
                                 </p>
+
+                                <div className={`mb-4 p-3 rounded-xl border text-xs ${isPlanChangeAllowed
+                                    ? 'bg-violet-900/20 border-violet-700/40 text-violet-200'
+                                    : 'bg-amber-900/20 border-amber-700/50 text-amber-200'
+                                    }`}>
+                                    {changeWindow.message}
+                                    {!isPlanChangeAllowed && (
+                                        <span className="block mt-1">Next available date: {formatShortDate(changeWindow.nextOpenDate)}</span>
+                                    )}
+                                </div>
+
+                                <div className="mb-4">
+                                    <label className="block text-xs text-gray-400 mb-2">Old Plan End Date</label>
+                                    <input
+                                        type="date"
+                                        value={planChangeDate}
+                                        min={changeWindow.minDate}
+                                        max={changeWindow.maxDate}
+                                        disabled={!isPlanChangeAllowed || isPreviewLoading}
+                                        onChange={(event) => setPlanChangeDate(event.target.value)}
+                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    />
+                                    <p className="text-[11px] text-gray-500 mt-1">
+                                        Selectable dates: {formatShortDate(changeWindow.minDate)} to {formatShortDate(changeWindow.maxDate)}.
+                                    </p>
+                                </div>
 
                                 <div className="space-y-3 mb-6">
                                     {availablePlans.map(plan => (
                                         <button
                                             key={plan.id}
                                             onClick={() => handlePreviewPlan(plan.id)}
-                                            disabled={isPreviewLoading || plan.name === selectedSubscription?.plan.name}
+                                            disabled={!isPlanChangeAllowed || isPreviewLoading || plan.name === selectedSubscription?.plan.name}
                                             className={`w-full p-4 rounded-xl transition-all flex items-center justify-between group border ${plan.name === selectedSubscription?.plan.name
                                                 ? 'bg-violet-900/20 border-violet-500/50 cursor-default opacity-70'
                                                 : 'bg-gray-900/50 border-gray-700 hover:border-violet-500 hover:bg-gray-800'
@@ -1022,10 +1062,32 @@ export default function CustomerPortalPage() {
                                 <div className="w-14 h-14 bg-gradient-to-br from-emerald-600 to-teal-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-900/30">
                                     <FileText className="w-7 h-7 text-white" />
                                 </div>
-                                <h3 className="text-xl font-bold text-white mb-2 text-center">Confirm Plan Change</h3>
+                                <h3 className="text-xl font-bold text-white mb-2 text-center">Submit Plan Change Request</h3>
                                 <p className="text-gray-400 text-center text-sm mb-6">
-                                    Review the prorated charges for this change.
+                                    Review the estimated prorated charges for admin approval.
                                 </p>
+
+                                <div className="mb-4">
+                                    <label className="block text-xs text-gray-400 mb-2">Old Plan End Date</label>
+                                    <input
+                                        type="date"
+                                        value={planChangeDate}
+                                        min={changeWindow.minDate}
+                                        max={changeWindow.maxDate}
+                                        disabled={!isPlanChangeAllowed || isPreviewLoading || isProcessingPayment}
+                                        onChange={async (event) => {
+                                            const nextDate = event.target.value;
+                                            setPlanChangeDate(nextDate);
+                                            if (selectedPlanId) {
+                                                await handlePreviewPlan(selectedPlanId, nextDate);
+                                            }
+                                        }}
+                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-violet-500 disabled:opacity-60"
+                                    />
+                                    <p className="text-[11px] text-gray-500 mt-1">
+                                        Allowed dates: {formatShortDate(changeWindow.minDate)} to {formatShortDate(changeWindow.maxDate)}.
+                                    </p>
+                                </div>
 
                                 <div className="bg-gray-900/50 rounded-xl p-4 mb-6 space-y-4 border border-gray-800">
                                     {/* Billing Period Info */}
@@ -1059,7 +1121,7 @@ export default function CustomerPortalPage() {
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 text-right">
-                                        This amount will be added to your balance.
+                                        This amount is an estimate. Billing changes only apply after approval.
                                     </div>
                                 </div>
 
@@ -1073,17 +1135,19 @@ export default function CustomerPortalPage() {
                                     </button>
                                     <button
                                         onClick={handleChangePlan}
-                                        disabled={isProcessingPayment}
+                                        disabled={!isPlanChangeAllowed || isProcessingPayment}
                                         className="flex-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium py-2.5 px-4 rounded-xl transition-all shadow-lg shadow-violet-900/20 flex items-center justify-center gap-2"
                                     >
                                         {isProcessingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                        Confirm Change
+                                        Submit Request
                                     </button>
                                 </div>
                             </>
                         )}
                     </div>
                 </div>
+                    );
+                })()
             )}
 
             {/* Invoice Download Modal */}

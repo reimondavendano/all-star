@@ -10,7 +10,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { calculateDailyRate, toISODateString } from './billing';
+import { calculateDailyRate, getPlanChangeBillingPeriod, getPlanChangeDateWindow, toISODateString } from './billing';
 
 function getSupabaseAdmin() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,6 +44,13 @@ export interface PlanChangeRecord {
     subscription_id: string;
     old_plan_id: string;
     new_plan_id: string;
+    status?: 'pending' | 'approved' | 'declined';
+    request_type?: 'upgrade' | 'downgrade' | 'same';
+    requested_by_customer_id?: string;
+    requested_at?: string;
+    requested_old_plan_end_date?: string;
+    reviewed_at?: string;
+    decision_notes?: string;
     old_monthly_fee: number;
     new_monthly_fee: number;
     change_date: string;
@@ -54,6 +61,10 @@ export interface PlanChangeRecord {
     invoice_id?: string;
     processed: boolean;
     created_at?: string;
+}
+
+interface ProcessPlanChangeOptions {
+    planChangeId?: string;
 }
 
 /**
@@ -74,33 +85,14 @@ export function daysBetween(startDate: Date, endDate: Date): number {
  * For "30th" -> billing period starts on 1st of current month
  */
 export function getBillingPeriodStart(invoiceDate: string, referenceDate: Date): Date {
-    const year = referenceDate.getFullYear();
-    const month = referenceDate.getMonth();
-
-    if (invoiceDate === '15th') {
-        // Mid-month billing: 15th of previous month to 14th of current month
-        return new Date(year, month - 1, 15);
-    } else {
-        // Full month billing: 1st to 30th/31st of current month
-        return new Date(year, month, 1);
-    }
+    return getPlanChangeBillingPeriod(invoiceDate, referenceDate).startDate;
 }
 
 /**
  * Get the billing period end date based on invoice_date (billing period)
  */
 export function getBillingPeriodEnd(invoiceDate: string, referenceDate: Date): Date {
-    const year = referenceDate.getFullYear();
-    const month = referenceDate.getMonth();
-
-    if (invoiceDate === '15th') {
-        // Mid-month billing: ends on 14th of current month
-        return new Date(year, month, 14);
-    } else {
-        // Full month billing: ends on last day of current month
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        return new Date(year, month, lastDay);
-    }
+    return getPlanChangeBillingPeriod(invoiceDate, referenceDate).endDate;
 }
 
 /**
@@ -115,6 +107,19 @@ export function calculateProratedAmountForDays(
     // Round to whole number: 799.47 -> 799, 599.60 -> 600
     const amount = Math.round(dailyRate * days);
     return { amount, dailyRate };
+}
+
+function getDateOnly(date: Date): Date {
+    const dateOnly = new Date(date);
+    dateOnly.setHours(0, 0, 0, 0);
+    return dateOnly;
+}
+
+function getProrationStartDate(billingPeriodStart: Date, dateInstalled?: string | null): Date {
+    if (!dateInstalled) return new Date(billingPeriodStart);
+
+    const installedDate = getDateOnly(new Date(`${dateInstalled.split('T')[0]}T00:00:00`));
+    return installedDate > billingPeriodStart ? installedDate : new Date(billingPeriodStart);
 }
 
 /**
@@ -138,7 +143,8 @@ export function calculateProratedAmountForDays(
 export async function processPlanChange(
     subscriptionId: string,
     newPlanId: string,
-    changeDate: Date = new Date()
+    changeDate: Date = new Date(),
+    options: ProcessPlanChangeOptions = {}
 ): Promise<PlanChangeResult> {
     const supabase = getSupabaseAdmin();
 
@@ -197,6 +203,11 @@ export async function processPlanChange(
 
         // 3. Calculate billing period dates
         const invoiceDate = subscription.invoice_date || '15th';
+        const dateWindow = getPlanChangeDateWindow(invoiceDate, changeDate);
+        if (!dateWindow.isOpen) {
+            throw new Error(`${dateWindow.message} Next available date: ${dateWindow.nextOpenDate}.`);
+        }
+
         const billingPeriodStart = getBillingPeriodStart(invoiceDate, changeDate);
         const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, changeDate);
 
@@ -214,10 +225,6 @@ export async function processPlanChange(
 
         const existingInvoice = existingInvoices?.[0];
         const isPaid = existingInvoice?.payment_status === 'Paid';
-
-        // Ensure the change date is within the billing period
-        // If change date is BEFORE start (rare), snap to start
-        const effectiveStartDate = changeDate < billingPeriodStart ? billingPeriodStart : changeDate;
 
         let proratedAmount = 0;
         let invoiceId: string | undefined;
@@ -264,18 +271,21 @@ export async function processPlanChange(
             // SCENARIO: Not Paid (Regular)
             // 4. Calculate prorated days on OLD plan (from billing period start to old plan end date)
 
-            const oldPlanEndDate = new Date(changeDateMidnight);
+            const oldPlanEndDate = changeDateMidnight > billingPeriodEnd
+                ? new Date(billingPeriodEnd)
+                : new Date(changeDateMidnight);
+            const oldPlanStartDate = getProrationStartDate(billingPeriodStart, subscription.date_installed);
 
             // Only calculate if there are days to bill on old plan
-            if (oldPlanEndDate >= billingPeriodStart) {
-                proratedDays = daysBetween(billingPeriodStart, oldPlanEndDate);
+            if (oldPlanEndDate >= oldPlanStartDate) {
+                proratedDays = daysBetween(oldPlanStartDate, oldPlanEndDate);
                 const { amount } = calculateProratedAmountForDays(oldPlan.monthly_fee, proratedDays);
                 proratedAmount = amount;
             }
 
             // 5. Create prorated invoice for OLD plan (if there are days to bill)
             if (proratedDays > 0 && proratedAmount > 0) {
-                const invoiceDescription = `${oldPlan.name} (Prorated: ${proratedDays} days from ${toISODateString(billingPeriodStart)} to ${toISODateString(oldPlanEndDate)}) - Plan changed to ${newPlan.name}`;
+                const invoiceDescription = `${oldPlan.name} (Prorated: ${proratedDays} days from ${toISODateString(oldPlanStartDate)} to ${toISODateString(oldPlanEndDate)}) - Plan changed to ${newPlan.name}`;
 
                 // Calculate due date (use billing period end or a few days from now, whichever is sooner)
                 const dueDate = billingPeriodEnd;
@@ -297,7 +307,7 @@ export async function processPlanChange(
                             amount_due: proratedAmount,
                             payment_status: paymentStatus,
                             due_date: toISODateString(dueDate),
-                            from_date: toISODateString(billingPeriodStart),
+                            from_date: toISODateString(oldPlanStartDate),
                             to_date: toISODateString(oldPlanEndDate),
                             is_prorated: true,
                             notes: invoiceDescription
@@ -323,7 +333,7 @@ export async function processPlanChange(
                             amount_due: proratedAmount,
                             payment_status: 'Unpaid',
                             due_date: toISODateString(dueDate),
-                            from_date: toISODateString(billingPeriodStart),
+                            from_date: toISODateString(oldPlanStartDate),
                             to_date: toISODateString(oldPlanEndDate),
                             is_prorated: true,
                             notes: invoiceDescription
@@ -355,6 +365,14 @@ export async function processPlanChange(
             subscription_id: subscriptionId,
             old_plan_id: oldPlan.id,
             new_plan_id: newPlan.id,
+            status: 'approved',
+            request_type: newPlan.monthly_fee > oldPlan.monthly_fee
+                ? 'upgrade'
+                : newPlan.monthly_fee < oldPlan.monthly_fee
+                    ? 'downgrade'
+                    : 'same',
+            requested_old_plan_end_date: toISODateString(changeDateMidnight),
+            reviewed_at: new Date().toISOString(),
             old_monthly_fee: oldPlan.monthly_fee,
             new_monthly_fee: newPlan.monthly_fee,
             change_date: toISODateString(newPlanStartDate),
@@ -366,14 +384,22 @@ export async function processPlanChange(
             processed: false // Will be set to true when new plan invoice is generated
         };
 
-        const { data: planChange, error: changeError } = await supabase
-            .from('plan_changes')
-            .insert(planChangeRecord)
-            .select('id')
-            .single();
+        const { data: planChange, error: changeError } = options.planChangeId
+            ? await supabase
+                .from('plan_changes')
+                .update(planChangeRecord)
+                .eq('id', options.planChangeId)
+                .select('id')
+                .single()
+            : await supabase
+                .from('plan_changes')
+                .insert(planChangeRecord)
+                .select('id')
+                .single();
 
         if (changeError) {
             console.error('Failed to record plan change:', changeError);
+            throw new Error('Failed to record plan change');
         }
 
         // 7. Update subscription to new plan
@@ -399,7 +425,7 @@ export async function processPlanChange(
             resultInvoice = {
                 id: invoiceId || '',
                 amount: proratedAmount,
-                fromDate: toISODateString(billingPeriodStart),
+                fromDate: toISODateString(getProrationStartDate(billingPeriodStart, subscription.date_installed)),
                 toDate: toISODateString(changeDateMidnight),
                 description: `${oldPlan.name} - ${proratedDays} days`
             };
@@ -441,6 +467,7 @@ export async function getPendingPlanChanges(
         .from('plan_changes')
         .select('*')
         .eq('processed', false)
+        .eq('status', 'approved')
         .order('change_date', { ascending: true });
 
     if (subscriptionId) {
@@ -546,7 +573,8 @@ export function previewPlanChange(
     newMonthlyFee: number,
     invoiceDate: string, // '15th' or '30th'
     changeDate: Date = new Date(),
-    isPaid: boolean = false
+    isPaid: boolean = false,
+    dateInstalled?: string | null
 ): {
     oldPlan: { days: number; amount: number; fromDate: string; toDate: string };
     newPlan: { days: number; amount: number; fromDate: string; toDate: string };
@@ -560,8 +588,12 @@ export function previewPlanChange(
     const newPlanStartDate = new Date(changeDateMidnight);
     newPlanStartDate.setDate(newPlanStartDate.getDate() + 1);
 
-    // Old plan: from billing start through the selected old-plan end date
-    const oldPlanEndDate = new Date(changeDateMidnight);
+    // Old plan: from billing start through the selected old-plan end date,
+    // capped at the billing period end to avoid charging outside the generated invoice.
+    const oldPlanEndDate = changeDateMidnight > billingPeriodEnd
+        ? new Date(billingPeriodEnd)
+        : new Date(changeDateMidnight);
+    const oldPlanStartDate = getProrationStartDate(billingPeriodStart, dateInstalled);
 
     // New plan: from the day after the old plan ends to billing end
     const newPlanDays = daysBetween(newPlanStartDate, billingPeriodEnd);
@@ -584,8 +616,8 @@ export function previewPlanChange(
         totalNewInvoices = newPlanAmount + oldPlanAmount;
     } else {
         // If NOT PAID: Old Plan Amount is CHARGE for USED DAYS
-        oldPlanDays = oldPlanEndDate >= billingPeriodStart
-            ? daysBetween(billingPeriodStart, oldPlanEndDate)
+        oldPlanDays = oldPlanEndDate >= oldPlanStartDate
+            ? daysBetween(oldPlanStartDate, oldPlanEndDate)
             : 0;
         const { amount: charge } = calculateProratedAmountForDays(currentMonthlyFee, oldPlanDays);
         oldPlanAmount = charge;
@@ -603,7 +635,7 @@ export function previewPlanChange(
         oldPlan: {
             days: oldPlanDays,
             amount: oldPlanAmount,
-            fromDate: isPaid ? toISODateString(newPlanStartDate) : toISODateString(billingPeriodStart),
+            fromDate: isPaid ? toISODateString(newPlanStartDate) : toISODateString(oldPlanStartDate),
             toDate: isPaid ? toISODateString(billingPeriodEnd) : toISODateString(oldPlanEndDate)
         },
         newPlan: {

@@ -5,6 +5,7 @@ import { X, User, MapPin, Wifi, CheckCircle, Loader2, CreditCard, Copy, Globe, H
 import { supabase } from '@/lib/supabase';
 import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
 import { changeSubscriptionPlan, previewPlanChangeInvoices } from '@/app/actions/subscription';
+import { getPlanChangeDateWindow } from '@/lib/billing';
 import dynamic from 'next/dynamic';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
@@ -75,6 +76,10 @@ interface EditSubscriptionModalProps {
     onClose: () => void;
     subscription: Subscription;
     onUpdate: () => void;
+    initialTab?: EditTab;
+    initialPlanId?: string;
+    initialPlanChangeDate?: string;
+    planChangeRequestId?: string;
 }
 
 const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
@@ -106,7 +111,16 @@ function formatDisplayDate(dateString?: string | null) {
     });
 }
 
-export default function EditSubscriptionModal({ isOpen, onClose, subscription, onUpdate }: EditSubscriptionModalProps) {
+export default function EditSubscriptionModal({
+    isOpen,
+    onClose,
+    subscription,
+    onUpdate,
+    initialTab,
+    initialPlanId,
+    initialPlanChangeDate,
+    planChangeRequestId
+}: EditSubscriptionModalProps) {
     const [activeTab, setActiveTab] = useState<EditTab>('subscription');
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
@@ -117,7 +131,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const [successMessage, setSuccessMessage] = useState('The subscription details have been saved.');
     const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [pendingActiveStatus, setPendingActiveStatus] = useState<boolean | null>(null);
-    const [planChangeDate, setPlanChangeDate] = useState(new Date().toISOString().split('T')[0]);
+    const [planChangeDate, setPlanChangeDate] = useState(initialPlanChangeDate || new Date().toISOString().split('T')[0]);
     const [planPreview, setPlanPreview] = useState<PlanChangePreview | null>(null);
     const [planPreviewLoading, setPlanPreviewLoading] = useState(false);
     const [planChangeError, setPlanChangeError] = useState<string | null>(null);
@@ -129,7 +143,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const [formData, setFormData] = useState({
         active: subscription.active,
         invoice_date: subscription.invoice_date || '',
-        plan_id: subscription.plan_id,
+        plan_id: initialPlanId || subscription.plan_id,
         business_unit_id: subscription.business_unit_id,
         date_installed: subscription.date_installed ? new Date(subscription.date_installed).toISOString().split('T')[0] : '',
         address: subscription.address,
@@ -152,16 +166,16 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             fetchPlans();
             fetchCustomers();
             fetchPppSecret();
-            setActiveTab('subscription');
+            setActiveTab(initialTab || 'subscription');
             setPlanPreview(null);
             setPlanChangeError(null);
-            setPlanChangeDate(new Date().toISOString().split('T')[0]);
+            setPlanChangeDate(initialPlanChangeDate || new Date().toISOString().split('T')[0]);
 
             // Initialize form data when modal opens or subscription changes
             setFormData({
                 active: subscription.active,
                 invoice_date: subscription.invoice_date || '',
-                plan_id: subscription.plan_id,
+                plan_id: initialPlanId || subscription.plan_id,
                 business_unit_id: subscription.business_unit_id,
                 date_installed: subscription.date_installed ? new Date(subscription.date_installed).toISOString().split('T')[0] : '',
                 address: subscription.address,
@@ -186,7 +200,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 setCoordinates(null);
             }
         }
-    }, [isOpen, subscription]);
+    }, [isOpen, subscription, initialTab, initialPlanId, initialPlanChangeDate]);
 
     // Auto-set and Lock Invoice Date logic
     useEffect(() => {
@@ -296,6 +310,13 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const selectedPlan = plans.find(plan => plan.id === formData.plan_id);
     const currentPlan = plans.find(plan => plan.id === subscription.plan_id);
     const hasPlanChanged = formData.plan_id !== subscription.plan_id;
+    const planChangeWindowBaseDate = planChangeRequestId && initialPlanChangeDate
+        ? new Date(`${initialPlanChangeDate}T00:00:00`)
+        : new Date();
+    const planChangeWindow = getPlanChangeDateWindow(
+        formData.invoice_date || subscription.invoice_date || '15th',
+        planChangeWindowBaseDate
+    );
     const formatCurrency = (amount: number) => `₱${Math.round(amount).toLocaleString()}`;
     const selectedBusinessUnit = businessUnits.find(unit => unit.id === formData.business_unit_id);
     const defaultDisconnectionDate = (() => {
@@ -323,7 +344,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         return tab.charAt(0).toUpperCase() + tab.slice(1);
     };
 
-    const loadPlanChangePreview = async (planId = formData.plan_id, date = planChangeDate) => {
+    const loadPlanChangePreview = useCallback(async (planId = formData.plan_id, date = planChangeDate) => {
         if (!planId || planId === subscription.plan_id) {
             setPlanPreview(null);
             return;
@@ -343,7 +364,13 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         } finally {
             setPlanPreviewLoading(false);
         }
-    };
+    }, [formData.plan_id, planChangeDate, subscription.id, subscription.plan_id]);
+
+    useEffect(() => {
+        if (isOpen && initialTab === 'plan' && formData.plan_id !== subscription.plan_id) {
+            loadPlanChangePreview(formData.plan_id, planChangeDate);
+        }
+    }, [formData.plan_id, initialTab, isOpen, loadPlanChangePreview, planChangeDate, subscription.plan_id]);
 
     const handleUpdateClick = async () => {
         if (hasPlanChanged) {
@@ -361,6 +388,11 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
 
             if (!planPreview) {
                 await loadPlanChangePreview();
+                return;
+            }
+
+            if (!planChangeWindow.isOpen) {
+                setPlanChangeError(`${planChangeWindow.message} Next available date: ${formatDisplayDate(planChangeWindow.nextOpenDate)}.`);
                 return;
             }
 
@@ -422,7 +454,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     throw new Error('Plan change was not confirmed');
                 }
 
-                const planResult = await changeSubscriptionPlan(subscription.id, formData.plan_id, planChangeDate);
+                const planResult = await changeSubscriptionPlan(subscription.id, formData.plan_id, planChangeDate, planChangeRequestId);
                 if (!planResult.success) {
                     throw new Error(planResult.error || 'Failed to change subscription plan');
                 }
@@ -888,16 +920,23 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                     <input
                                         type="date"
                                         value={planChangeDate}
-                                        max={new Date().toISOString().split('T')[0]}
+                                        min={planChangeWindow.minDate}
+                                        max={planChangeWindow.maxDate}
+                                        disabled={!planChangeWindow.isOpen}
                                         onChange={async (e) => {
                                             setPlanChangeDate(e.target.value);
                                             await loadPlanChangePreview(formData.plan_id, e.target.value);
                                         }}
-                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all"
+                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
-                                        The new plan starts the next day. Example: old plan ends Apr 24, new plan starts Apr 25.
+                                        The new plan starts the next day. Allowed dates: {formatDisplayDate(planChangeWindow.minDate)} to {formatDisplayDate(planChangeWindow.maxDate)}.
                                     </p>
+                                    {!planChangeWindow.isOpen && (
+                                        <p className="text-xs text-amber-400 mt-1">
+                                            {planChangeWindow.message} Next available date: {formatDisplayDate(planChangeWindow.nextOpenDate)}.
+                                        </p>
+                                    )}
                                 </div>
 
                                 {planChangeError && (
@@ -1004,7 +1043,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                         </button>
                         <button
                             onClick={handleUpdateClick}
-                            disabled={isLoading || (activeTab === 'plan' && (!hasPlanChanged || planPreviewLoading || !planPreview))}
+                            disabled={isLoading || (activeTab === 'plan' && (!hasPlanChanged || planPreviewLoading || !planPreview || !planChangeWindow.isOpen))}
                             className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-purple-900/20"
                         >
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

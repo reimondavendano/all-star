@@ -123,6 +123,115 @@ export function calculateBillingDates(
     return { fromDate, toDate, dueDate, disconnectionDate, generationDate };
 }
 
+function dateOnly(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function toDateInputString(date: Date): string {
+    return toISODateString(dateOnly(date));
+}
+
+function normalizeInvoiceDate(invoiceDate?: string | null): '15th' | '30th' {
+    return invoiceDate === '30th' ? '30th' : '15th';
+}
+
+/**
+ * Plan changes are only allowed inside the post-invoice plan-change window.
+ */
+export function getPlanChangeDateWindow(
+    invoiceDate?: string | null,
+    referenceDate: Date = new Date()
+): {
+    isOpen: boolean;
+    minDate: string;
+    maxDate: string;
+    nextOpenDate: string;
+    message: string;
+} {
+    const cycle = normalizeInvoiceDate(invoiceDate);
+    const date = dateOnly(referenceDate);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    if (cycle === '30th') {
+        const windowStart = day <= 10
+            ? new Date(year, month - 1, 26)
+            : new Date(year, month, 26);
+        const windowEnd = day >= 26
+            ? new Date(year, month + 1, 10)
+            : new Date(year, month, 10);
+        const nextOpen = day <= 10
+            ? windowStart
+            : day < 26
+                ? new Date(year, month, 26)
+                : windowStart;
+        const isOpen = (day >= 26) || (day <= 10);
+
+        return {
+            isOpen,
+            minDate: toDateInputString(windowStart),
+            maxDate: toDateInputString(windowEnd),
+            nextOpenDate: toDateInputString(nextOpen),
+            message: isOpen
+                ? 'Plan changes are open for this 30th cycle from the 26th until the 10th of the next month.'
+                : 'Plan changes for the 30th cycle open on the 26th.'
+        };
+    }
+
+    const windowStart = new Date(year, month, 11);
+    const windowEnd = new Date(year, month, 25);
+    const nextOpen = day < 11
+        ? windowStart
+        : day <= 25
+            ? windowStart
+            : new Date(year, month + 1, 11);
+    const isOpen = day >= 11 && day <= 25;
+
+    return {
+        isOpen,
+        minDate: toDateInputString(windowStart),
+        maxDate: toDateInputString(windowEnd),
+        nextOpenDate: toDateInputString(nextOpen),
+        message: isOpen
+            ? 'Plan changes are open for this 15th cycle from the 11th until the 25th.'
+            : 'Plan changes for the 15th cycle open on the 11th.'
+    };
+}
+
+/**
+ * Billing period used by plan-change proration for a selected old-plan end date.
+ */
+export function getPlanChangeBillingPeriod(
+    invoiceDate: string,
+    referenceDate: Date
+): { startDate: Date; endDate: Date } {
+    const cycle = normalizeInvoiceDate(invoiceDate);
+    const date = dateOnly(referenceDate);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    if (cycle === '30th') {
+        const billingMonth = day <= 5 ? month - 1 : month;
+        const startDate = new Date(year, billingMonth, 1);
+        const endDate = new Date(year, billingMonth + 1, 0);
+        return { startDate, endDate };
+    }
+
+    if (day >= 15) {
+        return {
+            startDate: new Date(year, month, 15),
+            endDate: new Date(year, month + 1, 14)
+        };
+    }
+
+    return {
+        startDate: new Date(year, month - 1, 15),
+        endDate: new Date(year, month, 14)
+    };
+}
+
 /**
  * Calculate daily rate for pro-rating
  */

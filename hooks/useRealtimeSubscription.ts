@@ -7,6 +7,7 @@ type TableName =
     | 'subscriptions'
     | 'invoices'
     | 'payments'
+    | 'plan_changes'
     | 'expenses'
     | 'mikrotik_ppp_secrets'
     | 'business_units'
