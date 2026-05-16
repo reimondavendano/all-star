@@ -122,6 +122,11 @@ function getProrationStartDate(billingPeriodStart: Date, dateInstalled?: string 
     return installedDate > billingPeriodStart ? installedDate : new Date(billingPeriodStart);
 }
 
+function isDateWithinPlanChangeWindow(date: Date, window: { minDate: string; maxDate: string }): boolean {
+    const dateString = toISODateString(date);
+    return dateString >= window.minDate && dateString <= window.maxDate;
+}
+
 /**
  * Process a plan change request
  * Creates a prorated invoice for the old plan and records the change
@@ -204,7 +209,7 @@ export async function processPlanChange(
         // 3. Calculate billing period dates
         const invoiceDate = subscription.invoice_date || '15th';
         const dateWindow = getPlanChangeDateWindow(invoiceDate, changeDate);
-        if (!dateWindow.isOpen) {
+        if (!dateWindow.isOpen || !isDateWithinPlanChangeWindow(changeDate, dateWindow)) {
             throw new Error(`${dateWindow.message} Next available date: ${dateWindow.nextOpenDate}.`);
         }
 

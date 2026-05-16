@@ -155,18 +155,23 @@ export function getPlanChangeDateWindow(
     const day = date.getDate();
 
     if (cycle === '30th') {
-        const windowStart = day <= 10
+        const firstSelectableDate = day <= 10
             ? new Date(year, month - 1, 26)
             : new Date(year, month, 26);
         const windowEnd = day >= 26
             ? new Date(year, month + 1, 10)
             : new Date(year, month, 10);
+        const isOpen = day >= 25 || day <= 10;
+        const windowStart = (() => {
+            if (day === 25) return firstSelectableDate;
+            if (day >= 26 || day <= 10) return date > firstSelectableDate ? date : firstSelectableDate;
+            return firstSelectableDate;
+        })();
         const nextOpen = day <= 10
-            ? windowStart
-            : day < 26
-                ? new Date(year, month, 26)
-                : windowStart;
-        const isOpen = (day >= 26) || (day <= 10);
+            ? firstSelectableDate
+            : day < 25
+                ? new Date(year, month, 25)
+                : firstSelectableDate;
 
         return {
             isOpen,
@@ -174,19 +179,24 @@ export function getPlanChangeDateWindow(
             maxDate: toDateInputString(windowEnd),
             nextOpenDate: toDateInputString(nextOpen),
             message: isOpen
-                ? 'Plan changes are open for this 30th cycle from the 26th until the 10th of the next month.'
-                : 'Plan changes for the 30th cycle open on the 26th.'
+                ? 'Plan changes are open for this 30th cycle. Select dates from today up to the 10th, with the 25th disabled.'
+                : 'Plan changes for the 30th cycle open on the 25th; selectable dates start on the 26th.'
         };
     }
 
-    const windowStart = new Date(year, month, 11);
+    const firstSelectableDate = new Date(year, month, 11);
     const windowEnd = new Date(year, month, 25);
-    const nextOpen = day < 11
-        ? windowStart
+    const isOpen = day >= 10 && day <= 25;
+    const windowStart = (() => {
+        if (day === 10) return firstSelectableDate;
+        if (day >= 11 && day <= 25) return date > firstSelectableDate ? date : firstSelectableDate;
+        return firstSelectableDate;
+    })();
+    const nextOpen = day < 10
+        ? new Date(year, month, 10)
         : day <= 25
-            ? windowStart
-            : new Date(year, month + 1, 11);
-    const isOpen = day >= 11 && day <= 25;
+            ? firstSelectableDate
+            : new Date(year, month + 1, 10);
 
     return {
         isOpen,
@@ -194,8 +204,8 @@ export function getPlanChangeDateWindow(
         maxDate: toDateInputString(windowEnd),
         nextOpenDate: toDateInputString(nextOpen),
         message: isOpen
-            ? 'Plan changes are open for this 15th cycle from the 11th until the 25th.'
-            : 'Plan changes for the 15th cycle open on the 11th.'
+            ? 'Plan changes are open for this 15th cycle. Select dates from today up to the 25th, with the 10th disabled.'
+            : 'Plan changes for the 15th cycle open on the 10th; selectable dates start on the 11th.'
     };
 }
 
