@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Globe, ChevronRight, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getMikrotikProfileForPlan } from '@/lib/mikrotikProfiles';
 
 interface MikrotikInputModalProps {
     isOpen: boolean;
@@ -37,7 +38,7 @@ export default function MikrotikInputModal({
         name: suggestedUsername || '',
         password: '1111',
         service: 'pppoe',
-        profile: planName || '100MBPS',
+        profile: getMikrotikProfileForPlan(planName),
         comment: `Converted from prospect: ${customerName}`,
         addToRouter: true // Always add to router by default
     });
@@ -50,7 +51,7 @@ export default function MikrotikInputModal({
                 setFormData(prev => ({
                     ...prev,
                     name: suggestedUsername || prev.name,
-                    profile: planName || prev.profile,
+                    profile: planName ? getMikrotikProfileForPlan(planName) : prev.profile,
                     comment: `Converted from prospect: ${customerName}`
                 }));
             }

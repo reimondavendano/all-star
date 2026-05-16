@@ -50,6 +50,7 @@ interface Subscription {
     customer_name?: string;
     balance?: number;
     router_serial_number?: string;
+    promised_date?: string | null;
     'x-coordinates'?: number;
     'y-coordinates'?: number;
     plans?: { name: string; monthly_fee: number };
@@ -498,7 +499,7 @@ export default function CustomersSubscriptionsPage() {
                                                         {/* Subscription + MikroTik Details */}
                                                         {expandedSubscriptions.has(sub.id) && (
                                                             <div className="bg-[#0a0a0a] border-t border-gray-800/50 p-4 pl-12">
-                                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                                                                     <div className="flex items-start gap-2">
                                                                         <Calendar className="w-4 h-4 text-pink-500 mt-0.5" />
                                                                         <div><div className="text-xs text-gray-500">Installed</div><div className="text-gray-300">{sub.date_installed ? new Date(sub.date_installed).toLocaleDateString() : '-'}</div></div>
@@ -519,6 +520,10 @@ export default function CustomersSubscriptionsPage() {
                                                                     <div className="flex items-start gap-2">
                                                                         <Hash className="w-4 h-4 text-gray-500 mt-0.5" />
                                                                         <div><div className="text-xs text-gray-500">Invoice Date</div><div className="text-gray-300">{sub.invoice_date || 'Not set'}</div></div>
+                                                                    </div>
+                                                                    <div className="flex items-start gap-2">
+                                                                        <Calendar className="w-4 h-4 text-purple-400 mt-0.5" />
+                                                                        <div><div className="text-xs text-gray-500">Promised Date</div><div className="text-gray-300">{sub.promised_date ? new Date(`${sub.promised_date}T00:00:00`).toLocaleDateString() : '-'}</div></div>
                                                                     </div>
                                                                 </div>
 

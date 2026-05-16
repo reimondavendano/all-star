@@ -1,6 +1,7 @@
 'use server';
 
 import { RouterOSAPI } from 'node-routeros';
+import { getMikrotikProfileForPlan } from '@/lib/mikrotikProfiles';
 import https from 'https';
 
 // --- Shared Constants & Helpers ---
@@ -585,15 +586,7 @@ export async function syncSubscriptionToMikrotik(subscriptionId: string, isActiv
             const plan = subscription.plans as any;
             const planName = plan?.name || '';
 
-            // Map plan names to MikroTik profiles
-            const planToProfile: Record<string, string> = {
-                'Plan 799': '50MBPS',
-                'Plan 999': '100MBPS',
-                'Plan 1299': '130MBPS',
-                'Plan 1499': '150MBPS'
-            };
-
-            targetProfile = planToProfile[planName] || pppSecret.profile || '50MBPS';
+            targetProfile = getMikrotikProfileForPlan(planName) || pppSecret.profile || '50MBPS-2';
             console.log(`[SYNC] Activating with profile: ${targetProfile} (plan: ${planName})`);
         } else {
             // When disconnecting, set to DC profile
@@ -1083,10 +1076,7 @@ export async function addPppSecretFromProspect(prospect: {
         // Generate a default password (you may want to customize this)
         const defaultPassword = Math.random().toString(36).slice(-8);
 
-        // Determine profile based on plan (you can customize this mapping)
-        const profile = prospect.plan_name?.includes('100') ? '100MBPS' :
-            prospect.plan_name?.includes('50') ? '50MBPS' :
-                prospect.plan_name?.includes('150') ? '150MBPS' : '50MBPS';
+        const profile = getMikrotikProfileForPlan(prospect.plan_name);
 
         const secretData = {
             name: mikrotikName,

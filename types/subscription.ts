@@ -13,6 +13,7 @@ export interface Subscription {
     address: string; // Long Text
     landmark: string; // Long Text
     invoiceDate: '15th' | '30th';
+    promisedDate?: string | null;
     balance: number; // Formula: Total Invoices – Total Payments
     referralCreditApplied: boolean;
     xCoordinates?: number;

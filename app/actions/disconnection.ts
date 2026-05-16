@@ -1,6 +1,6 @@
 'use server';
 
-import { generateDisconnectionInvoice } from '@/lib/invoiceService';
+import { processSubscriptionDisconnection } from '@/lib/disconnectionService';
 
 /**
  * Server Action to handle subscription disconnection
@@ -16,94 +16,5 @@ export async function processDisconnection(
     invoiceId?: string;
     amount?: number;
 }> {
-    try {
-        let invoiceId: string | undefined;
-        let amount: number | undefined;
-
-        // Generate invoice if requested
-        if (generateInvoice) {
-            const invoiceResult = await generateDisconnectionInvoice(subscriptionId, disconnectionDate);
-
-            if (!invoiceResult.success) {
-                return {
-                    success: false,
-                    error: invoiceResult.errors.join(', ')
-                };
-            }
-
-            invoiceId = invoiceResult.invoiceId;
-            amount = invoiceResult.amount;
-        }
-
-        // Update subscription to inactive
-        const { createClient } = await import('@supabase/supabase-js');
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-        if (!supabaseUrl || !supabaseServiceKey) {
-            return {
-                success: false,
-                error: 'Server configuration error: Missing Supabase credentials'
-            };
-        }
-
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-        const { error: updateError } = await supabase
-            .from('subscriptions')
-            .update({ 
-                active: false,
-                last_disconnection_date: disconnectionDate.toISOString()
-            })
-            .eq('id', subscriptionId);
-
-        if (updateError) {
-            return {
-                success: false,
-                error: updateError.message
-            };
-        }
-
-        // Sync to MikroTik (set profile to DC and disable)
-        const { syncSubscriptionToMikrotik, removeActivePppConnection } = await import('./mikrotik');
-        const mikrotikResult = await syncSubscriptionToMikrotik(subscriptionId, false);
-
-        if (!mikrotikResult.success) {
-            console.error('[Disconnect] MikroTik sync failed:', mikrotikResult.error);
-            // Don't fail the whole operation, just log the error
-        }
-
-        // Remove active PPP connection to immediately disconnect the user
-        // This is like clicking "Remove" in MikroTik's Active Connections
-        const { data: pppSecret } = await supabase
-            .from('mikrotik_ppp_secrets')
-            .select('name')
-            .eq('subscription_id', subscriptionId)
-            .single();
-
-        if (pppSecret?.name) {
-            console.log(`[Disconnect] Removing active connection for ${pppSecret.name}`);
-            const removeResult = await removeActivePppConnection(pppSecret.name);
-            
-            if (!removeResult.success) {
-                console.error('[Disconnect] Failed to remove active connection:', removeResult.error);
-                // Don't fail the whole operation, just log the error
-            } else {
-                console.log(`[Disconnect] Successfully removed active connection for ${pppSecret.name}`);
-            }
-        }
-
-        return {
-            success: true,
-            invoiceId,
-            amount
-        };
-
-    } catch (error) {
-        console.error('Disconnection error:', error);
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error occurred'
-        };
-    }
+    return processSubscriptionDisconnection(subscriptionId, disconnectionDate, generateInvoice);
 }

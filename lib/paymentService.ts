@@ -107,9 +107,14 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         const newBalance = Math.round(calculateNewBalance(previousBalance, paymentAmount));
 
         // 4. Update subscription balance
+        const subscriptionUpdate: { balance: number; promised_date?: null } = { balance: newBalance };
+        if (newBalance <= 0) {
+            subscriptionUpdate.promised_date = null;
+        }
+
         const { error: updateError } = await supabase
             .from('subscriptions')
-            .update({ balance: newBalance })
+            .update(subscriptionUpdate)
             .eq('id', params.subscriptionId);
 
         if (updateError) {

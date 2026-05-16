@@ -5,6 +5,7 @@ import { Loader2, CheckCircle, FileText, AlertTriangle, Globe, ChevronRight, Wif
 import { processActivation } from '@/app/actions/activation';
 import { supabase } from '@/lib/supabase';
 import { addPppSecret, checkMikrotikStatus } from '@/app/actions/mikrotik';
+import { getMikrotikProfileForPlan } from '@/lib/mikrotikProfiles';
 
 interface ActivationModalProps {
     isOpen: boolean;
@@ -44,7 +45,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
         name: '',
         password: '1111',
         service: 'pppoe',
-        profile: subscription.plan_name || '100MBPS',
+        profile: getMikrotikProfileForPlan(subscription.plan_name),
         comment: `Activated: ${subscription.customer_name}`,
         addToRouter: true // Always add to router by default
     });
@@ -64,7 +65,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
                 setMikrotikData(prev => ({
                     ...prev,
                     name: suggestedName,
-                    profile: subscription.plan_name || '100MBPS',
+                    profile: getMikrotikProfileForPlan(subscription.plan_name),
                     comment: `Activated: ${subscription.customer_name}`
                 }));
             }
@@ -238,7 +239,7 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
             name: '',
             password: '',
             service: 'pppoe',
-            profile: '100MBPS',
+            profile: getMikrotikProfileForPlan(subscription.plan_name),
             comment: '',
             addToRouter: false
         });

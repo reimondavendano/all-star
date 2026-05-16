@@ -24,6 +24,7 @@ import {
     sendDisconnectionWarningsForExtension,
     getTodaysTasks,
 } from '@/lib/invoiceService';
+import { runAutoDisconnectionBatch } from '@/lib/autoDisconnectionService';
 
 // Verify cron secret to prevent unauthorized access
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -50,9 +51,10 @@ export async function GET(request: NextRequest) {
     const results: {
         date: string;
         tasksExecuted: string[];
-        invoiceGeneration: any[];
-        dueReminders: any[];
-        disconnectionWarnings: any[];
+        invoiceGeneration: unknown[];
+        dueReminders: unknown[];
+        disconnectionWarnings: unknown[];
+        autoDisconnections: Awaited<ReturnType<typeof runAutoDisconnectionBatch>> | null;
         errors: string[];
     } = {
         date: new Date().toISOString(),
@@ -60,6 +62,7 @@ export async function GET(request: NextRequest) {
         invoiceGeneration: [],
         dueReminders: [],
         disconnectionWarnings: [],
+        autoDisconnections: null,
         errors: [],
     };
 
@@ -203,6 +206,16 @@ export async function GET(request: NextRequest) {
             });
         }
 
+        // 4. Auto Disconnection Daily Batch
+        const autoDisconnectResult = await runAutoDisconnectionBatch(today);
+        results.autoDisconnections = autoDisconnectResult;
+        if (autoDisconnectResult.due > 0) {
+            results.tasksExecuted.push(`Auto Disconnection: ${autoDisconnectResult.disconnected}/${autoDisconnectResult.due}`);
+        }
+        if (autoDisconnectResult.errors.length > 0) {
+            results.errors.push(...autoDisconnectResult.errors.map(error => `Auto Disconnection: ${error}`));
+        }
+
         // If no tasks were scheduled for today
         if (results.tasksExecuted.length === 0) {
             results.tasksExecuted.push('No scheduled tasks for today');
@@ -226,8 +239,6 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const { action, businessUnitId, year, month, sendSms = true } = body;
-
-        const supabase = getSupabaseAdmin();
 
         switch (action) {
             case 'generate_invoices': {
@@ -272,9 +283,14 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json(result);
             }
 
+            case 'auto_disconnect': {
+                const result = await runAutoDisconnectionBatch();
+                return NextResponse.json(result);
+            }
+
             default:
                 return NextResponse.json(
-                    { error: `Invalid action: ${action}. Valid actions: generate_invoices, send_due_reminders, send_disconnection_warnings` },
+                    { error: `Invalid action: ${action}. Valid actions: generate_invoices, send_due_reminders, send_disconnection_warnings, auto_disconnect` },
                     { status: 400 }
                 );
         }

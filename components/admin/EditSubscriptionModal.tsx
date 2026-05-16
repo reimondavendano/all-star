@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, User, MapPin, Wifi, Calendar, Building2, FileText, CheckCircle, AlertCircle, Loader2, CreditCard, ExternalLink, Search, Copy, Globe, Hash, Save } from 'lucide-react';
+import { X, User, MapPin, Wifi, CheckCircle, Loader2, CreditCard, Copy, Globe, Hash, Save, ArrowUpDown, Shield, CalendarClock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
+import { changeSubscriptionPlan, previewPlanChangeInvoices } from '@/app/actions/subscription';
 import dynamic from 'next/dynamic';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 
@@ -35,6 +36,7 @@ interface Subscription {
     customer_name?: string;
     router_serial_number?: string;
     is_free?: boolean;
+    promised_date?: string | null;
     last_reconnection_date?: string | null;
     last_disconnection_date?: string | null;
     'x-coordinates'?: number;
@@ -52,6 +54,22 @@ interface Plan {
     monthly_fee: number;
 }
 
+interface PlanChangePreview {
+    oldPlan: { days: number; amount: number; fromDate: string; toDate: string };
+    newPlan: { days: number; amount: number; fromDate: string; toDate: string };
+    totalDifference: number;
+    isUpgrade: boolean;
+}
+
+interface MikrotikPppSecret {
+    id: string;
+    name: string;
+    service: string;
+    profile: string;
+    local_address?: string | null;
+    comment?: string | null;
+}
+
 interface EditSubscriptionModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -60,20 +78,52 @@ interface EditSubscriptionModalProps {
 }
 
 const BARANGAY_OPTIONS = ['Bulihan', 'San Agustin', 'San Gabriel', 'Liang', 'Catmon'] as const;
+const EDIT_TABS = ['customer', 'subscription', 'paymentExtension', 'plan', 'mikrotik'] as const;
+type EditTab = typeof EDIT_TABS[number];
+
+function toDateInputValue(dateString?: string | null) {
+    if (!dateString) return '';
+    return dateString.split('T')[0];
+}
+
+function addDays(dateString: string, days: number) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().split('T')[0];
+}
+
+function datePartsToISO(year: number, monthIndex: number, day: number) {
+    return new Date(Date.UTC(year, monthIndex, day)).toISOString().split('T')[0];
+}
+
+function formatDisplayDate(dateString?: string | null) {
+    if (!dateString) return '-';
+    return new Date(`${dateString}T00:00:00`).toLocaleDateString('en-PH', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
 
 export default function EditSubscriptionModal({ isOpen, onClose, subscription, onUpdate }: EditSubscriptionModalProps) {
-    const [activeTab, setActiveTab] = useState<'customer' | 'subscription' | 'mikrotik'>('subscription');
+    const [activeTab, setActiveTab] = useState<EditTab>('subscription');
     const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [successMessage, setSuccessMessage] = useState('The subscription details have been saved.');
     const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [pendingActiveStatus, setPendingActiveStatus] = useState<boolean | null>(null);
+    const [planChangeDate, setPlanChangeDate] = useState(new Date().toISOString().split('T')[0]);
+    const [planPreview, setPlanPreview] = useState<PlanChangePreview | null>(null);
+    const [planPreviewLoading, setPlanPreviewLoading] = useState(false);
+    const [planChangeError, setPlanChangeError] = useState<string | null>(null);
 
     // MikroTik PPP Secret State
-    const [pppSecret, setPppSecret] = useState<any>(null);
+    const [pppSecret, setPppSecret] = useState<MikrotikPppSecret | null>(null);
     const [loadingPpp, setLoadingPpp] = useState(false);
 
     const [formData, setFormData] = useState({
@@ -90,6 +140,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         referral_credit_applied: subscription.referral_credit_applied,
         router_serial_number: subscription.router_serial_number || '',
         is_free: subscription.is_free || false,
+        promised_date: toDateInputValue(subscription.promised_date),
         last_reconnection_date: subscription.last_reconnection_date ? new Date(subscription.last_reconnection_date).toISOString().split('T')[0] : ''
     });
 
@@ -101,6 +152,10 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
             fetchPlans();
             fetchCustomers();
             fetchPppSecret();
+            setActiveTab('subscription');
+            setPlanPreview(null);
+            setPlanChangeError(null);
+            setPlanChangeDate(new Date().toISOString().split('T')[0]);
 
             // Initialize form data when modal opens or subscription changes
             setFormData({
@@ -117,6 +172,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                 referral_credit_applied: subscription.referral_credit_applied,
                 router_serial_number: subscription.router_serial_number || '',
                 is_free: subscription.is_free || false,
+                promised_date: toDateInputValue(subscription.promised_date),
                 last_reconnection_date: subscription.last_reconnection_date ? new Date(subscription.last_reconnection_date).toISOString().split('T')[0] : ''
             });
 
@@ -172,7 +228,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     const fetchPppSecret = async () => {
         setLoadingPpp(true);
         try {
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from('mikrotik_ppp_secrets')
                 .select('*')
                 .eq('subscription_id', subscription.id)
@@ -237,47 +293,159 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
         if (selectedBarangay === 'Bulihan') handleLocationSelect(14.8437, 120.8113); // Approximate coords
     };
 
-    const handleUpdateClick = () => {
+    const selectedPlan = plans.find(plan => plan.id === formData.plan_id);
+    const currentPlan = plans.find(plan => plan.id === subscription.plan_id);
+    const hasPlanChanged = formData.plan_id !== subscription.plan_id;
+    const formatCurrency = (amount: number) => `₱${Math.round(amount).toLocaleString()}`;
+    const selectedBusinessUnit = businessUnits.find(unit => unit.id === formData.business_unit_id);
+    const defaultDisconnectionDate = (() => {
+        const today = new Date();
+        const unitName = selectedBusinessUnit?.name?.toLowerCase() || '';
+        const isThirtyCycle = formData.invoice_date === '30th' || unitName.includes('malanggam');
+        const day = today.getDate();
+
+        if (isThirtyCycle) {
+            return day <= 5
+                ? datePartsToISO(today.getFullYear(), today.getMonth(), 5)
+                : datePartsToISO(today.getFullYear(), today.getMonth() + 1, 5);
+        }
+
+        return day <= 25
+            ? datePartsToISO(today.getFullYear(), today.getMonth(), 25)
+            : datePartsToISO(today.getFullYear(), today.getMonth() + 1, 25);
+    })();
+    const minimumPromisedDate = addDays(defaultDisconnectionDate, 1);
+    const autoDisconnectDate = formData.promised_date ? addDays(formData.promised_date, 1) : null;
+    const tabLabel = (tab: EditTab) => {
+        if (tab === 'mikrotik') return 'MikroTik PPP';
+        if (tab === 'plan') return 'Upgrade/Downgrade';
+        if (tab === 'paymentExtension') return 'Payment Extension';
+        return tab.charAt(0).toUpperCase() + tab.slice(1);
+    };
+
+    const loadPlanChangePreview = async (planId = formData.plan_id, date = planChangeDate) => {
+        if (!planId || planId === subscription.plan_id) {
+            setPlanPreview(null);
+            return;
+        }
+
+        setPlanPreviewLoading(true);
+        setPlanChangeError(null);
+        try {
+            const result = await previewPlanChangeInvoices(subscription.id, planId, date);
+            if (!result.success || !result.preview) {
+                throw new Error(result.error || 'Unable to preview plan change');
+            }
+            setPlanPreview(result.preview);
+        } catch (error) {
+            setPlanPreview(null);
+            setPlanChangeError(error instanceof Error ? error.message : 'Unable to preview plan change');
+        } finally {
+            setPlanPreviewLoading(false);
+        }
+    };
+
+    const handleUpdateClick = async () => {
+        if (hasPlanChanged) {
+            if (activeTab !== 'plan') {
+                setActiveTab('plan');
+                await loadPlanChangePreview();
+                return;
+            }
+
+            const status = await checkMikrotikStatus();
+            if (!status.online) {
+                alert('MikroTik router is offline. Please ensure the router is online before changing the subscription plan.');
+                return;
+            }
+
+            if (!planPreview) {
+                await loadPlanChangePreview();
+                return;
+            }
+
+            await handleConfirmUpdate(true);
+            return;
+        }
+
+        if (activeTab === 'plan') {
+            alert('Please select a different plan before saving.');
+            return;
+        }
+
+        if (activeTab === 'paymentExtension' && formData.promised_date && formData.promised_date < minimumPromisedDate) {
+            alert(`Payment extension date must be after the normal disconnection date (${formatDisplayDate(defaultDisconnectionDate)}).`);
+            return;
+        }
+
         setShowConfirmation(true);
     };
 
-    const handleConfirmUpdate = async () => {
+    const handleConfirmUpdate = async (confirmedPlanChange = false) => {
         setIsLoading(true);
         setShowConfirmation(false);
+        setPlanChangeError(null);
 
         try {
+            const updatePayload: Record<string, string | boolean | number | null> = {
+                active: formData.active,
+                invoice_date: formData.invoice_date || null,
+                business_unit_id: formData.business_unit_id,
+                date_installed: formData.date_installed,
+                address: formData.address,
+                barangay: formData.barangay,
+                landmark: formData.landmark,
+                label: formData.label,
+                contact_person: formData.contact_person || null,
+                referral_credit_applied: formData.referral_credit_applied,
+                router_serial_number: formData.router_serial_number || null,
+                is_free: formData.is_free,
+                promised_date: formData.promised_date || null,
+                last_reconnection_date: formData.last_reconnection_date || null,
+                'x-coordinates': coordinates?.lng || null,
+                'y-coordinates': coordinates?.lat || null
+            };
+
+            if (!hasPlanChanged) {
+                updatePayload.plan_id = formData.plan_id;
+            }
+
             const { error } = await supabase
                 .from('subscriptions')
-                .update({
-                    active: formData.active,
-                    invoice_date: formData.invoice_date || null,
-                    plan_id: formData.plan_id,
-                    business_unit_id: formData.business_unit_id,
-                    date_installed: formData.date_installed,
-                    address: formData.address,
-                    barangay: formData.barangay,
-                    landmark: formData.landmark,
-                    label: formData.label,
-                    contact_person: formData.contact_person || null,
-                    referral_credit_applied: formData.referral_credit_applied,
-                    router_serial_number: formData.router_serial_number || null,
-                    is_free: formData.is_free,
-                    last_reconnection_date: formData.last_reconnection_date || null,
-                    'x-coordinates': coordinates?.lng || null,
-                    'y-coordinates': coordinates?.lat || null
-                })
+                .update(updatePayload)
                 .eq('id', subscription.id);
 
             if (error) throw error;
 
-            if (formData.active !== subscription.active) {
+            if (hasPlanChanged) {
+                if (!confirmedPlanChange) {
+                    throw new Error('Plan change was not confirmed');
+                }
+
+                const planResult = await changeSubscriptionPlan(subscription.id, formData.plan_id, planChangeDate);
+                if (!planResult.success) {
+                    throw new Error(planResult.error || 'Failed to change subscription plan');
+                }
+
+                if (planResult.warning) {
+                    setSuccessMessage(`Subscription updated. ${planResult.warning}`);
+                } else {
+                    setSuccessMessage('Subscription updated and prorated plan-change invoices were generated.');
+                }
+            } else {
+                setSuccessMessage('The subscription details have been saved.');
+            }
+
+            if (!hasPlanChanged && formData.active !== subscription.active) {
                 await syncSubscriptionToMikrotik(subscription.id, formData.active);
             }
 
             setShowSuccess(true);
         } catch (error) {
             console.error('Error updating subscription:', error);
-            alert('Failed to update subscription');
+            const message = error instanceof Error ? error.message : 'Failed to update subscription';
+            setPlanChangeError(message);
+            if (activeTab !== 'plan') alert(message);
         } finally {
             setIsLoading(false);
         }
@@ -290,10 +458,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
     };
 
     if (!isOpen) return null;
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const minDate = tomorrow.toISOString().split('T')[0];
 
     return (
         <>
@@ -314,17 +478,24 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
 
                     {/* Tabs */}
                     <div className="flex border-b border-gray-800 px-6 bg-[#0a0a0a] sticky top-[80px] z-10 gap-8">
-                        {['customer', 'subscription', 'mikrotik'].map((tab) => (
+                        {EDIT_TABS.map((tab) => (
                             <button
                                 key={tab}
-                                onClick={() => setActiveTab(tab as any)}
+                                onClick={async () => {
+                                    setActiveTab(tab);
+                                    if (tab === 'plan') {
+                                        await loadPlanChangePreview();
+                                    }
+                                }}
                                 className={`py-4 text-sm font-medium transition-all border-b-2 flex items-center gap-2 relative ${activeTab === tab ? 'border-purple-500 text-purple-400' : 'border-transparent text-gray-400 hover:text-white'
                                     }`}
                             >
                                 {tab === 'customer' && <User className="w-4 h-4" />}
                                 {tab === 'subscription' && <Wifi className="w-4 h-4" />}
+                                {tab === 'paymentExtension' && <CalendarClock className="w-4 h-4" />}
+                                {tab === 'plan' && <ArrowUpDown className="w-4 h-4" />}
                                 {tab === 'mikrotik' && <Globe className="w-4 h-4" />}
-                                <span className="capitalize">{tab === 'mikrotik' ? 'MikroTik PPP' : tab}</span>
+                                <span>{tabLabel(tab)}</span>
                                 {activeTab === tab && (
                                     <div className="absolute inset-0 bg-purple-500/5 -z-10 rounded-t-lg" />
                                 )}
@@ -349,7 +520,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 bg-gray-900 p-3 rounded border border-gray-800">
-                                        Note: To edit core customer details like Name or Mobile Number, please use the "Edit Customer" option from the main list.
+                                        Note: To edit core customer details like Name or Mobile Number, please use the &quot;Edit Customer&quot; option from the main list.
                                     </div>
                                 </div>
 
@@ -416,17 +587,6 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
                                                 >
                                                     {businessUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                                </select>
-                                            </div>
-
-                                            <div>
-                                                <label className="text-xs font-medium text-gray-500 block mb-1.5">Subscription Plan</label>
-                                                <select
-                                                    value={formData.plan_id}
-                                                    onChange={(e) => setFormData({ ...formData, plan_id: e.target.value })}
-                                                    className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
-                                                >
-                                                    {plans.map(p => <option key={p.id} value={p.id}>{p.name} - ₱{p.monthly_fee}</option>)}
                                                 </select>
                                             </div>
 
@@ -622,6 +782,170 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                             </div>
                         )}
 
+                        {/* PAYMENT EXTENSION TAB */}
+                        {activeTab === 'paymentExtension' && (
+                            <div className="space-y-5 max-w-3xl mx-auto">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="p-4 bg-gray-900/40 border border-gray-800 rounded-xl">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">Business Unit</div>
+                                        <div className="text-white font-medium">{selectedBusinessUnit?.name || 'Unknown'}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{formData.invoice_date || 'No'} billing cycle</div>
+                                    </div>
+                                    <div className="p-4 bg-gray-900/40 border border-gray-800 rounded-xl">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">Normal Disconnection</div>
+                                        <div className="text-white font-medium">{formatDisplayDate(defaultDisconnectionDate)}</div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            {formData.invoice_date === '30th' ? '5th of next month' : '25th of the month'}
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-gray-900/40 border border-gray-800 rounded-xl">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">Auto Disconnect</div>
+                                        <div className={`font-medium ${autoDisconnectDate ? 'text-red-300' : 'text-gray-500'}`}>
+                                            {autoDisconnectDate ? formatDisplayDate(autoDisconnectDate) : 'Normal schedule'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            {autoDisconnectDate ? 'One day after promise' : 'No active extension'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-5 bg-gray-900/30 border border-gray-800 rounded-xl space-y-4">
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-2">Promised Payment Date</label>
+                                        <input
+                                            type="date"
+                                            value={formData.promised_date}
+                                            min={minimumPromisedDate}
+                                            onChange={(e) => setFormData({ ...formData, promised_date: e.target.value })}
+                                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none transition-colors"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, promised_date: minimumPromisedDate })}
+                                            className="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 text-white rounded-lg text-sm transition-colors"
+                                        >
+                                            Set Next Available Date
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, promised_date: '' })}
+                                            className="px-4 py-2 border border-gray-700 hover:bg-gray-800 text-gray-300 rounded-lg text-sm transition-colors"
+                                        >
+                                            Clear Extension
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* UPGRADE/DOWNGRADE TAB */}
+                        {activeTab === 'plan' && (
+                            <div className="space-y-5 max-w-3xl mx-auto">
+                                <div className="p-4 bg-amber-900/20 border border-amber-700/50 rounded-xl">
+                                    <div className="flex items-start gap-3">
+                                        <Shield className="w-5 h-5 text-amber-500 mt-0.5" />
+                                        <div>
+                                            <div className="text-amber-400 font-medium">Upgrade/Downgrade Plan</div>
+                                            <div className="text-sm text-amber-300/70">
+                                                This creates prorated plan-change invoices and updates the MikroTik PPP profile.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-2">Current Plan</label>
+                                        <div className="w-full bg-gray-900/50 border border-gray-800 rounded-xl px-4 py-3 text-white">
+                                            {currentPlan?.name || 'Unknown Plan'} - {formatCurrency(currentPlan?.monthly_fee || 0)}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-2">New Plan</label>
+                                        <select
+                                            value={formData.plan_id}
+                                            onChange={async (e) => {
+                                                const nextPlanId = e.target.value;
+                                                setFormData({ ...formData, plan_id: nextPlanId });
+                                                await loadPlanChangePreview(nextPlanId, planChangeDate);
+                                            }}
+                                            className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all"
+                                        >
+                                            {plans.map(plan => (
+                                                <option key={plan.id} value={plan.id}>
+                                                    {plan.name} - {formatCurrency(plan.monthly_fee)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm text-gray-400 mb-2">Old Plan End Date</label>
+                                    <input
+                                        type="date"
+                                        value={planChangeDate}
+                                        max={new Date().toISOString().split('T')[0]}
+                                        onChange={async (e) => {
+                                            setPlanChangeDate(e.target.value);
+                                            await loadPlanChangePreview(formData.plan_id, e.target.value);
+                                        }}
+                                        className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        The new plan starts the next day. Example: old plan ends Apr 24, new plan starts Apr 25.
+                                    </p>
+                                </div>
+
+                                {planChangeError && (
+                                    <div className="p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-sm text-red-400">
+                                        {planChangeError}
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-4 bg-gray-900/50 border border-gray-800 rounded-xl">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">Old Plan Invoice</div>
+                                        {planPreviewLoading ? (
+                                            <div className="text-sm text-gray-400">Calculating...</div>
+                                        ) : planPreview ? (
+                                            <>
+                                                <div className="text-white font-semibold">{currentPlan?.name || 'Old plan'}</div>
+                                                <div className="text-xs text-gray-500 mt-1">{planPreview.oldPlan.fromDate} to {planPreview.oldPlan.toDate}</div>
+                                                <div className="text-lg font-bold text-amber-400 mt-2">{formatCurrency(planPreview.oldPlan.amount)}</div>
+                                                <div className="text-xs text-gray-500">{planPreview.oldPlan.days} day(s)</div>
+                                            </>
+                                        ) : (
+                                            <div className="text-sm text-gray-500">Select a different plan to preview.</div>
+                                        )}
+                                    </div>
+
+                                    <div className="p-4 bg-gray-900/50 border border-gray-800 rounded-xl">
+                                        <div className="text-xs text-gray-500 uppercase mb-2">New Plan Invoice</div>
+                                        {planPreviewLoading ? (
+                                            <div className="text-sm text-gray-400">Calculating...</div>
+                                        ) : planPreview ? (
+                                            <>
+                                                <div className="text-white font-semibold">{selectedPlan?.name || 'New plan'}</div>
+                                                <div className="text-xs text-gray-500 mt-1">{planPreview.newPlan.fromDate} to {planPreview.newPlan.toDate}</div>
+                                                <div className="text-lg font-bold text-cyan-400 mt-2">{formatCurrency(planPreview.newPlan.amount)}</div>
+                                                <div className="text-xs text-gray-500">{planPreview.newPlan.days} day(s)</div>
+                                            </>
+                                        ) : (
+                                            <div className="text-sm text-gray-500">Select a different plan to preview.</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-blue-950/30 border border-blue-900/50 rounded-xl text-xs text-blue-300">
+                                    Existing full-period unpaid invoices for this billing period will be converted to the old-plan prorated invoice to prevent duplicates. Confirming also updates subscriptions, mikrotik_ppp_secrets, and the MikroTik PPP profile.
+                                </div>
+                            </div>
+                        )}
+
                         {/* MIKROTIK PPP TAB */}
                         {activeTab === 'mikrotik' && (
                             <div className="space-y-6">
@@ -680,11 +1004,11 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                         </button>
                         <button
                             onClick={handleUpdateClick}
-                            disabled={isLoading}
+                            disabled={isLoading || (activeTab === 'plan' && (!hasPlanChanged || planPreviewLoading || !planPreview))}
                             className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-purple-900/20"
                         >
                             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            Save Changes
+                            {activeTab === 'plan' ? 'Apply Plan Change' : 'Save Changes'}
                         </button>
                     </div>
                 </div>
@@ -699,7 +1023,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                         <p className="text-gray-400 mb-6">Are you sure you want to update this subscription?</p>
                         <div className="flex gap-3">
                             <button onClick={() => setShowConfirmation(false)} className="flex-1 px-4 py-2 border border-gray-700 rounded-lg text-gray-300">Cancel</button>
-                            <button onClick={handleConfirmUpdate} className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg">Confirm</button>
+                            <button onClick={() => handleConfirmUpdate()} className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg">Confirm</button>
                         </div>
                     </div>
                 </div>
@@ -711,7 +1035,7 @@ export default function EditSubscriptionModal({ isOpen, onClose, subscription, o
                     <div className="relative bg-[#0a0a0a] border-2 border-green-500/50 rounded-xl shadow w-full max-w-md p-6 flex flex-col items-center text-center">
                         <CheckCircle className="w-12 h-12 text-green-500 mb-4" />
                         <h3 className="text-xl font-bold text-white mb-2">Updated Successfully</h3>
-                        <p className="text-gray-400 mb-6">The subscription details have been saved.</p>
+                        <p className="text-gray-400 mb-6">{successMessage}</p>
                         <button onClick={handleSuccessClose} className="w-full px-4 py-2 bg-green-600 rounded-lg text-white">Close</button>
                     </div>
                 </div>

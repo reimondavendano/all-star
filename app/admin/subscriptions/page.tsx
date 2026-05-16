@@ -32,6 +32,7 @@ interface Subscription {
     created_at: string;
     balance?: number;
     router_serial_number?: string;
+    promised_date?: string | null;
     last_reconnection_date?: string | null;
     last_disconnection_date?: string | null;
     // Joined data
@@ -417,7 +418,7 @@ export default function SubscriptionsPage() {
                                                     {/* Subscription Details */}
                                                     {expandedSubscriptions.has(subscription.id) && (
                                                         <div className="bg-[#0f0f0f] border-t border-gray-800 p-4 pl-12">
-                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                                                                 <div className="flex items-start gap-2">
                                                                     <Calendar className="w-4 h-4 text-pink-500 mt-0.5" />
                                                                     <div>
@@ -463,6 +464,13 @@ export default function SubscriptionsPage() {
                                                                     <div>
                                                                         <div className="text-xs text-gray-500">Invoice Date</div>
                                                                         <div className="text-gray-300">{subscription.invoice_date || 'Not set'}</div>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-start gap-2">
+                                                                    <Calendar className="w-4 h-4 text-purple-400 mt-0.5" />
+                                                                    <div>
+                                                                        <div className="text-xs text-gray-500">Promised Date</div>
+                                                                        <div className="text-gray-300">{subscription.promised_date ? formatDate(subscription.promised_date) : '-'}</div>
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex items-start gap-2">

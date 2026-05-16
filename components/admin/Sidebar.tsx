@@ -17,7 +17,8 @@ import {
     X,
     Router,
     CheckCircle,
-    Database
+    Database,
+    Send
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,6 +36,7 @@ const navigation = [
     { name: 'Plans', href: '/admin/plans', icon: Package, badge: null },
     { name: 'Locations', href: '/admin/locations', icon: MapPin, badge: null },
     { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router, badge: null },
+    { name: 'Announcements', href: '/admin/announcements', icon: Send, badge: null },
     { name: 'Data Manager', href: '/admin/data-manager', icon: Database, badge: null },
 ];
 

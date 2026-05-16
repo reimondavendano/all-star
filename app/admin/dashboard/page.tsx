@@ -6,7 +6,7 @@ import {
     Users, DollarSign, AlertCircle, TrendingUp, RefreshCw, Wifi,
     CreditCard, Activity, FileText, Calendar, ChevronRight,
     ArrowUpRight, ArrowDownRight, Building2, Loader2,
-    Send, Download, Clock, CheckCircle, XCircle, Zap, Shield, Banknote
+    Send, Download, Clock, CheckCircle, XCircle, Zap, Shield, Banknote, MessageSquare
 } from 'lucide-react';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import { createPortal } from 'react-dom';
@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { getMikrotikData } from '@/app/actions/mikrotik';
 import { toggleTunnel } from '@/app/actions/system';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 interface DashboardData {
     totalCustomers: number;
@@ -31,8 +32,12 @@ interface DashboardData {
     recentActivities: RecentActivity[];
     topDelinquents: DelinquentAccount[];
     expensesSummary: ExpensesSummary;
+    expensesByDay: ExpenseDay[];
     subscriptionStats: SubscriptionStats;
     paymentMethodsBreakdown: { method: string; total: number; count: number }[];
+    newInstallations: { date: string; count: number }[];
+    newInstallationsTotal: number;
+    newInstallationsList: NewInstallation[];
 }
 
 interface BusinessUnitPerformance {
@@ -79,11 +84,29 @@ interface ExpensesSummary {
     breakdown: { reason: string; count: number; total: number }[];
 }
 
+interface ExpenseDay {
+    date: string;
+    amount: number;
+}
+
+interface NewInstallation {
+    id: string;
+    customerName: string;
+    planName: string;
+    businessUnitName: string;
+    dateInstalled: string | null;
+    createdAt: string;
+    active: boolean;
+    label: string | null;
+}
+
 interface SubscriptionStats {
     active: number;
     inactive: number;
     newThisMonth: number;
 }
+
+const CATEGORY_COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -91,6 +114,7 @@ export default function DashboardPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [mounted, setMounted] = useState(false);
     const [mikrotikStatus, setMikrotikStatus] = useState<'checking' | 'online' | 'offline'>('offline');
+    const [smsCredits, setSmsCredits] = useState<number | null>(null);
 
     // Tunnel Control State
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -134,7 +158,23 @@ export default function DashboardPage() {
             }
         };
 
+        // Fetch Semaphore SMS Credit Balance
+        const fetchSmsCredits = async () => {
+            try {
+                const res = await fetch('/api/sms/balance');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.credits !== null && data.credits !== undefined) {
+                        setSmsCredits(Number(data.credits));
+                    }
+                }
+            } catch (e) {
+                // Silently fail - not critical
+            }
+        };
+
         checkStatus();
+        fetchSmsCredits();
 
         // Poll every 30 seconds
         const interval = setInterval(checkStatus, 30000);
@@ -588,7 +628,7 @@ export default function DashboardPage() {
                 .slice(0, 10);
 
             // 13. Expenses Summary (filtered by BU)
-            let expensesQuery = supabase
+            const expensesQuery = supabase
                 .from('expenses')
                 .select('amount, reason, subscription_id, business_unit_id, date, created_at');
 
@@ -627,8 +667,37 @@ export default function DashboardPage() {
             });
             const expensesSummary: ExpensesSummary = {
                 total: totalExpenses,
-                breakdown: Object.entries(expenseBreakdown).map(([reason, data]) => ({ reason, ...data }))
+                breakdown: Object.entries(expenseBreakdown)
+                    .map(([reason, data]) => ({ reason, ...data }))
+                    .sort((a, b) => b.total - a.total)
             };
+
+            const expensesByDayMap: { [key: string]: number } = {};
+            const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), day);
+                const key = dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                expensesByDayMap[key] = 0;
+            }
+
+            expensesData.forEach((exp: any) => {
+                const dateStr = exp.date || exp.created_at;
+                if (!dateStr) return;
+
+                const expenseDate = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+                if (
+                    expenseDate.getFullYear() !== targetDate.getFullYear() ||
+                    expenseDate.getMonth() !== targetDate.getMonth()
+                ) {
+                    return;
+                }
+
+                const key = expenseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (expensesByDayMap[key] !== undefined) {
+                    expensesByDayMap[key] += exp.amount || 0;
+                }
+            });
+            const expensesByDay = Object.entries(expensesByDayMap).map(([date, amount]) => ({ date, amount }));
 
             // 14. Payment Methods Breakdown (filtered by selected month and BU)
             const paymentMethodsMap: { [key: string]: { count: number; total: number } } = {};
@@ -661,6 +730,59 @@ export default function DashboardPage() {
                 ? (((totalCustomers || 0) - prevMonthCustomers) / prevMonthCustomers) * 100
                 : 0;
 
+            // New Installations (Last 30 Days)
+            const thirtyDaysAgoDate = new Date();
+            thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30);
+            const thirtyDaysAgoISO = thirtyDaysAgoDate.toISOString().split('T')[0];
+
+            let newInstallsQuery = supabase
+                .from('subscriptions')
+                .select(`
+                    id,
+                    created_at,
+                    date_installed,
+                    active,
+                    label,
+                    customers!subscriptions_subscriber_id_fkey(name),
+                    plans!plan_id(name),
+                    business_units!business_unit_id(name)
+                `)
+                .gte('created_at', thirtyDaysAgoISO)
+                .order('created_at', { ascending: false });
+            if (selectedBusinessUnit !== 'all') {
+                newInstallsQuery = newInstallsQuery.in('business_unit_id', selectedBuIds);
+            }
+            const { data: newInstallsData } = await newInstallsQuery;
+
+            const installsMap: { [key: string]: number } = {};
+            for(let i=0; i<30; i++) {
+                const d = new Date();
+                d.setDate(d.getDate() - (29 - i));
+                const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                installsMap[key] = 0;
+            }
+
+            let newInstallationsTotal = 0;
+            (newInstallsData || []).forEach((sub: any) => {
+                const d = new Date(sub.created_at);
+                const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if(installsMap[key] !== undefined) {
+                    installsMap[key]++;
+                    newInstallationsTotal++;
+                }
+            });
+            const newInstallations = Object.entries(installsMap).map(([date, count]) => ({ date, count }));
+            const newInstallationsList: NewInstallation[] = (newInstallsData || []).map((sub: any) => ({
+                id: sub.id,
+                customerName: sub.customers?.name || 'Unknown customer',
+                planName: sub.plans?.name || 'Unknown plan',
+                businessUnitName: sub.business_units?.name || 'Unknown business unit',
+                dateInstalled: sub.date_installed || null,
+                createdAt: sub.created_at,
+                active: Boolean(sub.active),
+                label: sub.label || null
+            }));
+
             setData({
                 totalCustomers: totalCustomers || 0,
                 activeSubscriptions: activeSubscriptions || 0,
@@ -677,12 +799,16 @@ export default function DashboardPage() {
                 recentActivities: recentActivities.slice(0, 10),
                 topDelinquents,
                 expensesSummary,
+                expensesByDay,
                 subscriptionStats: {
                     active: activeSubscriptions || 0,
                     inactive: inactiveSubs || 0,
                     newThisMonth: newThisMonth || 0
                 },
-                paymentMethodsBreakdown
+                paymentMethodsBreakdown,
+                newInstallations,
+                newInstallationsTotal,
+                newInstallationsList
             });
         } catch (error) {
             console.error('Dashboard error:', error);
@@ -697,6 +823,9 @@ export default function DashboardPage() {
 
     const formatCurrency = (amount: number) => `₱${Math.round(amount).toLocaleString()}`;
     const formatPercent = (value: number) => `${value.toFixed(1)}%`;
+    const formatShortDate = (date: string | null) => date
+        ? new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'No date';
     const getTimeAgo = (timestamp: string) => {
         const diff = Date.now() - new Date(timestamp).getTime();
         const mins = Math.floor(diff / 60000);
@@ -958,7 +1087,7 @@ export default function DashboardPage() {
             </div>
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
                 {/* Total Customers */}
                 <div className="glass-card p-5">
                     <div className="flex items-start justify-between">
@@ -1041,6 +1170,63 @@ export default function DashboardPage() {
                         />
                     </div>
                 </div>
+
+                {/* New Installations */}
+                <div className="glass-card p-5">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">New Installations</p>
+                            <p className="text-3xl font-bold text-cyan-400">{data.newInstallationsTotal.toLocaleString()}</p>
+                            <p className="text-sm text-gray-500 mt-1">new users, last 30 days</p>
+                        </div>
+                        <div className="p-3 bg-cyan-900/30 rounded-xl">
+                            <Zap className="w-6 h-6 text-cyan-400" />
+                        </div>
+                    </div>
+                    <div className="mt-3 h-2 bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-gradient-to-r from-cyan-600 to-blue-500 transition-all"
+                            style={{ width: `${Math.min(100, data.newInstallationsTotal * 10)}%` }}
+                        />
+                    </div>
+                </div>
+
+                {/* SMS Credits (Semaphore) */}
+                <div className="glass-card p-5">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">SMS Credits</p>
+                            {smsCredits === null ? (
+                                <p className="text-2xl font-bold text-gray-500">Loading...</p>
+                            ) : (
+                                <p className={`text-3xl font-bold ${
+                                    smsCredits > 500 ? 'text-cyan-400' :
+                                    smsCredits > 100 ? 'text-yellow-400' : 'text-red-400'
+                                }`}>
+                                    {smsCredits.toLocaleString()}
+                                </p>
+                            )}
+                            <p className="text-sm text-gray-500 mt-1">Semaphore balance</p>
+                        </div>
+                        <div className={`p-3 rounded-xl ${
+                            smsCredits === null ? 'bg-gray-800' :
+                            smsCredits > 500 ? 'bg-cyan-900/30' :
+                            smsCredits > 100 ? 'bg-yellow-900/30' : 'bg-red-900/30'
+                        }`}>
+                            <MessageSquare className={`w-6 h-6 ${
+                                smsCredits === null ? 'text-gray-500' :
+                                smsCredits > 500 ? 'text-cyan-400' :
+                                smsCredits > 100 ? 'text-yellow-400' : 'text-red-400'
+                            }`} />
+                        </div>
+                    </div>
+                    {smsCredits !== null && smsCredits <= 100 && (
+                        <p className="mt-2 text-xs text-red-400 font-medium">⚠ Low credits — top up soon!</p>
+                    )}
+                    {smsCredits !== null && smsCredits > 100 && smsCredits <= 500 && (
+                        <p className="mt-2 text-xs text-yellow-400 font-medium">Credits running low</p>
+                    )}
+                </div>
             </div>
 
             {/* Main Content Grid */}
@@ -1085,6 +1271,146 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 bg-emerald-600 rounded" />
                                 <span className="text-gray-400">Collected</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Expenses & Installations Charts */}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <div className="glass-card p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                    <CreditCard className="w-5 h-5 text-purple-500" />
+                                    Expenses by Category
+                                </h3>
+                                <span className="text-sm font-semibold text-red-400">{formatCurrency(data.expensesSummary.total)}</span>
+                            </div>
+                            {data.expensesSummary.breakdown.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_180px] gap-4 items-center">
+                                    <div className="h-56">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={data.expensesSummary.breakdown}
+                                                    dataKey="total"
+                                                    nameKey="reason"
+                                                    innerRadius={54}
+                                                    outerRadius={86}
+                                                    paddingAngle={3}
+                                                >
+                                                    {data.expensesSummary.breakdown.map((entry, idx) => (
+                                                        <Cell key={entry.reason} fill={CATEGORY_COLORS[idx % CATEGORY_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <RechartsTooltip
+                                                    formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                                    contentStyle={{
+                                                        backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                        border: '1px solid rgba(139, 92, 246, 0.35)',
+                                                        borderRadius: '8px',
+                                                        color: '#fff'
+                                                    }}
+                                                />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {data.expensesSummary.breakdown.slice(0, 6).map((exp, idx) => (
+                                            <div key={exp.reason} className="flex items-center justify-between gap-3 text-sm">
+                                                <span className="flex items-center gap-2 min-w-0 text-gray-300">
+                                                    <span
+                                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                                        style={{ backgroundColor: CATEGORY_COLORS[idx % CATEGORY_COLORS.length] }}
+                                                    />
+                                                    <span className="truncate">{exp.reason}</span>
+                                                </span>
+                                                <span className="text-white font-medium whitespace-nowrap">{formatCurrency(exp.total)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-56 flex items-center justify-center text-sm text-gray-500">
+                                    No expenses recorded this month
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="glass-card p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                    <Zap className="w-5 h-5 text-cyan-400" />
+                                    New Installations
+                                </h3>
+                                <span className="text-sm font-semibold text-cyan-400">
+                                    {data.newInstallationsTotal.toLocaleString()} new users
+                                </span>
+                            </div>
+                            <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={data.newInstallations}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                        <XAxis
+                                            dataKey="date"
+                                            interval={6}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11 }}
+                                        />
+                                        <YAxis
+                                            allowDecimals={false}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11 }}
+                                        />
+                                        <RechartsTooltip
+                                            formatter={(value: number | string) => `${Number(value) || 0} new users`}
+                                            contentStyle={{
+                                                backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                border: '1px solid rgba(6, 182, 212, 0.35)',
+                                                borderRadius: '8px',
+                                                color: '#fff'
+                                            }}
+                                        />
+                                        <Bar dataKey="count" name="New users" fill="#06b6d4" radius={[6, 6, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="mt-5 border-t border-gray-800 pt-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-sm font-medium text-white">Customer / Subscription List</p>
+                                    <p className="text-xs text-gray-500">Last 30 days</p>
+                                </div>
+                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                    {data.newInstallationsList.map((installation) => (
+                                        <div key={installation.id} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-white truncate">
+                                                        {installation.customerName}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500 truncate">
+                                                        {installation.planName}
+                                                        {installation.label ? ` (${installation.label})` : ''} / {installation.businessUnitName}
+                                                    </p>
+                                                </div>
+                                                <span className={`shrink-0 text-[11px] px-2 py-1 rounded-full ${installation.active
+                                                    ? 'bg-emerald-900/30 text-emerald-400'
+                                                    : 'bg-gray-800 text-gray-400'
+                                                }`}>
+                                                    {installation.active ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                <span>Installed: {formatShortDate(installation.dateInstalled)}</span>
+                                                <span>Added: {formatShortDate(installation.createdAt)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {data.newInstallationsList.length === 0 && (
+                                        <p className="text-gray-500 text-center py-4 text-sm">No new installations in the last 30 days</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1256,6 +1582,37 @@ export default function DashboardPage() {
                     <div className="glass-card p-5">
                         <h3 className="text-sm text-gray-400 uppercase mb-4">Expenses This Month</h3>
                         <p className="text-2xl font-bold text-white mb-4">{formatCurrency(data.expensesSummary.total)}</p>
+                        <div className="h-44 mb-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={data.expensesByDay}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                    <XAxis
+                                        dataKey="date"
+                                        interval={6}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#6b7280', fontSize: 10 }}
+                                    />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tickFormatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                        tick={{ fill: '#6b7280', fontSize: 10 }}
+                                        width={54}
+                                    />
+                                    <RechartsTooltip
+                                        formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                        contentStyle={{
+                                            backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                                            borderRadius: '8px',
+                                            color: '#fff'
+                                        }}
+                                    />
+                                    <Bar dataKey="amount" name="Expenses" fill="#ef4444" radius={[5, 5, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
                         <div className="space-y-2">
                             {data.expensesSummary.breakdown.slice(0, 4).map((exp, idx) => (
                                 <div key={idx} className="flex items-center justify-between text-sm">
@@ -1263,6 +1620,9 @@ export default function DashboardPage() {
                                     <span className="text-white">{formatCurrency(exp.total)}</span>
                                 </div>
                             ))}
+                            {data.expensesSummary.breakdown.length === 0 && (
+                                <p className="text-gray-500 text-center py-2 text-sm">No expenses recorded</p>
+                            )}
                         </div>
                         {data.monthlyRevenue > 0 && (
                             <div className="mt-4 pt-4 border-t border-gray-800">
