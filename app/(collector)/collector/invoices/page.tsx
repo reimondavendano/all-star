@@ -618,10 +618,10 @@ export default function CollectorInvoicesPage() {
                     </div>
 
                     {/* Stats & Actions Container */}
-                    <div className="flex flex-col xl:flex-row xl:items-center gap-4 w-full lg:w-auto mt-4 lg:mt-0">
+                    <div className="flex flex-col xl:flex-row xl:items-start gap-4 w-full lg:w-auto mt-4 lg:mt-0">
                         {/* Stats */}
-                        <div className="flex w-full xl:w-auto gap-2">
-                            <div className="flex-1 min-w-[42%] sm:min-w-[190px] px-3 sm:px-4 py-2 bg-sky-950/30 rounded-xl border border-sky-700/50">
+                        <div className="flex flex-wrap justify-start xl:justify-end gap-2 w-full xl:w-auto">
+                            <div className="w-full sm:w-[190px] px-3 sm:px-4 py-2 bg-sky-950/30 rounded-xl border border-sky-700/50">
                                 <div className="text-[10px] sm:text-xs text-sky-300 whitespace-nowrap">Payment Extension</div>
                                 <div className="mt-1 flex items-end justify-between gap-3">
                                     <div>
@@ -635,22 +635,26 @@ export default function CollectorInvoicesPage() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-purple-900/30 rounded-xl border border-purple-700/50">
-                                <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
-                                <div className="text-sm sm:text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
-                            </div>
-                            <div className="flex-1 min-w-[30%] px-3 sm:px-4 py-2 bg-emerald-900/30 rounded-xl border border-emerald-700/50">
-                                <div className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">Collected</div>
-                                <div className="text-sm sm:text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
-                            </div>
-                            <div className="flex-1 min-w-[25%] px-3 sm:px-4 py-2 bg-red-900/30 rounded-xl border border-red-700/50">
-                                <div className="text-[10px] sm:text-xs text-red-400 whitespace-nowrap">Unpaid</div>
-                                <div className="text-sm sm:text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                            <div className="w-full sm:w-[360px] px-3 sm:px-4 py-2 bg-[#111018] rounded-xl border border-gray-700/70">
+                                <div className="grid grid-cols-3 divide-x divide-gray-700/70">
+                                    <div className="pr-3">
+                                        <div className="text-[10px] sm:text-xs text-purple-400 whitespace-nowrap">Total Billed</div>
+                                        <div className="text-sm sm:text-lg font-bold text-purple-300">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
+                                    </div>
+                                    <div className="px-3">
+                                        <div className="text-[10px] sm:text-xs text-emerald-400 whitespace-nowrap">Collected</div>
+                                        <div className="text-sm sm:text-lg font-bold text-emerald-300">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
+                                    </div>
+                                    <div className="pl-3">
+                                        <div className="text-[10px] sm:text-xs text-red-400 whitespace-nowrap">Unpaid</div>
+                                        <div className="text-sm sm:text-lg font-bold text-red-300">{monthlyStats.unpaidCount}</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex w-full xl:w-auto gap-2 mt-2 xl:mt-0">
+                        <div className="flex shrink-0 w-full xl:w-auto gap-2 mt-2 xl:mt-0">
                             <button
                                 onClick={() => setIsQuickCollectOpen(true)}
                                 className="flex-1 xl:flex-none justify-center px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-xl transition-colors flex items-center gap-1.5 sm:gap-2 text-sm font-medium shadow-lg shadow-amber-900/20 whitespace-nowrap"
@@ -744,7 +748,7 @@ export default function CollectorInvoicesPage() {
                             }}
                             className="bg-[#1a1a1a] border border-gray-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-purple-500"
                         >
-                            <option value="all">All Extensions</option>
+                            <option value="all">All</option>
                             <option value="extension">Payment Extension</option>
                             <option value="non-extension">Non-Extension</option>
                         </select>
