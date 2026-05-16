@@ -9,6 +9,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+function isDateWithinPlanChangeWindow(date: Date, window: { minDate: string; maxDate: string }) {
+    const dateString = toISODateString(date);
+    return dateString >= window.minDate && dateString <= window.maxDate;
+}
+
 /**
  * Change a subscription's plan with automatic prorated invoicing
  * 
@@ -126,7 +131,7 @@ export async function submitPlanChangeRequest(subscriptionId: string, newPlanId:
         const oldPlanEndDate = changeDate ? new Date(`${changeDate}T00:00:00`) : new Date();
         oldPlanEndDate.setHours(0, 0, 0, 0);
         const dateWindow = getPlanChangeDateWindow(subscription.invoice_date || '15th', oldPlanEndDate);
-        if (!dateWindow.isOpen) {
+        if (!dateWindow.isOpen || !isDateWithinPlanChangeWindow(oldPlanEndDate, dateWindow)) {
             return {
                 success: false,
                 error: `${dateWindow.message} Next available date: ${dateWindow.nextOpenDate}.`
