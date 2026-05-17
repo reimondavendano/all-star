@@ -14,6 +14,7 @@ import {
     BILLING_SCHEDULES,
 } from './billing';
 import { sendSMS, SMSTemplates, sendBulkSMS, removeHttpsProtocol } from './sms';
+import { createNewPlanProratedInvoice, getPendingPlanChanges } from './planChangeService';
 
 // Server-side Supabase client
 function getSupabaseAdmin() {
@@ -169,6 +170,19 @@ export async function generateInvoicesForBusinessUnit(
 
         // 5. Get previous invoice counts to determine first-time customers
         const subIds = subscriptions.map(s => s.id);
+        const pendingPlanChanges = (await getPendingPlanChanges())
+            .filter(change =>
+                subIds.includes(change.subscription_id) &&
+                new Date(change.change_date) <= dates.toDate &&
+                new Date(change.billing_period_end) >= dates.fromDate
+            );
+        const pendingPlanChangeMap = new Map<string, typeof pendingPlanChanges[number]>();
+        pendingPlanChanges.forEach(change => {
+            if (!pendingPlanChangeMap.has(change.subscription_id)) {
+                pendingPlanChangeMap.set(change.subscription_id, change);
+            }
+        });
+
         const { data: previousInvoiceCounts } = await supabase
             .from('invoices')
             .select('subscription_id')
@@ -210,6 +224,45 @@ export async function generateInvoicesForBusinessUnit(
         const smsMessages: Array<{ to: string; message: string }> = [];
 
         for (const sub of subscriptions as any[]) {
+            const pendingPlanChange = pendingPlanChangeMap.get(sub.id);
+            if (pendingPlanChange) {
+                const newPlanInvoice = await createNewPlanProratedInvoice(pendingPlanChange);
+
+                if (newPlanInvoice) {
+                    const customer = sub.customers as any;
+                    const previousBalance = Number(sub.balance) || 0;
+
+                    result.generated++;
+                    result.invoices.push({
+                        subscriptionId: sub.id,
+                        customerName: customer?.name || 'Unknown',
+                        amountDue: newPlanInvoice.amount,
+                        isProrated: true,
+                    });
+
+                    if (sendSmsNotifications && customer?.mobile_number && newPlanInvoice.amount > 0) {
+                        const buName = (sub.business_units as any)?.name || businessUnit.name;
+                        const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
+
+                        smsMessages.push({
+                            to: customer.mobile_number,
+                            message: SMSTemplates.invoiceGenerated(
+                                customer.name,
+                                newPlanInvoice.amount,
+                                formatDatePH(new Date(pendingPlanChange.billing_period_end)),
+                                buName,
+                                portalLink,
+                                previousBalance > 0 ? previousBalance : undefined
+                            ),
+                        });
+                    }
+                } else {
+                    result.skipped++;
+                }
+
+                continue;
+            }
+
             // Skip if already invoiced
             if (invoicedSubIds.has(sub.id)) {
                 result.skipped++;
@@ -358,7 +411,7 @@ export async function generateInvoicesForBusinessUnit(
                 return result;
             }
 
-            result.generated = invoicesToInsert.length;
+            result.generated += invoicesToInsert.length;
         }
 
         // 10. Update subscription balances
@@ -472,7 +525,8 @@ export async function sendDueDateReminders(businessUnitId: string): Promise<{
  */
 export async function generateDisconnectionInvoice(
     subscriptionId: string,
-    disconnectionDate: Date
+    disconnectionDate: Date,
+    reason: 'standard' | 'payment_extension' = 'standard'
 ): Promise<{
     success: boolean;
     invoiceId?: string;
@@ -586,10 +640,8 @@ export async function generateDisconnectionInvoice(
 
             // Build full portal URL using masked domain for iOS compatibility
             const portalLink = `allstar-kalibre.github.io/client-portal.github.io?customerid=${customer.id}`;
-
-            await sendSMS({
-                to: customer.mobile_number,
-                message: SMSTemplates.serviceDisconnected(
+            const message = reason === 'payment_extension'
+                ? SMSTemplates.paymentExtensionDisconnected(
                     customer.name,
                     buName,
                     totalAmount,
@@ -597,6 +649,18 @@ export async function generateDisconnectionInvoice(
                     prorated.proratedAmount,
                     portalLink
                 )
+                : SMSTemplates.serviceDisconnected(
+                    customer.name,
+                    buName,
+                    totalAmount,
+                    outstandingBalance,
+                    prorated.proratedAmount,
+                    portalLink
+                );
+
+            await sendSMS({
+                to: customer.mobile_number,
+                message
             });
         }
 

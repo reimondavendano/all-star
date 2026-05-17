@@ -2,8 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Send, Users, AlertCircle, Loader2, CheckCircle, Info } from 'lucide-react';
+import { Send, Users, AlertCircle, Loader2, CheckCircle, Info, MessageSquare } from 'lucide-react';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
+
+const THIRTIETH_CYCLE_AUDIENCE = '30th-cycle';
+
+function isThirtiethCycleAudience(subscription: any) {
+    const businessUnitName = String(subscription.business_units?.name || '').toLowerCase();
+    return subscription.invoice_date === '30th' &&
+        (businessUnitName.includes('malanggam') || businessUnitName.includes('extension'));
+}
 
 export default function AnnouncementsPage() {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
@@ -19,6 +27,26 @@ export default function AnnouncementsPage() {
     // Subscriber count estimation
     const [estimatedSubscribers, setEstimatedSubscribers] = useState<number | null>(null);
     const [isCounting, setIsCounting] = useState(false);
+    const [smsCredits, setSmsCredits] = useState<number | null>(null);
+    const [isSmsCreditsLoading, setIsSmsCreditsLoading] = useState(false);
+
+    const fetchSmsCredits = async () => {
+        setIsSmsCreditsLoading(true);
+        try {
+            const res = await fetch('/api/sms/balance', { cache: 'no-store' });
+            if (res.ok) {
+                const data = await res.json();
+                setSmsCredits(data.credits !== null && data.credits !== undefined ? Number(data.credits) : null);
+            } else {
+                setSmsCredits(null);
+            }
+        } catch (error) {
+            console.error('Error fetching SMS credits:', error);
+            setSmsCredits(null);
+        } finally {
+            setIsSmsCreditsLoading(false);
+        }
+    };
 
     useEffect(() => {
         const fetchBusinessUnits = async () => {
@@ -31,6 +59,7 @@ export default function AnnouncementsPage() {
             }
         };
         fetchBusinessUnits();
+        fetchSmsCredits();
     }, []);
 
     // Effect to estimate subscribers when BU changes
@@ -39,15 +68,24 @@ export default function AnnouncementsPage() {
             if (!selectedBu) return;
             setIsCounting(true);
             try {
-                let query = supabase.from('subscriptions').select('subscriber_id', { count: 'exact' }).eq('active', true);
-                if (selectedBu !== 'all') {
+                let query = supabase
+                    .from('subscriptions')
+                    .select('subscriber_id, invoice_date, business_units(name)')
+                    .eq('active', true);
+
+                if (selectedBu !== 'all' && selectedBu !== THIRTIETH_CYCLE_AUDIENCE) {
                     query = query.eq('business_unit_id', selectedBu);
                 }
+
                 const { data, error } = await query;
                 
                 if (!error && data) {
+                    const targetSubscriptions = selectedBu === THIRTIETH_CYCLE_AUDIENCE
+                        ? data.filter(isThirtiethCycleAudience)
+                        : data;
+
                     // Unique subscribers
-                    const uniqueIds = new Set(data.map(d => d.subscriber_id));
+                    const uniqueIds = new Set(targetSubscriptions.map(d => d.subscriber_id));
                     setEstimatedSubscribers(uniqueIds.size);
                 }
             } catch (err) {
@@ -102,6 +140,7 @@ export default function AnnouncementsPage() {
                 failed: data.stats?.failed || 0
             });
             setMessage(''); // Clear message on success
+            fetchSmsCredits();
             
         } catch (error: any) {
             setStatus({ type: 'error', text: error.message });
@@ -134,24 +173,50 @@ export default function AnnouncementsPage() {
                             onChange={(e) => setSelectedBu(e.target.value)}
                             className="w-full bg-black/40 border border-gray-800 text-white rounded-xl px-4 py-3 appearance-none focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
                         >
-                            <option value="all">🌐 All Business Units (Everyone)</option>
+                            <option value="all">All Business Units (Everyone)</option>
+                            <option value={THIRTIETH_CYCLE_AUDIENCE}>Malanggam + Extension (invoice date 30th)</option>
                             {businessUnits.map(bu => (
-                                <option key={bu.id} value={bu.id}>📍 {bu.name}</option>
+                                <option key={bu.id} value={bu.id}>{bu.name}</option>
                             ))}
                         </select>
                     </div>
                     
-                    <div className="flex items-center gap-2 text-sm text-gray-400 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
-                        <Users className="w-4 h-4 text-purple-400" />
-                        <span>
-                            Estimated Reach: {' '}
-                            {isCounting ? (
-                                <span className="animate-pulse">calculating...</span>
-                            ) : (
-                                <span className="font-bold text-white">{estimatedSubscribers !== null ? estimatedSubscribers : 0}</span>
-                            )} 
-                            {' '}active subscribers
-                        </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="flex items-center gap-2 text-sm text-gray-400 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
+                            <Users className="w-4 h-4 text-purple-400" />
+                            <span>
+                                Estimated Reach: {' '}
+                                {isCounting ? (
+                                    <span className="animate-pulse">calculating...</span>
+                                ) : (
+                                    <span className="font-bold text-white">{estimatedSubscribers !== null ? estimatedSubscribers : 0}</span>
+                                )}
+                                {' '}active subscribers
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-sm text-gray-400 bg-gray-900/50 p-3 rounded-lg border border-gray-800">
+                            <MessageSquare className={`w-4 h-4 ${
+                                smsCredits === null ? 'text-gray-500' :
+                                smsCredits > 500 ? 'text-cyan-400' :
+                                smsCredits > 100 ? 'text-yellow-400' : 'text-red-400'
+                            }`} />
+                            <span>
+                                SMS Credits: {' '}
+                                {isSmsCreditsLoading ? (
+                                    <span className="animate-pulse">checking...</span>
+                                ) : smsCredits === null ? (
+                                    <span className="font-bold text-gray-500">unavailable</span>
+                                ) : (
+                                    <span className={`font-bold ${
+                                        smsCredits > 500 ? 'text-cyan-400' :
+                                        smsCredits > 100 ? 'text-yellow-400' : 'text-red-400'
+                                    }`}>
+                                        {smsCredits.toLocaleString()}
+                                    </span>
+                                )}
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -172,7 +237,7 @@ export default function AnnouncementsPage() {
                     <div className="flex items-start gap-2 text-sm text-gray-400 bg-blue-900/10 p-3 rounded-lg border border-blue-900/30">
                         <Info className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
                         <p>
-                            Messages are sent using your Semaphore credits. Ensure you have enough balance before sending to large groups.
+                            Messages are sent only to active subscriptions and use your Semaphore credits. Ensure you have enough balance before sending to large groups.
                         </p>
                     </div>
                 </div>

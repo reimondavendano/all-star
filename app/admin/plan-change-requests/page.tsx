@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpDown, CheckCircle, Clock, Loader2, Search, XCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { ArrowUpDown, Calendar, CheckCircle, ChevronLeft, ChevronRight, Clock, Filter, Loader2, Search, XCircle } from 'lucide-react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
-import { declinePlanChangeRequest } from '@/app/actions/subscription';
+import { declineAdminPlanChangeRequest, listAdminPlanChangeRequests } from '@/app/actions/planChangeRequests';
+import type { PlanChangeBusinessFilter, PlanChangeStatus } from '@/app/actions/planChangeRequests';
 import EditSubscriptionModal from '@/components/admin/EditSubscriptionModal';
 
 interface PlanChangeRequest {
@@ -55,12 +55,6 @@ interface PlanChangeSubscription {
     mikrotik_ppp_secrets?: unknown[];
 }
 
-type PlanChangeRequestRow = Omit<PlanChangeRequest, 'subscription' | 'old_plan' | 'new_plan'> & {
-    subscription: PlanChangeSubscription | PlanChangeSubscription[] | null;
-    old_plan: { name: string; monthly_fee: number } | { name: string; monthly_fee: number }[] | null;
-    new_plan: { name: string; monthly_fee: number } | { name: string; monthly_fee: number }[] | null;
-};
-
 const statusStyles = {
     pending: 'bg-amber-900/30 text-amber-300 border-amber-700/50',
     approved: 'bg-emerald-900/30 text-emerald-300 border-emerald-700/50',
@@ -85,73 +79,68 @@ function formatDate(date?: string | null) {
     });
 }
 
+function getCurrentMonthFilter() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthLabel(value: string) {
+    const [year, month] = value.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-PH', {
+        month: 'long',
+        year: 'numeric'
+    });
+}
+
+function notifyPlanChangeRequestCountChanged() {
+    window.dispatchEvent(new Event('plan-change-requests:changed'));
+}
+
 export default function PlanChangeRequestsPage() {
     const [requests, setRequests] = useState<PlanChangeRequest[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'declined'>('pending');
+    const [statusTab, setStatusTab] = useState<PlanChangeStatus>('pending');
     const [searchQuery, setSearchQuery] = useState('');
+    const [businessFilter, setBusinessFilter] = useState<PlanChangeBusinessFilter>('all');
+    const [monthFilter, setMonthFilter] = useState(getCurrentMonthFilter);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [totalRequests, setTotalRequests] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [counts, setCounts] = useState<Record<PlanChangeStatus, number>>({
+        pending: 0,
+        approved: 0,
+        declined: 0
+    });
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [selectedRequest, setSelectedRequest] = useState<PlanChangeRequest | null>(null);
 
     const fetchRequests = useCallback(async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('plan_changes')
-                .select(`
-                    id,
-                    status,
-                    request_type,
-                    subscription_id,
-                    old_plan_id,
-                    new_plan_id,
-                    old_monthly_fee,
-                    new_monthly_fee,
-                    requested_old_plan_end_date,
-                    requested_at,
-                    reviewed_at,
-                    decision_notes,
-                    subscription:subscriptions!plan_changes_subscription_id_fkey (
-                        *,
-                        customers!subscriptions_subscriber_id_fkey (
-                            id,
-                            name,
-                            mobile_number
-                        ),
-                        business_units (
-                            name
-                        ),
-                        plans (
-                            name,
-                            monthly_fee
-                        ),
-                        mikrotik_ppp_secrets (*)
-                    ),
-                    old_plan:plans!plan_changes_old_plan_id_fkey (
-                        name,
-                        monthly_fee
-                    ),
-                    new_plan:plans!plan_changes_new_plan_id_fkey (
-                        name,
-                        monthly_fee
-                    )
-                `)
-                .order('requested_at', { ascending: false });
+            const result = await listAdminPlanChangeRequests({
+                status: statusTab,
+                search: searchQuery,
+                businessFilter,
+                monthFilter,
+                page: currentPage,
+                pageSize
+            });
 
-            if (error) throw error;
+            setRequests(result.requests as PlanChangeRequest[]);
+            setCounts(result.counts);
+            setTotalRequests(result.total);
+            setTotalPages(result.totalPages);
 
-            setRequests(((data || []) as PlanChangeRequestRow[]).map((request) => ({
-                ...request,
-                subscription: normalizeRelation(request.subscription),
-                old_plan: normalizeRelation(request.old_plan),
-                new_plan: normalizeRelation(request.new_plan)
-            })));
+            if (result.page !== currentPage) {
+                setCurrentPage(result.page);
+            }
         } catch (error) {
             console.error('Error fetching plan-change requests:', error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [businessFilter, currentPage, monthFilter, pageSize, searchQuery, statusTab]);
 
     useEffect(() => {
         fetchRequests();
@@ -162,29 +151,26 @@ export default function PlanChangeRequestsPage() {
         onAny: fetchRequests
     });
 
-    const filteredRequests = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
-        return requests
-            .filter(request => request.status === statusTab)
-            .filter(request => {
-                if (!query) return true;
-                const customer = normalizeRelation(request.subscription?.customers);
-                const address = request.subscription?.address || '';
-                return [
-                    customer?.name,
-                    customer?.mobile_number,
-                    address,
-                    request.old_plan?.name,
-                    request.new_plan?.name
-                ].some(value => String(value || '').toLowerCase().includes(query));
-            });
-    }, [requests, searchQuery, statusTab]);
+    const businessFilterOptions: Array<{ value: PlanChangeBusinessFilter; label: string }> = [
+        { value: 'all', label: 'All' },
+        { value: 'malanggam', label: 'Malanggam' },
+        { value: 'bulihan', label: 'Bulihan' },
+        { value: 'extension', label: 'Extensions' },
+        { value: '30th-cycle', label: 'Malanggam + Extension 30th' }
+    ];
 
-    const counts = {
-        pending: requests.filter(request => request.status === 'pending').length,
-        approved: requests.filter(request => request.status === 'approved').length,
-        declined: requests.filter(request => request.status === 'declined').length
-    };
+    const monthFilterOptions = [
+        { value: 'all', label: 'All months' },
+        ...Array.from({ length: 24 }, (_, index) => {
+            const date = new Date();
+            date.setMonth(date.getMonth() - index);
+            const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            return { value, label: formatMonthLabel(value) };
+        })
+    ];
+
+    const startItem = totalRequests === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    const endItem = Math.min(currentPage * pageSize, totalRequests);
 
     const openApprovalModal = (request: PlanChangeRequest) => {
         setSelectedRequest(request);
@@ -194,23 +180,24 @@ export default function PlanChangeRequestsPage() {
         const reason = prompt('Reason for declining this request (optional):') || undefined;
         setProcessingId(request.id);
         try {
-            const result = await declinePlanChangeRequest(request.id, reason);
+            const result = await declineAdminPlanChangeRequest(request.id, reason);
             if (!result.success) {
                 alert(result.error || 'Unable to decline request.');
                 return;
             }
+            notifyPlanChangeRequestCountChanged();
             await fetchRequests();
         } finally {
             setProcessingId(null);
         }
     };
 
-    const modalSubscription = selectedRequest?.subscription
+    const modalSubscription = useMemo(() => selectedRequest?.subscription
         ? {
             ...selectedRequest.subscription,
             customer_name: normalizeRelation(selectedRequest.subscription.customers)?.name || 'Customer'
         }
-        : null;
+        : null, [selectedRequest]);
 
     return (
         <div className="min-h-screen bg-[#0f0f0f] text-gray-100 p-6 space-y-6">
@@ -223,14 +210,49 @@ export default function PlanChangeRequestsPage() {
                     <p className="text-gray-400 mt-1">Review customer plan-change requests before billing and MikroTik updates are applied.</p>
                 </div>
 
-                <div className="relative w-full lg:w-80">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search customer, phone, plan..."
-                        className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500"
-                    />
+                <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+                    <div className="relative w-full lg:w-80">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                        <input
+                            value={searchQuery}
+                            onChange={(event) => {
+                                setSearchQuery(event.target.value);
+                                setCurrentPage(1);
+                            }}
+                            placeholder="Search customer, phone, plan..."
+                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500"
+                        />
+                    </div>
+                    <div className="relative w-full sm:w-72">
+                        <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                        <select
+                            value={businessFilter}
+                            onChange={(event) => {
+                                setBusinessFilter(event.target.value as PlanChangeBusinessFilter);
+                                setCurrentPage(1);
+                            }}
+                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 appearance-none"
+                        >
+                            {businessFilterOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="relative w-full sm:w-56">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                        <select
+                            value={monthFilter}
+                            onChange={(event) => {
+                                setMonthFilter(event.target.value);
+                                setCurrentPage(1);
+                            }}
+                            className="w-full bg-[#1a1a1a] border border-gray-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 appearance-none"
+                        >
+                            {monthFilterOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -238,7 +260,10 @@ export default function PlanChangeRequestsPage() {
                 {(['pending', 'approved', 'declined'] as const).map(status => (
                     <button
                         key={status}
-                        onClick={() => setStatusTab(status)}
+                        onClick={() => {
+                            setStatusTab(status);
+                            setCurrentPage(1);
+                        }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
                             statusTab === status
                                 ? statusStyles[status]
@@ -258,14 +283,14 @@ export default function PlanChangeRequestsPage() {
                     <div className="p-12 flex justify-center">
                         <Loader2 className="w-8 h-8 animate-spin text-violet-400" />
                     </div>
-                ) : filteredRequests.length === 0 ? (
+                ) : requests.length === 0 ? (
                     <div className="p-12 text-center text-gray-500">
                         <Clock className="w-12 h-12 mx-auto mb-4 text-gray-700" />
                         <p>No {statusTab} plan-change requests found.</p>
                     </div>
                 ) : (
                     <div className="divide-y divide-gray-800">
-                        {filteredRequests.map(request => {
+                        {requests.map(request => {
                             const subscription = request.subscription;
                             const customer = normalizeRelation(subscription?.customers);
                             const businessUnit = normalizeRelation(subscription?.business_units);
@@ -334,6 +359,45 @@ export default function PlanChangeRequestsPage() {
                 )}
             </div>
 
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-gray-400">
+                <div>
+                    Showing {startItem} to {endItem} of {totalRequests} {statusTab} request{totalRequests === 1 ? '' : 's'}
+                </div>
+                <div className="flex items-center gap-3">
+                    <select
+                        value={pageSize}
+                        onChange={(event) => {
+                            setPageSize(Number(event.target.value));
+                            setCurrentPage(1);
+                        }}
+                        className="bg-[#1a1a1a] border border-gray-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-violet-500"
+                    >
+                        {[10, 25, 50].map(size => (
+                            <option key={size} value={size}>{size} / page</option>
+                        ))}
+                    </select>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+                            disabled={currentPage <= 1 || isLoading}
+                            className="p-2 rounded-lg bg-gray-900/70 border border-gray-800 text-gray-300 hover:text-white hover:border-violet-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="min-w-24 text-center">
+                            Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                            onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+                            disabled={currentPage >= totalPages || isLoading}
+                            className="p-2 rounded-lg bg-gray-900/70 border border-gray-800 text-gray-300 hover:text-white hover:border-violet-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {selectedRequest && modalSubscription && (
                 <EditSubscriptionModal
                     isOpen={Boolean(selectedRequest)}
@@ -341,6 +405,7 @@ export default function PlanChangeRequestsPage() {
                     subscription={modalSubscription}
                     onUpdate={() => {
                         setSelectedRequest(null);
+                        notifyPlanChangeRequestCountChanged();
                         fetchRequests();
                     }}
                     initialTab="plan"

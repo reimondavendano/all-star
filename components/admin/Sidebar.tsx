@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import {
     LayoutDashboard,
     Users,
@@ -25,6 +25,7 @@ import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import { getPendingPlanChangeRequestCount } from '@/app/actions/planChangeRequests';
 
 const navigation = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, badge: null },
@@ -55,7 +56,7 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     const [planChangeRequestCount, setPlanChangeRequestCount] = useState(0);
 
     // Fetch counts
-    const fetchCounts = async () => {
+    const fetchCounts = useCallback(async () => {
         try {
             // Count Open prospects
             const { count: prospectsCount, error: prospectsError } = await supabase
@@ -77,22 +78,21 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 setUnverifiedPaymentsCount(paymentsData.length);
             }
 
-            const { count: requestsCount, error: requestsError } = await supabase
-                .from('plan_changes')
-                .select('*', { count: 'exact', head: true })
-                .eq('status', 'pending');
-
-            if (!requestsError && requestsCount !== null) {
-                setPlanChangeRequestCount(requestsCount);
-            }
+            const requestsCount = await getPendingPlanChangeRequestCount();
+            setPlanChangeRequestCount(requestsCount);
         } catch (error) {
             console.error('Error fetching counts:', error);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchCounts();
-    }, []);
+    }, [fetchCounts]);
+
+    useEffect(() => {
+        window.addEventListener('plan-change-requests:changed', fetchCounts);
+        return () => window.removeEventListener('plan-change-requests:changed', fetchCounts);
+    }, [fetchCounts]);
 
     // Real-time updates for prospects
     useRealtimeSubscription({

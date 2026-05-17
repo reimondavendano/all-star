@@ -155,23 +155,16 @@ export function getPlanChangeDateWindow(
     const day = date.getDate();
 
     if (cycle === '30th') {
-        const firstSelectableDate = day <= 10
-            ? new Date(year, month - 1, 26)
-            : new Date(year, month, 26);
-        const windowEnd = day >= 26
-            ? new Date(year, month + 1, 10)
-            : new Date(year, month, 10);
-        const isOpen = day >= 25 || day <= 10;
+        const firstSelectableDate = new Date(year, month, 1);
+        const windowEnd = new Date(year, month, 15);
+        const isOpen = day >= 1 && day <= 15;
         const windowStart = (() => {
-            if (day === 25) return firstSelectableDate;
-            if (day >= 26 || day <= 10) return date > firstSelectableDate ? date : firstSelectableDate;
+            if (day >= 1 && day <= 15) return date > firstSelectableDate ? date : firstSelectableDate;
             return firstSelectableDate;
         })();
-        const nextOpen = day <= 10
+        const nextOpen = day <= 15
             ? firstSelectableDate
-            : day < 25
-                ? new Date(year, month, 25)
-                : firstSelectableDate;
+            : new Date(year, month + 1, 1);
 
         return {
             isOpen,
@@ -179,24 +172,22 @@ export function getPlanChangeDateWindow(
             maxDate: toDateInputString(windowEnd),
             nextOpenDate: toDateInputString(nextOpen),
             message: isOpen
-                ? 'Plan changes are open for this 30th cycle. Select dates from today up to the 10th, with the 25th disabled.'
-                : 'Plan changes for the 30th cycle open on the 25th; selectable dates start on the 26th.'
+                ? 'Plan changes are open for this 30th cycle. Select dates from today up to the 15th.'
+                : 'Plan changes for the 30th cycle open on the 1st; selectable dates run through the 15th.'
         };
     }
 
-    const firstSelectableDate = new Date(year, month, 11);
-    const windowEnd = new Date(year, month, 25);
-    const isOpen = day >= 10 && day <= 25;
+    const lastSelectableDay = Math.min(30, getLastDayOfMonth(year, month + 1));
+    const firstSelectableDate = new Date(year, month, 16);
+    const windowEnd = new Date(year, month, lastSelectableDay);
+    const isOpen = day >= 16 && day <= lastSelectableDay;
     const windowStart = (() => {
-        if (day === 10) return firstSelectableDate;
-        if (day >= 11 && day <= 25) return date > firstSelectableDate ? date : firstSelectableDate;
+        if (day >= 16 && day <= lastSelectableDay) return date > firstSelectableDate ? date : firstSelectableDate;
         return firstSelectableDate;
     })();
-    const nextOpen = day < 10
-        ? new Date(year, month, 10)
-        : day <= 25
-            ? firstSelectableDate
-            : new Date(year, month + 1, 10);
+    const nextOpen = day <= lastSelectableDay
+        ? firstSelectableDate
+        : new Date(year, month + 1, 16);
 
     return {
         isOpen,
@@ -204,8 +195,8 @@ export function getPlanChangeDateWindow(
         maxDate: toDateInputString(windowEnd),
         nextOpenDate: toDateInputString(nextOpen),
         message: isOpen
-            ? 'Plan changes are open for this 15th cycle. Select dates from today up to the 25th, with the 10th disabled.'
-            : 'Plan changes for the 15th cycle open on the 10th; selectable dates start on the 11th.'
+            ? 'Plan changes are open for this 15th cycle. Select dates from today up to the 30th.'
+            : 'Plan changes for the 15th cycle open on the 16th; selectable dates run through the 30th.'
     };
 }
 
@@ -223,9 +214,8 @@ export function getPlanChangeBillingPeriod(
     const day = date.getDate();
 
     if (cycle === '30th') {
-        const billingMonth = day <= 5 ? month - 1 : month;
-        const startDate = new Date(year, billingMonth, 1);
-        const endDate = new Date(year, billingMonth + 1, 0);
+        const startDate = new Date(year, month, 1);
+        const endDate = new Date(year, month + 1, 0);
         return { startDate, endDate };
     }
 

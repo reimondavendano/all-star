@@ -13,6 +13,7 @@ import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscriptio
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
 import DisconnectionModal from '@/components/admin/DisconnectionModal';
 import { getMikrotikProfileForPlan } from '@/lib/mikrotikProfiles';
+import { getPlanChangeDateWindow } from '@/lib/billing';
 
 interface MikrotikPPP {
     id: string;
@@ -214,7 +215,8 @@ export default function CollectorCustomersPage() {
         setPromisedDate(subscription.promised_date?.split('T')[0] || '');
         setPlanPreview(null);
         setPlanChangeError(null);
-        setPlanChangeDate(new Date().toISOString().split('T')[0]);
+        const planDateWindow = getPlanChangeDateWindow(subscription.invoice_date || '15th');
+        setPlanChangeDate(planDateWindow.isOpen ? planDateWindow.minDate : planDateWindow.nextOpenDate);
 
         // Initialize MikroTik form if exists
         const ppp = subscription.mikrotik_ppp_secrets?.[0];
@@ -297,6 +299,7 @@ export default function CollectorCustomersPage() {
     const formatCurrency = (amount: number) => `₱${Math.round(amount).toLocaleString()}`;
     const selectedPlan = plans.find(plan => plan.id === selectedPlanId);
     const hasPlanChanged = Boolean(selectedSubscription && selectedPlanId && selectedPlanId !== selectedSubscription.plan_id);
+    const planChangeWindow = getPlanChangeDateWindow(selectedSubscription?.invoice_date || '15th');
     const defaultDisconnectionDate = (() => {
         const today = new Date();
         const unitName = selectedSubscription?.business_units?.name?.toLowerCase() || '';
@@ -308,9 +311,9 @@ export default function CollectorCustomersPage() {
                 : datePartsToISO(today.getFullYear(), today.getMonth() + 1, 5);
         }
 
-        return today.getDate() <= 25
-            ? datePartsToISO(today.getFullYear(), today.getMonth(), 25)
-            : datePartsToISO(today.getFullYear(), today.getMonth() + 1, 25);
+        return today.getDate() <= 20
+            ? datePartsToISO(today.getFullYear(), today.getMonth(), 20)
+            : datePartsToISO(today.getFullYear(), today.getMonth() + 1, 20);
     })();
     const minimumPromisedDate = addDays(defaultDisconnectionDate, 1);
     const autoDisconnectDate = promisedDate ? addDays(promisedDate, 1) : null;
@@ -364,6 +367,11 @@ export default function CollectorCustomersPage() {
             if (modalTab === 'plan') {
                 if (!hasPlanChanged) {
                     alert('Please select a different plan before saving.');
+                    return;
+                }
+
+                if (!planChangeWindow.isOpen || planChangeDate < planChangeWindow.minDate || planChangeDate > planChangeWindow.maxDate) {
+                    setPlanChangeError(`${planChangeWindow.message} Next available date: ${formatDisplayDate(planChangeWindow.nextOpenDate)}.`);
                     return;
                 }
 
@@ -841,7 +849,7 @@ export default function CollectorCustomersPage() {
                                             <div className="text-xs text-gray-500 uppercase mb-2">Normal Disconnection</div>
                                             <div className="text-white font-medium">{formatDisplayDate(defaultDisconnectionDate)}</div>
                                             <div className="text-xs text-gray-500 mt-1">
-                                                {selectedSubscription.invoice_date === '30th' ? '5th of next month' : '25th of the month'}
+                                                {selectedSubscription.invoice_date === '30th' ? '5th of next month' : '20th of the month'}
                                             </div>
                                         </div>
                                         <div className="p-4 bg-gray-900/50 border border-gray-800 rounded-xl">
@@ -892,7 +900,7 @@ export default function CollectorCustomersPage() {
                                             <div>
                                                 <div className="text-amber-400 font-medium">Upgrade/Downgrade Plan</div>
                                                 <div className="text-sm text-amber-300/70">
-                                                    This uses the same prorated invoice and MikroTik sync logic as the admin subscription editor.
+                                                    This handles the old-plan prorated invoice now. The new-plan remainder is only an estimate here and stays for the next invoice run.
                                                 </div>
                                             </div>
                                         </div>
@@ -929,16 +937,23 @@ export default function CollectorCustomersPage() {
                                         <input
                                             type="date"
                                             value={planChangeDate}
-                                            max={new Date().toISOString().split('T')[0]}
+                                            min={planChangeWindow.minDate}
+                                            max={planChangeWindow.maxDate}
+                                            disabled={!planChangeWindow.isOpen}
                                             onChange={async (e) => {
                                                 setPlanChangeDate(e.target.value);
                                                 await loadPlanChangePreview(selectedPlanId, e.target.value);
                                             }}
-                                            className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all"
+                                            className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                                         />
                                         <p className="text-xs text-gray-500 mt-1">
-                                            The new plan starts the next day. Example: old plan ends Apr 24, new plan starts Apr 25.
+                                            The new plan starts the next day. Allowed dates: {formatDisplayDate(planChangeWindow.minDate)} to {formatDisplayDate(planChangeWindow.maxDate)}.
                                         </p>
+                                        {!planChangeWindow.isOpen && (
+                                            <p className="text-xs text-amber-400 mt-1">
+                                                {planChangeWindow.message} Next available date: {formatDisplayDate(planChangeWindow.nextOpenDate)}.
+                                            </p>
+                                        )}
                                     </div>
 
                                     {planChangeError && (
@@ -965,7 +980,7 @@ export default function CollectorCustomersPage() {
                                         </div>
 
                                         <div className="p-4 bg-gray-900/50 border border-gray-800 rounded-xl">
-                                            <div className="text-xs text-gray-500 uppercase mb-2">New Plan Invoice</div>
+                                            <div className="text-xs text-gray-500 uppercase mb-2">New Plan Estimate</div>
                                             {planPreviewLoading ? (
                                                 <div className="text-sm text-gray-400">Calculating...</div>
                                             ) : planPreview ? (
@@ -973,7 +988,7 @@ export default function CollectorCustomersPage() {
                                                     <div className="text-white font-semibold">{selectedPlan?.name || 'New plan'}</div>
                                                     <div className="text-xs text-gray-500 mt-1">{planPreview.newPlan.fromDate} to {planPreview.newPlan.toDate}</div>
                                                     <div className="text-lg font-bold text-cyan-400 mt-2">{formatCurrency(planPreview.newPlan.amount)}</div>
-                                                    <div className="text-xs text-gray-500">{planPreview.newPlan.days} day(s)</div>
+                                                    <div className="text-xs text-gray-500">{planPreview.newPlan.days} day(s), billed by next invoice run</div>
                                                 </>
                                             ) : (
                                                 <div className="text-sm text-gray-500">Select a different plan to preview.</div>
@@ -982,7 +997,7 @@ export default function CollectorCustomersPage() {
                                     </div>
 
                                     <div className="p-3 bg-blue-950/30 border border-blue-900/50 rounded-xl text-xs text-blue-300">
-                                        Existing full-period unpaid invoices for this billing period will be converted to the old-plan prorated invoice to prevent duplicates. Confirming also updates subscriptions, mikrotik_ppp_secrets, and the MikroTik PPP profile.
+                                        Existing full-period unpaid invoices for this billing period will be converted to the old-plan prorated invoice to prevent duplicates. Confirming also updates subscriptions, mikrotik_ppp_secrets, and the MikroTik PPP profile. The new-plan remainder stays queued for the next invoice run.
                                     </div>
                                 </div>
                             )}
@@ -998,7 +1013,7 @@ export default function CollectorCustomersPage() {
                             </button>
                             <button
                                 onClick={saveChanges}
-                                disabled={isSaving || (modalTab === 'plan' && (!hasPlanChanged || planPreviewLoading || !planPreview))}
+                                disabled={isSaving || (modalTab === 'plan' && (!hasPlanChanged || planPreviewLoading || !planPreview || !planChangeWindow.isOpen))}
                                 className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium shadow-lg shadow-purple-900/30 transition-all disabled:opacity-50 flex items-center gap-2"
                             >
                                 {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

@@ -5,6 +5,7 @@ import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar,
 import { supabase } from '@/lib/supabase';
 import { addPppSecret } from '@/app/actions/mikrotik';
 import { validatePhilippineMobileNumber } from '@/lib/validation';
+import { buildSmsCustomerPortalLink } from '@/lib/portalLinks';
 import dynamic from 'next/dynamic';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -640,7 +641,8 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                             templateData: {
                                 customerName: prospect.name,
                                 planName: planInfo?.name || 'Internet Plan',
-                                amount: planInfo?.monthly_fee || 0
+                                amount: planInfo?.monthly_fee || 0,
+                                portalLink: buildSmsCustomerPortalLink(customerId)
                             }
                         })
                     });

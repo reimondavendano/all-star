@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@supabase/supabase-js';
-import { processPlanChange, previewPlanChange, getBillingPeriodStart, getBillingPeriodEnd } from '@/lib/planChangeService';
+import { processPlanChange, previewPlanChange, getBillingPeriodStart, getBillingPeriodEnd, getPlanChangeCycleConflict } from '@/lib/planChangeService';
 import { getPlanChangeDateWindow, toISODateString } from '@/lib/billing';
 
 
@@ -140,6 +140,19 @@ export async function submitPlanChangeRequest(subscriptionId: string, newPlanId:
 
         const billingPeriodStart = getBillingPeriodStart(subscription.invoice_date || '15th', oldPlanEndDate);
         const billingPeriodEnd = getBillingPeriodEnd(subscription.invoice_date || '15th', oldPlanEndDate);
+        const cycleConflict = await getPlanChangeCycleConflict(
+            subscriptionId,
+            subscription.invoice_date || '15th',
+            oldPlanEndDate
+        );
+
+        if (cycleConflict.hasConflict) {
+            return {
+                success: false,
+                error: cycleConflict.message || 'This subscription already has a plan change in this billing cycle.'
+            };
+        }
+
         const preview = previewPlanChange(
             currentPlan.monthly_fee,
             newPlan.monthly_fee,
@@ -223,6 +236,78 @@ export async function getCustomerPendingPlanChangeRequests(customerId: string) {
     } catch (error: any) {
         console.error('Get Pending Plan Change Requests Error:', error);
         return { success: false, requests: [], error: error.message };
+    }
+}
+
+export async function getCustomerCurrentCyclePlanChanges(customerId: string) {
+    try {
+        const { data: subscriptions, error: subError } = await supabase
+            .from('subscriptions')
+            .select('id, invoice_date')
+            .eq('subscriber_id', customerId);
+
+        if (subError) throw subError;
+        if (!subscriptions || subscriptions.length === 0) {
+            return { success: true, locks: [] };
+        }
+
+        const today = new Date();
+        const locks = await Promise.all(subscriptions.map(async (subscription) => {
+            const invoiceDate = subscription.invoice_date || '15th';
+            const billingPeriodStart = getBillingPeriodStart(invoiceDate, today);
+            const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, today);
+
+            const { data: planChanges, error } = await supabase
+                .from('plan_changes')
+                .select(`
+                    id,
+                    status,
+                    new_plan_id,
+                    requested_at,
+                    reviewed_at,
+                    billing_period_start,
+                    billing_period_end,
+                    new_plan:plans!plan_changes_new_plan_id_fkey (
+                        name
+                    )
+                `)
+                .eq('subscription_id', subscription.id)
+                .in('status', ['pending', 'approved'])
+                .eq('billing_period_start', toISODateString(billingPeriodStart))
+                .eq('billing_period_end', toISODateString(billingPeriodEnd))
+                .order('requested_at', { ascending: false })
+                .limit(1);
+
+            if (error) throw error;
+
+            const planChange = planChanges?.[0];
+            if (!planChange) return null;
+
+            const newPlan = Array.isArray(planChange.new_plan)
+                ? planChange.new_plan[0]
+                : planChange.new_plan;
+            const nextCycleStart = new Date(billingPeriodEnd);
+            nextCycleStart.setDate(nextCycleStart.getDate() + 1);
+
+            return {
+                id: planChange.id,
+                subscriptionId: subscription.id,
+                status: planChange.status as 'pending' | 'approved',
+                newPlanId: planChange.new_plan_id,
+                newPlanName: newPlan?.name || 'selected plan',
+                billingPeriodStart: toISODateString(billingPeriodStart),
+                billingPeriodEnd: toISODateString(billingPeriodEnd),
+                availableOn: toISODateString(nextCycleStart)
+            };
+        }));
+
+        return {
+            success: true,
+            locks: locks.filter(Boolean)
+        };
+    } catch (error: any) {
+        console.error('Get Current Cycle Plan Changes Error:', error);
+        return { success: false, locks: [], error: error.message };
     }
 }
 

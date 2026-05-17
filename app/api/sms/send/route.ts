@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { sendSMS, SMSTemplates } from '@/lib/sms';
+import { buildSmsCustomerPortalLink } from '@/lib/portalLinks';
 
 export async function POST(request: NextRequest) {
     try {
@@ -29,11 +30,17 @@ export async function POST(request: NextRequest) {
         if (template && templateData) {
             switch (template) {
                 case 'newSubscription':
+                    if (!templateData.portalLink && !templateData.customerId) {
+                        return NextResponse.json({
+                            success: false,
+                            error: 'Portal link or customerId is required for new subscription SMS'
+                        }, { status: 400 });
+                    }
                     finalMessage = SMSTemplates.newSubscription(
                         templateData.customerName,
                         templateData.planName,
                         templateData.amount,
-                        templateData.portalLink
+                        templateData.portalLink || buildSmsCustomerPortalLink(templateData.customerId)
                     );
                     break;
                 case 'invoiceGenerated':

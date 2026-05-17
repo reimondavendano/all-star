@@ -139,7 +139,8 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
             const disconnectResult = await processSubscriptionDisconnection(
                 candidate.subscriptionId,
                 dateOnlyToUTCNoon(candidate.promisedDate),
-                true
+                true,
+                'payment_extension'
             );
 
             if (disconnectResult.success) {

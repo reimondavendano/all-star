@@ -1,8 +1,11 @@
 'use client';
 
-import { Search, Bell, Menu, LogOut, User } from 'lucide-react';
+import { Search, Bell, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
+import { getPendingPlanChangeRequestCount } from '@/app/actions/planChangeRequests';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
 interface TopNavProps {
     onMenuClick?: () => void;
@@ -11,6 +14,26 @@ interface TopNavProps {
 export default function TopNav({ onMenuClick }: TopNavProps) {
     const { user, logout } = useAuth();
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [pendingPlanChanges, setPendingPlanChanges] = useState(0);
+
+    const fetchNotifications = useCallback(async () => {
+        const count = await getPendingPlanChangeRequestCount();
+        setPendingPlanChanges(count);
+    }, []);
+
+    useEffect(() => {
+        fetchNotifications();
+    }, [fetchNotifications]);
+
+    useEffect(() => {
+        window.addEventListener('plan-change-requests:changed', fetchNotifications);
+        return () => window.removeEventListener('plan-change-requests:changed', fetchNotifications);
+    }, [fetchNotifications]);
+
+    useRealtimeSubscription({
+        table: 'plan_changes',
+        onAny: fetchNotifications
+    });
 
     return (
         <div className="h-16 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-red-900/30 flex items-center justify-between px-4 lg:px-6 fixed top-0 right-0 left-0 lg:left-64 z-40 tech-border">
@@ -34,10 +57,17 @@ export default function TopNav({ onMenuClick }: TopNavProps) {
                     <span className="hidden md:inline">SYSTEM ONLINE</span>
                     <span className="md:hidden">ONLINE</span>
                 </div>
-                <button className="relative text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded">
+                <Link href="/admin/plan-change-requests" className="relative text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded">
                     <Bell className="w-5 h-5" />
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_5px_#ff0000]"></span>
-                </button>
+                    {pendingPlanChanges > 0 && (
+                        <>
+                            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full shadow-[0_0_5px_#ff0000]"></span>
+                            <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center shadow-[0_0_10px_rgba(249,115,22,0.6)]">
+                                {pendingPlanChanges > 99 ? '99+' : pendingPlanChanges}
+                            </span>
+                        </>
+                    )}
+                </Link>
 
                 {/* User Menu */}
                 <div className="relative">

@@ -11,6 +11,7 @@ import clsx from 'clsx';
 const TABLES = [
     'customers',
     'subscriptions',
+    'plan_changes',
     'invoices',
     'payments',
     'expenses',
@@ -18,7 +19,97 @@ const TABLES = [
 ];
 
 // Tables that reference subscription_id (and therefore need customer+sub context)
-const SUB_LINKED_TABLES = ['invoices', 'payments', 'mikrotik_ppp_secrets'];
+const SUB_LINKED_TABLES = ['invoices', 'payments', 'mikrotik_ppp_secrets', 'plan_changes'];
+
+const TABLE_FIELDS: Record<string, string[]> = {
+    customers: ['id', 'name', 'mobile_number', 'created_at', 'referrer_id'],
+    subscriptions: [
+        'id',
+        'subscriber_id',
+        'business_unit_id',
+        'plan_id',
+        'router_serial_number',
+        'active',
+        'date_installed',
+        'contact_person',
+        'label',
+        'address',
+        'barangay',
+        'landmark',
+        'x-coordinates',
+        'y-coordinates',
+        'invoice_date',
+        'promised_date',
+        'last_reconnection_date',
+        'last_disconnection_date',
+        'customer_portal',
+        'referral_credit_applied',
+        'is_free',
+        'balance',
+        'created_at'
+    ],
+    plan_changes: [
+        'id',
+        'subscription_id',
+        'old_plan_id',
+        'new_plan_id',
+        'status',
+        'request_type',
+        'requested_by_customer_id',
+        'requested_at',
+        'requested_old_plan_end_date',
+        'reviewed_at',
+        'decision_notes',
+        'old_monthly_fee',
+        'new_monthly_fee',
+        'change_date',
+        'prorated_amount',
+        'prorated_days',
+        'billing_period_start',
+        'billing_period_end',
+        'invoice_id',
+        'processed',
+        'created_at',
+        'updated_at'
+    ],
+    invoices: [
+        'id',
+        'subscription_id',
+        'from_date',
+        'to_date',
+        'due_date',
+        'amount_due',
+        'amount_paid',
+        'original_amount',
+        'discount_applied',
+        'credits_applied',
+        'payment_status',
+        'is_prorated',
+        'prorated_days',
+        'notes',
+        'created_at'
+    ],
+    payments: ['id', 'subscription_id', 'invoice_id', 'settlement_date', 'amount', 'mode', 'notes', 'created_at'],
+    expenses: ['id', 'subscription_id', 'business_unit_id', 'date', 'quantity', 'amount', 'reason', 'notes', 'created_at'],
+    mikrotik_ppp_secrets: [
+        'id',
+        'mikrotik_id',
+        'customer_id',
+        'subscription_id',
+        'name',
+        'password',
+        'service',
+        'profile',
+        'local_address',
+        'remote_address',
+        'caller_id',
+        'enabled',
+        'disabled',
+        'comment',
+        'last_synced_at',
+        'created_at'
+    ]
+};
 
 // Static credentials (case-sensitive)
 const VALID_USERNAME = 'Ced@123';
@@ -148,6 +239,7 @@ export default function DataManager() {
             setSelectedCustomerId('');
             setSelectedSubscriptionId('');
             setSelectedBusinessUnitId('');
+            setRecordFields(TABLE_FIELDS[selectedTable] || []);
             fetchTableData();
         }
     }, [selectedTable]);
@@ -249,10 +341,11 @@ export default function DataManager() {
             if (error) throw error;
 
             setData(result || []);
-            
-            if (result && result.length > 0) {
-                setRecordFields(Object.keys(result[0]));
-            }
+
+            setRecordFields(result && result.length > 0
+                ? Object.keys(result[0])
+                : TABLE_FIELDS[selectedTable] || []
+            );
         } catch (error: any) {
             console.error('Error fetching data:', error.message);
             alert('Failed to fetch data: ' + error.message);
@@ -294,7 +387,10 @@ export default function DataManager() {
         }
         if (item.subscriber_id && customerMap[item.subscriber_id]?.toLowerCase().includes(q)) return true;
         if (item.business_unit_id && buMap[item.business_unit_id]?.toLowerCase().includes(q)) return true;
-        if (item.plan_id && planMap[item.plan_id]?.toLowerCase().includes(q)) return true;
+        if (item.plan_id && planMap[item.plan_id]?.name?.toLowerCase().includes(q)) return true;
+        if (item.old_plan_id && planMap[item.old_plan_id]?.name?.toLowerCase().includes(q)) return true;
+        if (item.new_plan_id && planMap[item.new_plan_id]?.name?.toLowerCase().includes(q)) return true;
+        if (item.requested_by_customer_id && customerMap[item.requested_by_customer_id]?.toLowerCase().includes(q)) return true;
 
         return false;
     });
@@ -307,7 +403,7 @@ export default function DataManager() {
     const handleAdd = () => {
         const newRecord: any = {};
         recordFields.forEach(f => {
-            if (f === 'is_free' || f === 'is_prorated' || f === 'referral_credit_applied' || f === 'disabled') {
+            if (f === 'is_free' || f === 'is_prorated' || f === 'referral_credit_applied' || f === 'disabled' || f === 'processed') {
                 newRecord[f] = 'false';
             } else if (f === 'active' || f === 'is_active' || f === 'enabled') {
                 newRecord[f] = 'true';
@@ -328,6 +424,13 @@ export default function DataManager() {
         }
         if (SUB_LINKED_TABLES.includes(selectedTable) && selectedSubscriptionId) {
             newRecord.subscription_id = selectedSubscriptionId;
+        }
+        if (selectedTable === 'plan_changes') {
+            newRecord.status = newRecord.status || 'pending';
+            newRecord.processed = newRecord.processed || 'false';
+            if (selectedCustomerId) {
+                newRecord.requested_by_customer_id = selectedCustomerId;
+            }
         }
 
         setEditRecord(newRecord);
@@ -443,7 +546,7 @@ export default function DataManager() {
             }
         }
         // Resolve subscriber_id → Customer Name
-        if (key === 'subscriber_id' && typeof val === 'string') {
+        if ((key === 'subscriber_id' || key === 'requested_by_customer_id') && typeof val === 'string') {
             const name = customerMap[val];
             if (name) return <div><span className="text-emerald-400 font-bold not-italic">{name}</span><div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div></div>;
         }
@@ -453,7 +556,7 @@ export default function DataManager() {
             if (name) return <div><span className="text-indigo-400 font-bold not-italic">{name}</span><div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div></div>;
         }
         // Resolve plan_id → Plan Name
-        if (key === 'plan_id' && typeof val === 'string') {
+        if ((key === 'plan_id' || key === 'old_plan_id' || key === 'new_plan_id') && typeof val === 'string') {
             const plan = planMap[val];
             if (plan && plan.name) return <div><span className="text-pink-400 font-bold not-italic">{plan.name}</span><div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div></div>;
         }
@@ -471,7 +574,7 @@ export default function DataManager() {
         }
         
         if (field === 'subscription_id') {
-            const currentCustomerId = editRecord['customer_id'] || editRecord['subscriber_id'];
+            const currentCustomerId = editRecord['customer_id'] || editRecord['subscriber_id'] || editRecord['requested_by_customer_id'];
             const filteredSubList = currentCustomerId 
                 ? subList.filter(s => s.subscriber_id === currentCustomerId)
                 : subList;
@@ -534,7 +637,7 @@ export default function DataManager() {
             );
         }
     
-        if (field === 'plan_id') {
+        if (field === 'plan_id' || field === 'old_plan_id' || field === 'new_plan_id') {
             return (
                 <div className="relative">
                     <select 
@@ -552,7 +655,7 @@ export default function DataManager() {
             );
         }
     
-        if (field === 'subscriber_id' || field === 'customer_id') {
+        if (field === 'subscriber_id' || field === 'customer_id' || field === 'requested_by_customer_id') {
             return (
                 <SearchableSelect 
                     value={editRecord[field] || ''}
@@ -592,7 +695,7 @@ export default function DataManager() {
         }
 
         // Boolean dropdowns
-        const booleanFields = ['is_free', 'active', 'is_active', 'is_prorated', 'referral_credit_applied', 'enabled', 'disabled'];
+        const booleanFields = ['is_free', 'active', 'is_active', 'is_prorated', 'referral_credit_applied', 'enabled', 'disabled', 'processed'];
         if (booleanFields.includes(field)) {
             // Convert current value safely to 'true' or 'false' for select state
             const strVal = editRecord[field] === true ? 'true' : editRecord[field] === false ? 'false' : String(editRecord[field] || 'false');
@@ -612,7 +715,21 @@ export default function DataManager() {
         }
     
         // Date inputs for reconnection/disconnection/invoices/subscriptions
-        const dateFields = ['last_reconnection_date', 'last_disconnection_date', 'from_date', 'to_date', 'due_date', 'date_installed'];
+        const dateFields = [
+            'last_reconnection_date',
+            'last_disconnection_date',
+            'from_date',
+            'to_date',
+            'due_date',
+            'date_installed',
+            'promised_date',
+            'requested_old_plan_end_date',
+            'change_date',
+            'billing_period_start',
+            'billing_period_end',
+            'settlement_date',
+            'date'
+        ];
         if (dateFields.includes(field)) {
             const toLocalFormat = (val: any) => {
                 if (!val || typeof val !== 'string') return '';
@@ -657,6 +774,44 @@ export default function DataManager() {
                         <option value="">-- Select Invoice Date --</option>
                         <option value="15th">15th</option>
                         <option value="30th">30th</option>
+                    </select>
+                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                </div>
+            );
+        }
+
+        if (field === 'status' && selectedTable === 'plan_changes') {
+            const statuses = ['pending', 'approved', 'declined'];
+            return (
+                <div className="relative">
+                    <select
+                        value={editRecord[field] || ''}
+                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
+                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
+                    >
+                        <option value="">-- Select Status --</option>
+                        {statuses.map(status => (
+                            <option key={status} value={status}>{status}</option>
+                        ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                </div>
+            );
+        }
+
+        if (field === 'request_type' && selectedTable === 'plan_changes') {
+            const requestTypes = ['upgrade', 'downgrade', 'same'];
+            return (
+                <div className="relative">
+                    <select
+                        value={editRecord[field] || ''}
+                        onChange={(e) => setEditRecord({ ...editRecord, [field]: e.target.value })}
+                        className="w-full bg-[#0a0a0a] border border-gray-800 focus:border-red-500 rounded-lg px-3 py-2 text-sm text-white appearance-none"
+                    >
+                        <option value="">-- Select Request Type --</option>
+                        {requestTypes.map(type => (
+                            <option key={type} value={type}>{type}</option>
+                        ))}
                     </select>
                     <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                 </div>

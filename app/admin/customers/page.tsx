@@ -5,9 +5,10 @@ import { supabase } from '@/lib/supabase';
 import {
     Search, ChevronLeft, ChevronRight, ChevronDown, RefreshCw,
     User, Wifi, Server, Edit, Copy, Check, Phone, MapPin, Calendar,
-    Building2, DollarSign, Hash, ExternalLink, Plus, Shield
+    DollarSign, Hash, Plus, Shield, Trash2
 } from 'lucide-react';
 import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
+import { deleteAdminCustomerAccount, deleteAdminSubscriptionAccount } from '@/app/actions/adminCustomerDeletion';
 import { useMultipleRealtimeSubscriptions } from '@/hooks/useRealtimeSubscription';
 import { validatePhilippineMobileNumber } from '@/lib/validation';
 import ConfirmationDialog from '@/components/shared/ConfirmationDialog';
@@ -83,6 +84,12 @@ export default function CustomersSubscriptionsPage() {
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
     const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<{
+        type: 'customer' | 'subscription';
+        customer: Customer;
+        subscription?: Subscription;
+    } | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Form States
     const [customerForm, setCustomerForm] = useState({ name: '', mobile_number: '' });
@@ -230,6 +237,33 @@ export default function CustomersSubscriptionsPage() {
         setActivateSub(null);
     };
 
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+
+        setIsDeleting(true);
+
+        try {
+            const result = deleteTarget.type === 'customer'
+                ? await deleteAdminCustomerAccount(deleteTarget.customer.id)
+                : await deleteAdminSubscriptionAccount(deleteTarget.subscription!.id);
+
+            if (!result.success) {
+                alert(result.error || 'Delete failed.');
+                return;
+            }
+
+            setDeleteTarget(null);
+            setSelectedCustomer(null);
+            setSelectedSubscription(null);
+            await fetchData();
+        } catch (error) {
+            console.error('Delete failed:', error);
+            alert(error instanceof Error ? error.message : 'Delete failed.');
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
     const saveChanges = async () => {
         if (!selectedCustomer) return;
 
@@ -306,6 +340,12 @@ export default function CustomersSubscriptionsPage() {
     const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const paginatedCustomers = filteredCustomers.slice(startIndex, startIndex + itemsPerPage);
+    const deleteSubscriptionCount = deleteTarget?.type === 'customer'
+        ? deleteTarget.customer.subscriptions?.length || 0
+        : deleteTarget?.subscription ? 1 : 0;
+    const deletePppSecretCount = deleteTarget?.type === 'customer'
+        ? (deleteTarget.customer.subscriptions || []).reduce((total, subscription) => total + (subscription.mikrotik_ppp_secrets?.length || 0), 0)
+        : deleteTarget?.subscription?.mikrotik_ppp_secrets?.length || 0;
 
     return (
         <div className="space-y-6">
@@ -419,6 +459,19 @@ export default function CustomersSubscriptionsPage() {
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
+                                                        setDeleteTarget({ type: 'customer', customer });
+                                                    }}
+                                                    className="group relative p-1.5 sm:p-2 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors flex-shrink-0"
+                                                    title="Delete customer account"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                        Delete Account
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
                                                         setSelectedCustomer(customer);
                                                         setIsAddSubscriptionModalOpen(true);
                                                     }}
@@ -491,6 +544,19 @@ export default function CustomersSubscriptionsPage() {
                                                                     <Edit className="w-4 h-4" />
                                                                     <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
                                                                         Edit Subscription
+                                                                    </span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setDeleteTarget({ type: 'subscription', customer, subscription: sub });
+                                                                    }}
+                                                                    className="group relative p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors flex-shrink-0"
+                                                                    title="Delete subscription"
+                                                                >
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                    <span className="hidden sm:block absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-gray-900 border border-gray-700 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                                                                        Delete Subscription
                                                                     </span>
                                                                 </button>
                                                             </div>
@@ -852,6 +918,50 @@ export default function CustomersSubscriptionsPage() {
                     subscription={activateSub}
                     onConfirm={handleActivationSuccess}
                 />
+            )}
+
+            {deleteTarget && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                        onClick={() => !isDeleting && setDeleteTarget(null)}
+                    />
+                    <div className="relative bg-[#0a0a0a] border border-red-900/60 rounded-2xl shadow-[0_0_60px_rgba(239,68,68,0.16)] w-full max-w-md p-6">
+                        <div className="w-12 h-12 rounded-xl bg-red-900/30 border border-red-700/60 flex items-center justify-center mb-4">
+                            <Trash2 className="w-6 h-6 text-red-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-white mb-2">
+                            {deleteTarget.type === 'customer' ? 'Delete Customer Account?' : 'Delete Subscription?'}
+                        </h3>
+                        <p className="text-sm text-gray-400 mb-4">
+                            {deleteTarget.type === 'customer'
+                                ? `This will permanently delete ${deleteTarget.customer.name} and the linked records for this account.`
+                                : `This will permanently delete ${deleteTarget.subscription?.plans?.name || 'this subscription'} for ${deleteTarget.customer.name}.`}
+                        </p>
+                        <div className="rounded-xl border border-red-900/40 bg-red-950/20 p-4 text-sm text-red-200 space-y-1 mb-5">
+                            <div>{deleteSubscriptionCount} subscription{deleteSubscriptionCount === 1 ? '' : 's'} will be removed.</div>
+                            <div>{deletePppSecretCount} MikroTik PPP secret{deletePppSecretCount === 1 ? '' : 's'} will be removed from the database.</div>
+                            <div>Linked invoices, payments, expenses, and plan-change history are removed first so the delete can complete.</div>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setDeleteTarget(null)}
+                                disabled={isDeleting}
+                                className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmDelete}
+                                disabled={isDeleting}
+                                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isDeleting && <RefreshCw className="w-4 h-4 animate-spin" />}
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {isAddSubscriptionModalOpen && selectedCustomer && (

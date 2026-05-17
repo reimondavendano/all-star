@@ -12,6 +12,7 @@ import ProspectConfirmationModal from './ProspectConfirmationModal';
 import ProspectSuccessModal from './ProspectSuccessModal';
 import MikrotikInputModal, { MikrotikData } from './MikrotikInputModal';
 import { addPppSecret } from '@/app/actions/mikrotik';
+import { buildSmsCustomerPortalLink } from '@/lib/portalLinks';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
@@ -341,7 +342,8 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                                 templateData: {
                                     customerName: customer.name,
                                     planName: plan.name,
-                                    amount: plan.monthly_fee
+                                    amount: plan.monthly_fee,
+                                    portalLink: buildSmsCustomerPortalLink(formData.subscriber_id)
                                 }
                             })
                         });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -16,12 +16,14 @@ import {
     Package,
     MapPin,
     Router,
-    LogOut
+    LogOut,
+    ArrowUpDown
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import { getPendingPlanChangeRequestCount } from '@/app/actions/planChangeRequests';
 
 // Primary Bottom Nav Items
 const bottomNavItems = [
@@ -33,6 +35,7 @@ const bottomNavItems = [
 
 // Secondary "More" Menu Items
 const moreMenuItems = [
+    { name: 'Upgrade/Downgrade Requests', href: '/admin/plan-change-requests', icon: ArrowUpDown, badge: 'planChangeRequests' },
     { name: 'E-Payment Verification', href: '/admin/verification', icon: CheckCircle, badge: 'unverifiedPayments' },
     { name: 'Expenses', href: '/admin/expenses', icon: DollarSign, badge: null },
     { name: 'Business Units', href: '/admin/business-units', icon: Briefcase, badge: null },
@@ -47,9 +50,10 @@ export default function AdminMobileNav() {
     const { logout, user } = useAuth();
     const [openProspectsCount, setOpenProspectsCount] = useState(0);
     const [unverifiedPaymentsCount, setUnverifiedPaymentsCount] = useState(0);
+    const [planChangeRequestCount, setPlanChangeRequestCount] = useState(0);
 
     // Fetch counts
-    const fetchCounts = async () => {
+    const fetchCounts = useCallback(async () => {
         try {
             // Count Open prospects
             const { count: prospectsCount, error: prospectsError } = await supabase
@@ -70,14 +74,22 @@ export default function AdminMobileNav() {
             if (!paymentsError && paymentsData) {
                 setUnverifiedPaymentsCount(paymentsData.length);
             }
+
+            const requestsCount = await getPendingPlanChangeRequestCount();
+            setPlanChangeRequestCount(requestsCount);
         } catch (error) {
             console.error('Error fetching counts:', error);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchCounts();
-    }, []);
+    }, [fetchCounts]);
+
+    useEffect(() => {
+        window.addEventListener('plan-change-requests:changed', fetchCounts);
+        return () => window.removeEventListener('plan-change-requests:changed', fetchCounts);
+    }, [fetchCounts]);
 
     // Real-time updates for prospects
     useRealtimeSubscription({
@@ -91,10 +103,16 @@ export default function AdminMobileNav() {
         onAny: fetchCounts
     });
 
+    useRealtimeSubscription({
+        table: 'plan_changes',
+        onAny: fetchCounts
+    });
+
     const getBadgeCount = (badgeType: string | null) => {
         if (!badgeType) return 0;
         if (badgeType === 'openProspects') return openProspectsCount;
         if (badgeType === 'unverifiedPayments') return unverifiedPaymentsCount;
+        if (badgeType === 'planChangeRequests') return planChangeRequestCount;
         return 0;
     };
 

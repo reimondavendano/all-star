@@ -2,6 +2,14 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { sendBulkSMS } from '@/lib/sms';
 
+const THIRTIETH_CYCLE_AUDIENCE = '30th-cycle';
+
+function isThirtiethCycleAudience(subscription: any) {
+    const businessUnitName = String(subscription.business_units?.name || '').toLowerCase();
+    return subscription.invoice_date === '30th' &&
+        (businessUnitName.includes('malanggam') || businessUnitName.includes('extension'));
+}
+
 export async function POST(request: Request) {
     try {
         const { businessUnitId, message } = await request.json();
@@ -20,6 +28,11 @@ export async function POST(request: Request) {
             .select(`
                 id,
                 business_unit_id,
+                invoice_date,
+                active,
+                business_units (
+                    name
+                ),
                 customers:subscriber_id (
                     id,
                     name,
@@ -28,7 +41,7 @@ export async function POST(request: Request) {
             `)
             .eq('active', true);
 
-        if (businessUnitId !== 'all') {
+        if (businessUnitId !== 'all' && businessUnitId !== THIRTIETH_CYCLE_AUDIENCE) {
             query = query.eq('business_unit_id', businessUnitId);
         }
 
@@ -39,14 +52,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Failed to fetch subscribers' }, { status: 500 });
         }
 
-        if (!subscriptions || subscriptions.length === 0) {
+        const targetSubscriptions = businessUnitId === THIRTIETH_CYCLE_AUDIENCE
+            ? subscriptions?.filter(isThirtiethCycleAudience)
+            : subscriptions;
+
+        if (!targetSubscriptions || targetSubscriptions.length === 0) {
             return NextResponse.json({ error: 'No active subscribers found for this Business Unit' }, { status: 404 });
         }
 
         // Map and deduplicate phone numbers
         const phoneMap = new Map<string, string>(); // phone -> name
 
-        subscriptions.forEach((sub: any) => {
+        targetSubscriptions.forEach((sub: any) => {
             if (sub.customers && sub.customers.phone_number) {
                 const phone = sub.customers.phone_number.trim();
                 if (phone && phone.length >= 10) {

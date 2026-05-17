@@ -38,7 +38,13 @@ interface DashboardData {
     newInstallations: { date: string; count: number }[];
     newInstallationsTotal: number;
     newInstallationsList: NewInstallation[];
+    planChanges: { date: string; count: number }[];
+    planChangesTotal: number;
+    planChangesList: PlanChangeDashboardItem[];
     paymentExtensionAnalytics: PaymentExtensionAnalytics;
+    arAging: ARAgingSummary;
+    disconnectionRisk: DisconnectionRiskSummary;
+    paymentExtensionRisk: PaymentExtensionRiskSummary;
 }
 
 interface BusinessUnitPerformance {
@@ -101,6 +107,22 @@ interface NewInstallation {
     label: string | null;
 }
 
+interface PlanChangeDashboardItem {
+    id: string;
+    customerName: string;
+    businessUnitName: string;
+    oldPlanName: string;
+    newPlanName: string;
+    requestType: 'upgrade' | 'downgrade' | 'same' | null;
+    status: 'pending' | 'approved' | 'declined';
+    requestedAt: string;
+    createdAt: string;
+    reviewedAt: string | null;
+    oldPlanEndDate: string | null;
+    invoiceDate: string | null;
+    label: string | null;
+}
+
 interface PaymentExtensionAccount {
     id: string;
     customerName: string;
@@ -120,6 +142,40 @@ interface PaymentExtensionAnalytics {
     nonExtensionCustomers: number;
     extensionSubscriptions: number;
     accounts: PaymentExtensionAccount[];
+}
+
+interface ARAgingSummary {
+    total: number;
+    current: number;
+    days1to7: number;
+    days8to15: number;
+    days16Plus: number;
+}
+
+interface DisconnectionRiskAccount {
+    id: string;
+    customerName: string;
+    businessUnitName: string;
+    amount: number;
+    dueDate: string | null;
+    promisedDate: string | null;
+    label: string | null;
+    type: 'due_soon' | 'overdue' | 'extension';
+}
+
+interface DisconnectionRiskSummary {
+    dueSoonCount: number;
+    dueSoonAmount: number;
+    overdueCount: number;
+    overdueAmount: number;
+    accounts: DisconnectionRiskAccount[];
+}
+
+interface PaymentExtensionRiskSummary {
+    dueTomorrowCount: number;
+    dueSoonCount: number;
+    overdueCount: number;
+    amountAtRisk: number;
 }
 
 interface SubscriptionStats {
@@ -155,7 +211,7 @@ export default function DashboardPage() {
 
     // Real-time subscriptions for dashboard data
     useMultipleRealtimeSubscriptions(
-        ['customers', 'subscriptions', 'invoices', 'payments', 'expenses'],
+        ['customers', 'subscriptions', 'invoices', 'payments', 'expenses', 'plan_changes'],
         (table, payload) => {
             console.log(`[Dashboard Realtime] ${table} changed:`, payload.eventType);
             // Debounce the refresh to avoid too many calls
@@ -387,7 +443,7 @@ export default function DashboardPage() {
             // Fetch invoices with subscription info to filter
             let currentInvoicesQuery = supabase
                 .from('invoices')
-                .select('id, amount_due, amount_paid, original_amount, discount_applied, credits_applied, payment_status, subscription_id, subscriptions(business_unit_id, balance, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name, monthly_fee))');
+                .select('id, amount_due, amount_paid, original_amount, discount_applied, credits_applied, payment_status, due_date, subscription_id, subscriptions(business_unit_id, balance, label, promised_date, business_units(name), customers!subscriptions_subscriber_id_fkey(name), plans(name, monthly_fee))');
 
             currentInvoicesQuery = applyDateFilter(currentInvoicesQuery, 'due_date', startOfMonth, startOfNextMonth);
 
@@ -397,6 +453,16 @@ export default function DashboardPage() {
             const currentInvoices = selectedBusinessUnit === 'all'
                 ? (currentInvoicesRaw || [])
                 : (currentInvoicesRaw || []).filter(inv => subscriptionIdsForBU.includes(inv.subscription_id));
+
+            const getEffectiveInvoiceAmount = (inv: any) => {
+                return (inv.original_amount && inv.original_amount > 0)
+                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                    : (inv.amount_due || 0);
+            };
+
+            const getInvoiceOutstanding = (inv: any) => {
+                return Math.max(0, getEffectiveInvoiceAmount(inv) - (inv.amount_paid || 0));
+            };
 
             // Current Month Payments for accurate monthly revenue
             let currentPaymentsQuery = supabase
@@ -412,18 +478,11 @@ export default function DashboardPage() {
             const monthlyRevenue = currentPayments.reduce((sum, pmt) => sum + (pmt.amount || 0), 0);
 
             const currentMonthOutstanding = currentInvoices.filter(inv => inv.payment_status !== 'Paid').reduce((sum, inv) => {
-                const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
-                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
-                    : (inv.amount_due || 0);
-                const paid = inv.amount_paid || 0;
-                return sum + Math.max(0, effectiveAmount - paid);
+                return sum + getInvoiceOutstanding(inv);
             }, 0);
             
             const totalBilled = currentInvoices.reduce((sum, inv) => {
-                const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
-                    ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
-                    : (inv.amount_due || 0);
-                return sum + effectiveAmount;
+                return sum + getEffectiveInvoiceAmount(inv);
             }, 0);
             const collectionRate = totalBilled > 0 ? (monthlyRevenue / totalBilled) * 100 : 0;
 
@@ -814,6 +873,120 @@ export default function DashboardPage() {
                     })
             };
 
+            // 16. Collection Risk Widgets (filtered by current dashboard BU/month)
+            const todayOnly = new Date();
+            todayOnly.setHours(0, 0, 0, 0);
+            const msPerDay = 24 * 60 * 60 * 1000;
+            const daysFromToday = (dateString?: string | null) => {
+                if (!dateString) return 0;
+                const date = new Date(`${String(dateString).slice(0, 10)}T00:00:00`);
+                return Math.floor((date.getTime() - todayOnly.getTime()) / msPerDay);
+            };
+
+            const arAging: ARAgingSummary = {
+                total: 0,
+                current: 0,
+                days1to7: 0,
+                days8to15: 0,
+                days16Plus: 0
+            };
+            const dueSoonRiskAccounts: DisconnectionRiskAccount[] = [];
+            const overdueRiskAccounts: DisconnectionRiskAccount[] = [];
+
+            currentInvoices.forEach((inv: any) => {
+                if (inv.payment_status === 'Paid') return;
+
+                const outstanding = getInvoiceOutstanding(inv);
+                if (outstanding <= 0) return;
+
+                const daysUntilDue = daysFromToday(inv.due_date);
+                const overdueDays = Math.abs(Math.min(daysUntilDue, 0));
+                const sub = inv.subscriptions || {};
+                const businessUnitName = Array.isArray(sub.business_units) ? sub.business_units[0]?.name : sub.business_units?.name;
+                const customerName = Array.isArray(sub.customers) ? sub.customers[0]?.name : sub.customers?.name;
+
+                arAging.total += outstanding;
+                if (daysUntilDue >= 0) {
+                    arAging.current += outstanding;
+                } else if (overdueDays <= 7) {
+                    arAging.days1to7 += outstanding;
+                } else if (overdueDays <= 15) {
+                    arAging.days8to15 += outstanding;
+                } else {
+                    arAging.days16Plus += outstanding;
+                }
+
+                const riskAccount: DisconnectionRiskAccount = {
+                    id: inv.id,
+                    customerName: customerName || 'Unknown customer',
+                    businessUnitName: businessUnitName || 'Unknown business unit',
+                    amount: outstanding,
+                    dueDate: inv.due_date || null,
+                    promisedDate: sub.promised_date || null,
+                    label: sub.label || null,
+                    type: daysUntilDue < 0 ? 'overdue' : 'due_soon'
+                };
+
+                if (daysUntilDue < 0) {
+                    overdueRiskAccounts.push(riskAccount);
+                } else if (daysUntilDue <= 3) {
+                    dueSoonRiskAccounts.push(riskAccount);
+                }
+            });
+
+            const paymentExtensionRiskAccounts: DisconnectionRiskAccount[] = paymentExtensionAnalytics.accounts
+                .filter(account => {
+                    const daysUntilPromise = daysFromToday(account.promisedDate);
+                    return daysUntilPromise <= 3 && account.balance > 0;
+                })
+                .map(account => ({
+                    id: account.id,
+                    customerName: account.customerName,
+                    businessUnitName: account.businessUnitName,
+                    amount: account.balance,
+                    dueDate: null,
+                    promisedDate: account.promisedDate,
+                    label: account.label,
+                    type: 'extension' as const
+                }));
+
+            const disconnectionRisk: DisconnectionRiskSummary = {
+                dueSoonCount: dueSoonRiskAccounts.length,
+                dueSoonAmount: dueSoonRiskAccounts.reduce((sum, account) => sum + account.amount, 0),
+                overdueCount: overdueRiskAccounts.length,
+                overdueAmount: overdueRiskAccounts.reduce((sum, account) => sum + account.amount, 0),
+                accounts: [...overdueRiskAccounts, ...paymentExtensionRiskAccounts, ...dueSoonRiskAccounts]
+                    .sort((a, b) => {
+                        const dateA = a.promisedDate || a.dueDate || '9999-12-31';
+                        const dateB = b.promisedDate || b.dueDate || '9999-12-31';
+                        return dateA.localeCompare(dateB);
+                    })
+                    .slice(0, 5)
+            };
+
+            const paymentExtensionRisk: PaymentExtensionRiskSummary = paymentExtensionAnalytics.accounts.reduce((summary, account) => {
+                if (account.balance <= 0) return summary;
+
+                const daysUntilPromise = daysFromToday(account.promisedDate);
+                if (daysUntilPromise < 0) {
+                    summary.overdueCount += 1;
+                    summary.amountAtRisk += account.balance;
+                } else if (daysUntilPromise === 1) {
+                    summary.dueTomorrowCount += 1;
+                    summary.dueSoonCount += 1;
+                    summary.amountAtRisk += account.balance;
+                } else if (daysUntilPromise >= 0 && daysUntilPromise <= 3) {
+                    summary.dueSoonCount += 1;
+                    summary.amountAtRisk += account.balance;
+                }
+                return summary;
+            }, {
+                dueTomorrowCount: 0,
+                dueSoonCount: 0,
+                overdueCount: 0,
+                amountAtRisk: 0
+            });
+
             // Customer Growth (vs last month)
             // Customer Growth (vs last month)
             // Need count of customers created BEFORE startOfMonth
@@ -878,6 +1051,83 @@ export default function DashboardPage() {
                 label: sub.label || null
             }));
 
+            // Upgrade/Downgrade Analytics (filtered by dashboard BU/month)
+            let planChangesQuery = supabase
+                .from('plan_changes')
+                .select(`
+                    id,
+                    request_type,
+                    status,
+                    requested_at,
+                    created_at,
+                    reviewed_at,
+                    requested_old_plan_end_date,
+                    subscription_id,
+                    old_plan:plans!plan_changes_old_plan_id_fkey(name),
+                    new_plan:plans!plan_changes_new_plan_id_fkey(name),
+                    subscriptions!inner(
+                        id,
+                        business_unit_id,
+                        invoice_date,
+                        label,
+                        customers!subscriptions_subscriber_id_fkey(name),
+                        business_units!business_unit_id(name)
+                    )
+                `)
+                .in('request_type', ['upgrade', 'downgrade'])
+                .gte('created_at', startOfMonth)
+                .lt('created_at', startOfNextMonth)
+                .order('created_at', { ascending: false });
+
+            if (malanggamExt30thSubIds !== null) {
+                if (subscriptionIdsForBU.length > 0) {
+                    planChangesQuery = planChangesQuery.in('subscription_id', subscriptionIdsForBU);
+                }
+            } else if (selectedBusinessUnit !== 'all') {
+                planChangesQuery = planChangesQuery.in('subscriptions.business_unit_id', selectedBuIds);
+            }
+
+            const { data: planChangesRaw } = malanggamExt30thSubIds !== null && subscriptionIdsForBU.length === 0
+                ? { data: [] }
+                : await planChangesQuery;
+
+            const planChangeDailyMap: { [key: string]: number } = {};
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), day);
+                const key = dayDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                planChangeDailyMap[key] = 0;
+            }
+
+            (planChangesRaw || []).forEach((request: any) => {
+                const requestDate = request.requested_at || request.created_at
+                    ? new Date(request.requested_at || request.created_at)
+                    : null;
+                if (!requestDate) return;
+
+                const key = requestDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (planChangeDailyMap[key] !== undefined) {
+                    planChangeDailyMap[key]++;
+                }
+            });
+
+            const planChanges = Object.entries(planChangeDailyMap).map(([date, count]) => ({ date, count }));
+            const planChangesTotal = (planChangesRaw || []).length;
+            const planChangesList: PlanChangeDashboardItem[] = (planChangesRaw || []).map((request: any) => ({
+                id: request.id,
+                customerName: request.subscriptions?.customers?.name || 'Unknown customer',
+                businessUnitName: request.subscriptions?.business_units?.name || 'Unknown business unit',
+                oldPlanName: request.old_plan?.name || 'Old plan',
+                newPlanName: request.new_plan?.name || 'New plan',
+                requestType: request.request_type || null,
+                status: request.status || 'pending',
+                requestedAt: request.requested_at || request.created_at,
+                createdAt: request.created_at,
+                reviewedAt: request.reviewed_at || null,
+                oldPlanEndDate: request.requested_old_plan_end_date || null,
+                invoiceDate: request.subscriptions?.invoice_date || null,
+                label: request.subscriptions?.label || null
+            }));
+
             setData({
                 totalCustomers: totalCustomers || 0,
                 activeSubscriptions: activeSubscriptions || 0,
@@ -904,7 +1154,13 @@ export default function DashboardPage() {
                 newInstallations,
                 newInstallationsTotal,
                 newInstallationsList,
-                paymentExtensionAnalytics
+                planChanges,
+                planChangesTotal,
+                planChangesList,
+                paymentExtensionAnalytics,
+                arAging,
+                disconnectionRisk,
+                paymentExtensionRisk
             });
         } catch (error) {
             console.error('Dashboard error:', error);
@@ -1118,6 +1374,13 @@ export default function DashboardPage() {
         { name: 'Collected', amount: data.paymentExtensionAnalytics.collected },
     ];
     const paymentMethodsChartData = data.paymentMethodsBreakdown.filter(pm => pm.total > 0);
+    const arAgingRows = [
+        { label: 'Current', amount: data.arAging.current, color: 'bg-emerald-500', text: 'text-emerald-400' },
+        { label: '1-7 days', amount: data.arAging.days1to7, color: 'bg-yellow-500', text: 'text-yellow-400' },
+        { label: '8-15 days', amount: data.arAging.days8to15, color: 'bg-orange-500', text: 'text-orange-400' },
+        { label: '16+ days', amount: data.arAging.days16Plus, color: 'bg-red-500', text: 'text-red-400' },
+    ];
+    const maxARAging = Math.max(...arAgingRows.map(row => row.amount), 1);
 
     return (
         <div className="space-y-6">
@@ -1335,7 +1598,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                 {/* Left Column - Charts */}
                 <div className="lg:col-span-2 space-y-6">
                     {/* Revenue Trends */}
@@ -1543,7 +1806,7 @@ export default function DashboardPage() {
                                         <p className="text-sm font-medium text-white">Customer / Subscription List</p>
                                         <p className="text-xs text-gray-500">Payment extension</p>
                                     </div>
-                                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                         {data.paymentExtensionAnalytics.accounts.slice(0, 8).map(account => (
                                             <div key={account.id} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
                                                 <div className="flex items-start justify-between gap-3">
@@ -1615,7 +1878,7 @@ export default function DashboardPage() {
                                     <p className="text-sm font-medium text-white">Customer / Subscription List</p>
                                     <p className="text-xs text-gray-500">Last 30 days</p>
                                 </div>
-                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                                     {data.newInstallationsList.map((installation) => (
                                         <div key={installation.id} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
                                             <div className="flex items-start justify-between gap-3">
@@ -1645,6 +1908,154 @@ export default function DashboardPage() {
                                         <p className="text-gray-500 text-center py-4 text-sm">No new installations in the last 30 days</p>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-card p-6">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                    <Activity className="w-5 h-5 text-violet-400" />
+                                    Upgrade/Downgrade
+                                </h3>
+                                <span className="text-sm font-semibold text-violet-400">
+                                    {data.planChangesTotal.toLocaleString()} request(s)
+                                </span>
+                            </div>
+                            <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={data.planChanges}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                        <XAxis
+                                            dataKey="date"
+                                            interval={Math.max(0, Math.floor(data.planChanges.length / 5))}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11 }}
+                                        />
+                                        <YAxis
+                                            allowDecimals={false}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11 }}
+                                        />
+                                        <RechartsTooltip
+                                            formatter={(value: number | string) => `${Number(value) || 0} request(s)`}
+                                            contentStyle={{
+                                                backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                border: '1px solid rgba(139, 92, 246, 0.35)',
+                                                borderRadius: '8px',
+                                                color: '#fff'
+                                            }}
+                                        />
+                                        <Bar dataKey="count" name="Requests" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                            <div className="mt-5 border-t border-gray-800 pt-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-sm font-medium text-white">Upgrade / Downgrade List</p>
+                                    <p className="text-xs text-gray-500">{selectedPeriod}</p>
+                                </div>
+                                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                                    {data.planChangesList.map((request) => (
+                                        <div key={request.id} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-white truncate">{request.customerName}</p>
+                                                    <p className="text-xs text-gray-500 truncate">
+                                                        {request.oldPlanName} to {request.newPlanName}
+                                                        {request.label ? ` (${request.label})` : ''} / {request.businessUnitName}
+                                                    </p>
+                                                </div>
+                                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                                    <span className={`text-[11px] px-2 py-1 rounded-full capitalize ${
+                                                        request.status === 'approved'
+                                                            ? 'bg-emerald-900/30 text-emerald-400'
+                                                            : request.status === 'declined'
+                                                                ? 'bg-red-900/30 text-red-400'
+                                                                : 'bg-amber-900/30 text-amber-400'
+                                                    }`}>
+                                                        {request.status}
+                                                    </span>
+                                                    <span className={`text-[10px] font-semibold capitalize ${
+                                                        request.requestType === 'upgrade' ? 'text-cyan-300' : 'text-fuchsia-300'
+                                                    }`}>
+                                                        {request.requestType || 'change'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                <span>Submitted: {formatShortDate(request.requestedAt)}</span>
+                                                <span>Old plan ends: {formatShortDate(request.oldPlanEndDate)}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {data.planChangesList.length === 0 && (
+                                        <p className="text-gray-500 text-center py-4 text-sm">No upgrade/downgrade requests for this filter</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="glass-card p-6">
+                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                <Banknote className="w-5 h-5 text-emerald-400" />
+                                Payment Methods
+                            </h3>
+                            {paymentMethodsChartData.length > 0 && (
+                                <div className="h-56 mb-4">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={paymentMethodsChartData}
+                                                dataKey="total"
+                                                nameKey="method"
+                                                innerRadius={52}
+                                                outerRadius={84}
+                                                paddingAngle={3}
+                                            >
+                                                {paymentMethodsChartData.map((pm, idx) => (
+                                                    <Cell key={pm.method} fill={PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <RechartsTooltip
+                                                formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
+                                                contentStyle={{
+                                                    backgroundColor: 'rgba(10, 10, 10, 0.95)',
+                                                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                                                    borderRadius: '8px',
+                                                    color: '#fff'
+                                                }}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+                            <div className="space-y-3">
+                                {data.paymentMethodsBreakdown.map((pm, idx) => (
+                                    <div key={idx} className="flex flex-col p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-white font-medium flex items-center gap-2">
+                                                {pm.method === 'GCash' ? (
+                                                    <div className="w-5 h-5 rounded-md bg-blue-500 flex items-center justify-center text-[10px] font-bold text-white">G</div>
+                                                ) : pm.method === 'Maya' ? (
+                                                    <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center text-[10px] font-bold text-black">M</div>
+                                                ) : (
+                                                    <Banknote
+                                                        className="w-4 h-4"
+                                                        style={{ color: PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length] }}
+                                                    />
+                                                )}
+                                                {pm.method}
+                                            </span>
+                                            <span className="text-emerald-400 font-bold">{formatCurrency(pm.total)}</span>
+                                        </div>
+                                        <span className="text-xs text-gray-500">{pm.count} transaction(s)</span>
+                                    </div>
+                                ))}
+                                {data.paymentMethodsBreakdown.length === 0 && (
+                                    <p className="text-gray-500 text-center py-8 text-sm">No payments recorded</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1870,65 +2281,115 @@ export default function DashboardPage() {
                         )}
                     </div>
 
-                    {/* Payment Methods Breakdown */}
+                    {/* AR Aging */}
                     <div className="glass-card p-5">
-                        <h3 className="text-sm text-gray-400 uppercase mb-4">Payment Methods</h3>
-                        {paymentMethodsChartData.length > 0 && (
-                            <div className="h-44 mb-4">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={paymentMethodsChartData}
-                                            dataKey="total"
-                                            nameKey="method"
-                                            innerRadius={44}
-                                            outerRadius={70}
-                                            paddingAngle={3}
-                                        >
-                                            {paymentMethodsChartData.map((pm, idx) => (
-                                                <Cell key={pm.method} fill={PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                        <RechartsTooltip
-                                            formatter={(value: number | string) => formatCurrency(Number(value) || 0)}
-                                            contentStyle={{
-                                                backgroundColor: 'rgba(10, 10, 10, 0.95)',
-                                                border: '1px solid rgba(16, 185, 129, 0.35)',
-                                                borderRadius: '8px',
-                                                color: '#fff'
-                                            }}
-                                        />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                        <div className="flex items-start justify-between gap-3 mb-4">
+                            <div>
+                                <h3 className="text-sm text-gray-400 uppercase">AR Aging</h3>
+                                <p className="text-xs text-gray-500 mt-1">Outstanding invoices by age</p>
                             </div>
-                        )}
+                            <span className="text-lg font-bold text-red-400">{formatCurrency(data.arAging.total)}</span>
+                        </div>
                         <div className="space-y-3">
-                            {data.paymentMethodsBreakdown.map((pm, idx) => (
-                                <div key={idx} className="flex flex-col p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className="text-white font-medium flex items-center gap-2">
-                                            {pm.method === 'GCash' ? (
-                                                <div className="w-5 h-5 rounded-md bg-blue-500 flex items-center justify-center text-[10px] font-bold text-white">G</div>
-                                            ) : pm.method === 'Maya' ? (
-                                                <div className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center text-[10px] font-bold text-black">M</div>
-                                            ) : (
-                                                <Banknote
-                                                    className="w-4 h-4"
-                                                    style={{ color: PAYMENT_METHOD_COLORS[idx % PAYMENT_METHOD_COLORS.length] }}
-                                                />
-                                            )}
-                                            {pm.method}
-                                        </span>
-                                        <span className="text-emerald-400 font-bold">{formatCurrency(pm.total)}</span>
+                            {arAgingRows.map(row => (
+                                <div key={row.label}>
+                                    <div className="flex items-center justify-between text-xs mb-1">
+                                        <span className="text-gray-400">{row.label}</span>
+                                        <span className={`font-semibold ${row.text}`}>{formatCurrency(row.amount)}</span>
                                     </div>
-                                    <span className="text-xs text-gray-500">{pm.count} transaction(s)</span>
+                                    <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full ${row.color} transition-all`}
+                                            style={{ width: row.amount > 0 ? `${Math.max(3, (row.amount / maxARAging) * 100)}%` : '0%' }}
+                                        />
+                                    </div>
                                 </div>
                             ))}
-                            {data.paymentMethodsBreakdown.length === 0 && (
-                                <p className="text-gray-500 text-center py-2 text-sm">No payments recorded</p>
+                        </div>
+                    </div>
+
+                    {/* Due Soon / Disconnection Risk */}
+                    <div className="glass-card p-5">
+                        <div className="flex items-start justify-between gap-3 mb-4">
+                            <div>
+                                <h3 className="text-sm text-gray-400 uppercase">Due Soon / Disconnection Risk</h3>
+                                <p className="text-xs text-gray-500 mt-1">Due in 3 days, overdue, or extension risk</p>
+                            </div>
+                            <AlertCircle className="w-5 h-5 text-red-400" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                            <div className="p-3 bg-amber-900/20 border border-amber-800/50 rounded-lg">
+                                <div className="text-xl font-bold text-amber-400">{data.disconnectionRisk.dueSoonCount}</div>
+                                <div className="text-xs text-gray-500">Due soon</div>
+                                <div className="text-xs text-amber-300 mt-1">{formatCurrency(data.disconnectionRisk.dueSoonAmount)}</div>
+                            </div>
+                            <div className="p-3 bg-red-900/20 border border-red-800/50 rounded-lg">
+                                <div className="text-xl font-bold text-red-400">{data.disconnectionRisk.overdueCount}</div>
+                                <div className="text-xs text-gray-500">Overdue</div>
+                                <div className="text-xs text-red-300 mt-1">{formatCurrency(data.disconnectionRisk.overdueAmount)}</div>
+                            </div>
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                            {data.disconnectionRisk.accounts.map(account => (
+                                <div key={`${account.type}-${account.id}`} className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-medium text-white truncate">{account.customerName}</p>
+                                            <p className="text-xs text-gray-500 truncate">
+                                                {account.businessUnitName}{account.label ? ` (${account.label})` : ''}
+                                            </p>
+                                        </div>
+                                        <span className={`text-[11px] px-2 py-1 rounded-full whitespace-nowrap ${
+                                            account.type === 'overdue'
+                                                ? 'bg-red-900/30 text-red-400'
+                                                : account.type === 'extension'
+                                                    ? 'bg-sky-900/30 text-sky-300'
+                                                    : 'bg-amber-900/30 text-amber-400'
+                                        }`}>
+                                            {account.type === 'extension' ? 'Extension' : account.type === 'overdue' ? 'Overdue' : 'Due soon'}
+                                        </span>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                        <span>{account.promisedDate ? `Promise: ${formatShortDate(account.promisedDate)}` : `Due: ${formatShortDate(account.dueDate)}`}</span>
+                                        <span className="text-red-300 font-semibold">{formatCurrency(account.amount)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                            {data.disconnectionRisk.accounts.length === 0 && (
+                                <p className="text-gray-500 text-center py-4 text-sm">No near-term risk for this filter</p>
                             )}
                         </div>
                     </div>
+
+                    {/* Payment Extension Risk */}
+                    <div className="glass-card p-5">
+                        <div className="flex items-start justify-between gap-3 mb-4">
+                            <div>
+                                <h3 className="text-sm text-gray-400 uppercase">Payment Extension Risk</h3>
+                                <p className="text-xs text-gray-500 mt-1">Promised dates within 3 days or overdue</p>
+                            </div>
+                            <Clock className="w-5 h-5 text-sky-400" />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                <div className="text-lg font-bold text-sky-300">{data.paymentExtensionRisk.dueTomorrowCount}</div>
+                                <div className="text-[11px] text-gray-500">Tomorrow</div>
+                            </div>
+                            <div className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                <div className="text-lg font-bold text-amber-400">{data.paymentExtensionRisk.dueSoonCount}</div>
+                                <div className="text-[11px] text-gray-500">Due soon</div>
+                            </div>
+                            <div className="p-3 bg-[#0a0a0a] rounded-lg border border-gray-800">
+                                <div className="text-lg font-bold text-red-400">{data.paymentExtensionRisk.overdueCount}</div>
+                                <div className="text-[11px] text-gray-500">Overdue</div>
+                            </div>
+                        </div>
+                        <div className="mt-4 flex items-center justify-between border-t border-gray-800 pt-4">
+                            <span className="text-sm text-gray-400">Amount at risk</span>
+                            <span className="text-lg font-bold text-red-400">{formatCurrency(data.paymentExtensionRisk.amountAtRisk)}</span>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 

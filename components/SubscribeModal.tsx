@@ -161,32 +161,55 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
         }
     };
 
-    const checkDuplicateNumber = async () => {
+    const checkDuplicateApplicant = async () => {
         setIsSubmitting(true);
         try {
-            // Check prospects (Open status)
-            const { data: prospectData, error: prospectError } = await supabase
-                .from('prospects')
-                .select('id')
-                .eq('mobile_number', formData.mobileNumber)
-                .eq('status', 'Open')
-                .single();
+            const trimmedName = formData.name.trim();
+            const trimmedMobile = formData.mobileNumber.trim();
 
-            if (prospectData) {
-                setDuplicateMessage('There is already a pending application under this mobile number.');
-                setIsDuplicateModalOpen(true);
-                return true;
-            }
+            const [
+                { data: customersByMobile },
+                { data: customersByName },
+                { data: prospectsByMobile },
+                { data: prospectsByName },
+            ] = await Promise.all([
+                supabase
+                    .from('customers')
+                    .select('id, name, mobile_number')
+                    .eq('mobile_number', trimmedMobile)
+                    .limit(1),
+                supabase
+                    .from('customers')
+                    .select('id, name, mobile_number')
+                    .ilike('name', trimmedName)
+                    .limit(1),
+                supabase
+                    .from('prospects')
+                    .select('id, name, mobile_number, status')
+                    .eq('mobile_number', trimmedMobile)
+                    .limit(1),
+                supabase
+                    .from('prospects')
+                    .select('id, name, mobile_number, status')
+                    .ilike('name', trimmedName)
+                    .limit(1),
+            ]);
 
-            // Check customers
-            const { data: customerData, error: customerError } = await supabase
-                .from('customers')
-                .select('id')
-                .eq('mobile_number', formData.mobileNumber)
-                .single();
+            const duplicateCustomerByMobile = customersByMobile?.[0];
+            const duplicateCustomerByName = customersByName?.[0];
+            const duplicateProspectByMobile = prospectsByMobile?.[0];
+            const duplicateProspectByName = prospectsByName?.[0];
 
-            if (customerData) {
-                setDuplicateMessage('This mobile number is already registered to an existing customer.');
+            if (duplicateCustomerByMobile || duplicateProspectByMobile || duplicateCustomerByName || duplicateProspectByName) {
+                if (duplicateCustomerByMobile) {
+                    setDuplicateMessage(`The mobile number ${trimmedMobile} is already registered to customer "${duplicateCustomerByMobile.name}". Please provide another number before continuing.`);
+                } else if (duplicateProspectByMobile) {
+                    setDuplicateMessage(`The mobile number ${trimmedMobile} already exists in prospects for "${duplicateProspectByMobile.name}" (${duplicateProspectByMobile.status || 'existing'}). Please provide another number before continuing.`);
+                } else if (duplicateCustomerByName) {
+                    setDuplicateMessage(`The name "${trimmedName}" is already registered as a customer with mobile number ${duplicateCustomerByName.mobile_number || 'not set'}. Please verify or use another name before continuing.`);
+                } else if (duplicateProspectByName) {
+                    setDuplicateMessage(`The name "${trimmedName}" already exists in prospects with mobile number ${duplicateProspectByName.mobile_number || 'not set'} (${duplicateProspectByName.status || 'existing'}). Please verify or use another name before continuing.`);
+                }
                 setIsDuplicateModalOpen(true);
                 return true;
             }
@@ -202,7 +225,7 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
 
     const handleNext = async () => {
         if (currentStep === 1) {
-            const isDuplicate = await checkDuplicateNumber();
+            const isDuplicate = await checkDuplicateApplicant();
             if (isDuplicate) return;
         }
 
@@ -303,16 +326,8 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                 'y-coordinates': coordinates?.lat || null
             };
 
-            // Check for existing prospect with same mobile number (Open status)
-            const { data: existingProspect, error: checkError } = await supabase
-                .from('prospects')
-                .select('id')
-                .eq('mobile_number', formData.mobileNumber)
-                .eq('status', 'Open')
-                .single();
-
-            if (existingProspect) {
-                alert('There is already a pending application under this mobile number.');
+            const isDuplicate = await checkDuplicateApplicant();
+            if (isDuplicate) {
                 setIsSubmitting(false);
                 setIsConfirmOpen(false);
                 return;
@@ -794,7 +809,7 @@ export default function SubscribeModal({ isOpen, onClose, isAdmin = false }: Sub
                             <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-rose-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-red-900/30">
                                 <AlertCircle className="w-8 h-8 text-white" />
                             </div>
-                            <h3 className="text-xl font-bold text-white mb-2">Duplicate Number</h3>
+                            <h3 className="text-xl font-bold text-white mb-2">Existing Application Found</h3>
                             <p className="text-gray-400 mb-6">
                                 {duplicateMessage}
                             </p>

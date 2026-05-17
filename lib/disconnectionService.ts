@@ -1,10 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { generateDisconnectionInvoice } from '@/lib/invoiceService';
 
+type DisconnectionReason = 'standard' | 'payment_extension';
+
 export async function processSubscriptionDisconnection(
     subscriptionId: string,
     disconnectionDate: Date,
-    generateInvoice: boolean
+    generateInvoice: boolean,
+    reason: DisconnectionReason = 'standard'
 ): Promise<{
     success: boolean;
     error?: string;
@@ -16,7 +19,7 @@ export async function processSubscriptionDisconnection(
         let amount: number | undefined;
 
         if (generateInvoice) {
-            const invoiceResult = await generateDisconnectionInvoice(subscriptionId, disconnectionDate);
+            const invoiceResult = await generateDisconnectionInvoice(subscriptionId, disconnectionDate, reason);
 
             if (!invoiceResult.success) {
                 return {

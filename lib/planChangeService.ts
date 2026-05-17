@@ -127,6 +127,46 @@ function isDateWithinPlanChangeWindow(date: Date, window: { minDate: string; max
     return dateString >= window.minDate && dateString <= window.maxDate;
 }
 
+export async function getPlanChangeCycleConflict(
+    subscriptionId: string,
+    invoiceDate: string,
+    changeDate: Date,
+    excludePlanChangeId?: string
+): Promise<{ hasConflict: boolean; message?: string }> {
+    const supabase = getSupabaseAdmin();
+    const billingPeriodStart = getBillingPeriodStart(invoiceDate, changeDate);
+    const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, changeDate);
+
+    let query = supabase
+        .from('plan_changes')
+        .select('id, status, billing_period_start, billing_period_end')
+        .eq('subscription_id', subscriptionId)
+        .in('status', ['pending', 'approved'])
+        .eq('billing_period_start', toISODateString(billingPeriodStart))
+        .eq('billing_period_end', toISODateString(billingPeriodEnd))
+        .limit(1);
+
+    if (excludePlanChangeId) {
+        query = query.neq('id', excludePlanChangeId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Failed to check plan-change billing cycle conflict:', error);
+        throw new Error('Unable to validate plan-change billing cycle.');
+    }
+
+    if (!data || data.length === 0) {
+        return { hasConflict: false };
+    }
+
+    return {
+        hasConflict: true,
+        message: `This subscription already has a plan-change request for ${toISODateString(billingPeriodStart)} to ${toISODateString(billingPeriodEnd)}. Another upgrade/downgrade can be requested in the next billing cycle.`
+    };
+}
+
 /**
  * Process a plan change request
  * Creates a prorated invoice for the old plan and records the change
@@ -215,6 +255,16 @@ export async function processPlanChange(
 
         const billingPeriodStart = getBillingPeriodStart(invoiceDate, changeDate);
         const billingPeriodEnd = getBillingPeriodEnd(invoiceDate, changeDate);
+        const cycleConflict = await getPlanChangeCycleConflict(
+            subscriptionId,
+            invoiceDate,
+            changeDate,
+            options.planChangeId
+        );
+
+        if (cycleConflict.hasConflict) {
+            throw new Error(cycleConflict.message || 'This subscription already has a plan change in this billing cycle.');
+        }
 
         // Check for an existing invoice covering this period. If cron/manual
         // already generated the full-month invoice, we convert it to the old
@@ -417,12 +467,8 @@ export async function processPlanChange(
             throw new Error('Failed to update subscription plan');
         }
 
-        if (planChange?.id) {
-            await createNewPlanProratedInvoice({
-                ...planChangeRecord,
-                id: planChange.id
-            });
-        }
+        // Keep processed=false. The next invoice-generation cron will create
+        // the new-plan prorated invoice for the remaining days in this period.
 
         // Return result
         let resultInvoice = undefined;
@@ -510,6 +556,11 @@ export async function createNewPlanProratedInvoice(
         const { amount } = calculateProratedAmountForDays(planChange.new_monthly_fee, daysOnNewPlan);
 
         if (amount <= 0) {
+            await supabase
+                .from('plan_changes')
+                .update({ processed: true })
+                .eq('id', planChange.id);
+
             return null;
         }
 
@@ -521,6 +572,31 @@ export async function createNewPlanProratedInvoice(
             .single();
 
         const description = `${newPlan?.name || 'Plan'} (Prorated: ${daysOnNewPlan} days from ${planChange.change_date} to ${planChange.billing_period_end}) - After plan change`;
+
+        const { data: existingInvoice, error: existingError } = await supabase
+            .from('invoices')
+            .select('id, amount_due')
+            .eq('subscription_id', planChange.subscription_id)
+            .eq('from_date', planChange.change_date)
+            .eq('to_date', planChange.billing_period_end)
+            .maybeSingle();
+
+        if (existingError) {
+            console.error('Failed to check existing new plan prorated invoice:', existingError);
+            return null;
+        }
+
+        if (existingInvoice) {
+            await supabase
+                .from('plan_changes')
+                .update({ processed: true })
+                .eq('id', planChange.id);
+
+            return {
+                invoiceId: existingInvoice.id,
+                amount: Number(existingInvoice.amount_due) || amount
+            };
+        }
 
         // Create invoice
         const { data: invoice, error } = await supabase

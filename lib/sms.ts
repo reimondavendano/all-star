@@ -192,6 +192,22 @@ export const SMSTemplates = {
         return message;
     },
 
+    paymentExtensionDisconnected: (customerName: string, businessUnit: string, totalAmount: number, outstandingBalance: number, proratedCharges: number, portalLink: string) => {
+        let message = `Hi ${customerName}!\n\n`;
+        message += `Your ${businessUnit} internet service has been disconnected because your payment extension ended and payment was not received.\n\n`;
+        message += `Amount to Reconnect: P${Math.round(totalAmount).toLocaleString()}`;
+
+        if (outstandingBalance > 0 && proratedCharges > 0) {
+            message += ` (Outstanding Balance: P${Math.round(outstandingBalance).toLocaleString()} + Pro-rated Charges: P${Math.round(proratedCharges).toLocaleString()})`;
+        }
+
+        message += `\n\nView your account & pay online:\n${portalLink}\n`;
+        message += `\nPlease settle this amount to restore your internet service.\n\n`;
+        message += `Thank you! - Allstar`;
+
+        return message;
+    },
+
     paymentReceived: (customerName: string, amount: number, newBalance: number, portalLink: string) => {
         let message = `PAYMENT RECEIVED\n\n`;
         message += `Hi ${customerName}!\n\n`;

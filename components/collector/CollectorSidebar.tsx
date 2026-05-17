@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import {
     Users,
     FileText,
@@ -11,17 +12,21 @@ import {
     X,
     CreditCard,
     CheckCircle,
-    DollarSign
+    DollarSign,
+    ArrowUpDown
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
+import { getPendingPlanChangeRequestCount } from '@/app/actions/planChangeRequests';
 
 const navigation = [
-    { name: 'Invoices & Payments', href: '/collector/invoices', icon: FileText },
-    { name: 'E-Payment Verification', href: '/collector/verification', icon: CheckCircle },
-    { name: 'Expenses', href: '/collector/expenses', icon: DollarSign },
-    { name: 'Customers & Subscriptions', href: '/collector/customers', icon: Users },
-    { name: 'Locations', href: '/collector/locations', icon: MapPin },
+    { name: 'Invoices & Payments', href: '/collector/invoices', icon: FileText, badge: null },
+    { name: 'E-Payment Verification', href: '/collector/verification', icon: CheckCircle, badge: null },
+    { name: 'Expenses', href: '/collector/expenses', icon: DollarSign, badge: null },
+    { name: 'Customers & Subscriptions', href: '/collector/customers', icon: Users, badge: null },
+    { name: 'Upgrade/Downgrade Requests', href: '/collector/plan-change-requests', icon: ArrowUpDown, badge: 'planChangeRequests' },
+    { name: 'Locations', href: '/collector/locations', icon: MapPin, badge: null },
 ];
 
 interface CollectorSidebarProps {
@@ -32,6 +37,35 @@ interface CollectorSidebarProps {
 export default function CollectorSidebar({ isOpen = true, onClose }: CollectorSidebarProps) {
     const pathname = usePathname();
     const { logout, user } = useAuth();
+    const [planChangeRequestCount, setPlanChangeRequestCount] = useState(0);
+
+    const fetchCounts = useCallback(async () => {
+        try {
+            const requestsCount = await getPendingPlanChangeRequestCount();
+            setPlanChangeRequestCount(requestsCount);
+        } catch (error) {
+            console.error('Error fetching collector plan-change count:', error);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchCounts();
+    }, [fetchCounts]);
+
+    useEffect(() => {
+        window.addEventListener('plan-change-requests:changed', fetchCounts);
+        return () => window.removeEventListener('plan-change-requests:changed', fetchCounts);
+    }, [fetchCounts]);
+
+    useRealtimeSubscription({
+        table: 'plan_changes',
+        onAny: fetchCounts
+    });
+
+    const getBadgeCount = (badgeType: string | null) => {
+        if (badgeType === 'planChangeRequests') return planChangeRequestCount;
+        return 0;
+    };
 
     return (
         <>
@@ -81,6 +115,8 @@ export default function CollectorSidebar({ isOpen = true, onClose }: CollectorSi
                 <nav className="flex-1 px-4 space-y-2">
                     {navigation.map((item) => {
                         const isActive = pathname.startsWith(item.href);
+                        const badgeCount = getBadgeCount(item.badge);
+                        const showBadge = badgeCount > 0;
                         return (
                             <Link
                                 key={item.name}
@@ -94,7 +130,12 @@ export default function CollectorSidebar({ isOpen = true, onClose }: CollectorSi
                                 )}
                             >
                                 <item.icon className={clsx("w-5 h-5 mr-3 transition-transform duration-300 group-hover:scale-110")} />
-                                <span className="relative z-10">{item.name}</span>
+                                <span className="relative z-10 flex-1">{item.name}</span>
+                                {showBadge && (
+                                    <span className="relative z-10 ml-2 px-2 py-0.5 text-xs font-bold bg-orange-500 text-white rounded-full shadow-[0_0_10px_rgba(249,115,22,0.5)]">
+                                        {badgeCount > 99 ? '99+' : badgeCount}
+                                    </span>
+                                )}
                             </Link>
                         );
                     })}
