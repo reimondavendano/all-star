@@ -80,6 +80,7 @@ interface Invoice {
 interface Payment {
     id: string;
     subscription_id: string;
+    invoice_id?: string | null;
     settlement_date: string;
     amount: number;
     mode: 'Cash' | 'E-Wallet' | 'Referral Credit';
@@ -87,6 +88,39 @@ interface Payment {
 }
 
 type PaymentExtensionFilter = 'all' | 'extension' | 'non-extension';
+type ReportFilterMode = 'month' | 'billing-date-range' | 'date-range';
+type InvoiceSortBy = 'name' | 'payment_date' | 'business_unit' | 'total_due' | 'invoice_status' | 'payment_arrangement';
+type SortDirection = 'asc' | 'desc';
+
+const BUSINESS_UNIT_CYCLE_FILTERS = {
+    malanggam_extension_30th: 'Malanggam + Extension (30th)',
+    extension_15th: 'Extension (15th)'
+} as const;
+
+type BusinessUnitCycleFilter = keyof typeof BUSINESS_UNIT_CYCLE_FILTERS;
+
+const isBusinessUnitCycleFilter = (value: string): value is BusinessUnitCycleFilter =>
+    value in BUSINESS_UNIT_CYCLE_FILTERS;
+
+const getSubscriptionBusinessUnitName = (subscription?: { business_units?: any }) => {
+    const unit = subscription?.business_units as any;
+    return Array.isArray(unit) ? unit[0]?.name || '' : unit?.name || '';
+};
+
+const isExtension15thCycle = (invoiceDate: string | null | undefined) =>
+    !invoiceDate || invoiceDate === '15th';
+
+const matchesBusinessUnitFilter = (subscription: { business_units?: any; invoice_date?: string | null }, selectedFilter: string) => {
+    if (!isBusinessUnitCycleFilter(selectedFilter)) return true;
+
+    const businessUnitName = getSubscriptionBusinessUnitName(subscription).toLowerCase();
+    if (selectedFilter === 'malanggam_extension_30th') {
+        return businessUnitName.includes('malanggam') ||
+            (businessUnitName.includes('extension') && subscription.invoice_date === '30th');
+    }
+
+    return businessUnitName.includes('extension') && isExtension15thCycle(subscription.invoice_date);
+};
 
 interface GroupedData {
     customer: Customer;
@@ -104,13 +138,21 @@ interface GroupedData {
 export default function InvoicesPaymentsPage() {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
     const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
+    const [reportFilterMode, setReportFilterMode] = useState<ReportFilterMode>('month');
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
     const [statusFilter, setStatusFilter] = useState<'all' | 'Paid' | 'Unpaid' | 'Partially Paid'>('all');
     const [paymentExtensionFilter, setPaymentExtensionFilter] = useState<PaymentExtensionFilter>('all');
+    const [billingDateFrom, setBillingDateFrom] = useState('');
+    const [billingDateTo, setBillingDateTo] = useState('');
+    const [paymentDateFrom, setPaymentDateFrom] = useState('');
+    const [paymentDateTo, setPaymentDateTo] = useState('');
+    const [sortBy, setSortBy] = useState<InvoiceSortBy>('payment_date');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
     const [expandedSubscriptions, setExpandedSubscriptions] = useState<Set<string>>(new Set());
+    const [showReportPreview, setShowReportPreview] = useState(false);
 
     // Search and Pagination
     const [searchQuery, setSearchQuery] = useState('');
@@ -175,7 +217,14 @@ export default function InvoicesPaymentsPage() {
 
     useEffect(() => {
         fetchData();
-    }, [selectedBusinessUnit, selectedMonth, statusFilter, paymentExtensionFilter]);
+    }, [selectedBusinessUnit, reportFilterMode, selectedMonth, statusFilter, paymentExtensionFilter, billingDateFrom, billingDateTo, paymentDateFrom, paymentDateTo]);
+
+    useEffect(() => {
+        if (reportFilterMode === 'date-range') {
+            if (statusFilter !== 'all') setStatusFilter('all');
+            if (sortBy === 'invoice_status') setSortBy('payment_date');
+        }
+    }, [reportFilterMode, statusFilter, sortBy]);
 
     // Real-time subscription for invoices and payments
     useMultipleRealtimeSubscriptions(
@@ -256,6 +305,8 @@ export default function InvoicesPaymentsPage() {
             const [year, month] = selectedMonth.split('-');
             const selectedYear = parseInt(year);
             const selectedMonthNum = parseInt(month);
+            const hasPaymentDateFilter = reportFilterMode === 'date-range';
+            const hasBillingDateRangeFilter = reportFilterMode === 'billing-date-range';
 
             // Wide range for fetching to cover 15th cycle (prev month 16th)
             // Fetch from start of previous month to end of current month
@@ -304,7 +355,7 @@ export default function InvoicesPaymentsPage() {
             // Exclude free subscriptions (handle NULL as false)
             subscriptionsQuery = subscriptionsQuery.or('is_free.is.null,is_free.eq.false');
 
-            if (selectedBusinessUnit !== 'all') {
+            if (selectedBusinessUnit !== 'all' && !isBusinessUnitCycleFilter(selectedBusinessUnit)) {
                 subscriptionsQuery = subscriptionsQuery.eq('business_unit_id', selectedBusinessUnit);
             }
 
@@ -313,6 +364,7 @@ export default function InvoicesPaymentsPage() {
             if (subError) throw subError;
 
             const filteredSubscriptions = (subscriptions || []).filter(sub => {
+                if (isBusinessUnitCycleFilter(selectedBusinessUnit) && !matchesBusinessUnitFilter(sub, selectedBusinessUnit)) return false;
                 const hasPaymentExtension = Boolean(sub.promised_date);
                 if (paymentExtensionFilter === 'extension') return hasPaymentExtension;
                 if (paymentExtensionFilter === 'non-extension') return !hasPaymentExtension;
@@ -334,7 +386,14 @@ export default function InvoicesPaymentsPage() {
                 .select('*')
                 .in('subscription_id', subIds);
 
-            if (statusFilter === 'Paid') {
+            if (hasPaymentDateFilter) {
+                // Payment-date filtering is driven by payments.settlement_date, so keep invoices broad
+                // and narrow the visible rows after payments are loaded.
+            } else if (hasBillingDateRangeFilter) {
+                if (billingDateFrom) invoicesQuery = invoicesQuery.gte('due_date', billingDateFrom);
+                if (billingDateTo) invoicesQuery = invoicesQuery.lte('due_date', billingDateTo);
+                if (statusFilter !== 'all') invoicesQuery = invoicesQuery.eq('payment_status', statusFilter);
+            } else if (statusFilter === 'Paid') {
                 // Fetch ALL paid invoices regardless of date range
                 invoicesQuery = invoicesQuery.eq('payment_status', 'Paid');
             } else if (statusFilter !== 'all') {
@@ -346,17 +405,39 @@ export default function InvoicesPaymentsPage() {
 
             const { data: invoices } = await invoicesQuery;
 
-            // Fetch all payments for these subscriptions in this period
-            const { data: payments } = await supabase
+            // Fetch payments for the selected billing month, or the explicit payment-date range.
+            let paymentsQuery = supabase
                 .from('payments')
                 .select('*')
-                .in('subscription_id', subIds)
-                .gte('settlement_date', fetchStartDate)
-                .lte('settlement_date', fetchEndDate);
+                .in('subscription_id', subIds);
+
+            if (hasPaymentDateFilter) {
+                if (paymentDateFrom) paymentsQuery = paymentsQuery.gte('settlement_date', paymentDateFrom);
+                if (paymentDateTo) paymentsQuery = paymentsQuery.lte('settlement_date', paymentDateTo);
+            } else if (!hasBillingDateRangeFilter) {
+                paymentsQuery = paymentsQuery
+                    .gte('settlement_date', fetchStartDate)
+                    .lte('settlement_date', fetchEndDate);
+            }
+
+            const { data: payments } = await paymentsQuery;
+            const paidInvoiceIdsForStats = new Set((payments || []).map(payment => payment.invoice_id).filter(Boolean));
+            const invoiceIdsForStats = new Set((invoices || [])
+                .filter(inv => {
+                    if (hasPaymentDateFilter) return paidInvoiceIdsForStats.has(inv.id);
+                    if (hasBillingDateRangeFilter) {
+                        return (!billingDateFrom || inv.due_date >= billingDateFrom) &&
+                            (!billingDateTo || inv.due_date <= billingDateTo);
+                    }
+                    return inv.due_date.startsWith(selectedMonth);
+                })
+                .map(inv => inv.id));
 
             // Calculate Monthly Stats (Strict Calendar Month)
             const statsBilled = (invoices || []).reduce((sum, inv) => {
-                if (inv.due_date.startsWith(selectedMonth)) {
+                const isInReport = invoiceIdsForStats.has(inv.id);
+
+                if (isInReport) {
                     const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
                         ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
                         : inv.amount_due;
@@ -366,7 +447,13 @@ export default function InvoicesPaymentsPage() {
             }, 0);
 
             const statsCollected = (payments || []).reduce((sum, p) => {
-                if (p.settlement_date.startsWith(selectedMonth)) {
+                const inSelectedRange = hasPaymentDateFilter
+                    ? (!paymentDateFrom || p.settlement_date >= paymentDateFrom) && (!paymentDateTo || p.settlement_date <= paymentDateTo)
+                    : hasBillingDateRangeFilter
+                        ? Boolean(p.invoice_id && invoiceIdsForStats.has(p.invoice_id))
+                        : p.settlement_date.startsWith(selectedMonth);
+
+                if (inSelectedRange) {
                     // Exclude "Referral Credit" payments from collected value
                     if (p.mode !== 'Referral Credit') {
                         return sum + p.amount;
@@ -376,7 +463,8 @@ export default function InvoicesPaymentsPage() {
             }, 0);
 
             const statsUnpaidCount = (invoices || []).filter(inv => {
-                if (!inv.due_date.startsWith(selectedMonth)) return false;
+                const isInReport = invoiceIdsForStats.has(inv.id);
+                if (!isInReport) return false;
 
                 const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
                     ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
@@ -398,20 +486,62 @@ export default function InvoicesPaymentsPage() {
                 if (!customer) continue;
 
                 const subInvoices = (invoices || []).filter(inv => inv.subscription_id === sub.id);
-                const subPayments = (payments || []).filter(pay => pay.subscription_id === sub.id);
+                const subPayments = (payments || [])
+                    .filter(pay => pay.subscription_id === sub.id)
+                    .sort((a, b) => new Date(b.settlement_date).getTime() - new Date(a.settlement_date).getTime());
 
                 // Get business unit name for this subscription
                 const buData = sub.business_units as any;
                 const buName = Array.isArray(buData) ? buData[0]?.name : buData?.name || '';
 
                 // Filter invoices for the selected billing period
-                const periodInvoices = filterInvoicesForPeriod(
-                    subInvoices,
-                    buName,
-                    (sub as any).invoice_date,
-                    selectedYear,
-                    selectedMonthNum
-                );
+                const periodInvoicesBase = hasBillingDateRangeFilter
+                    ? subInvoices.filter(inv =>
+                        (!billingDateFrom || inv.due_date >= billingDateFrom) &&
+                        (!billingDateTo || inv.due_date <= billingDateTo)
+                    )
+                    : filterInvoicesForPeriod(
+                        subInvoices,
+                        buName,
+                        (sub as any).invoice_date,
+                        selectedYear,
+                        selectedMonthNum
+                    );
+                const paidInvoiceIdsInRange = new Set(subPayments.map(payment => payment.invoice_id).filter(Boolean));
+                let periodInvoices = hasPaymentDateFilter
+                    ? subInvoices.filter(inv => paidInvoiceIdsInRange.has(inv.id))
+                    : periodInvoicesBase;
+
+                if (hasPaymentDateFilter && periodInvoices.length === 0 && subPayments.length > 0) {
+                    periodInvoices = periodInvoicesBase.length > 0
+                        ? periodInvoicesBase
+                        : subInvoices.filter(inv => (inv.amount_paid || 0) > 0 || inv.payment_status === 'Paid');
+                }
+
+                if (statusFilter !== 'all') {
+                    periodInvoices = periodInvoices.filter(inv => {
+                        const effectiveAmount = (inv.original_amount && inv.original_amount > 0)
+                            ? Math.max(0, inv.original_amount - (inv.discount_applied || 0) - (inv.credits_applied || 0))
+                            : inv.amount_due;
+                        const paid = Math.round((inv.amount_paid || 0) * 100);
+                        const due = Math.round(effectiveAmount * 100);
+                        const effectiveStatus = paid >= due && due > 0
+                            ? 'Paid'
+                            : paid > 0 && paid < due
+                                ? 'Partially Paid'
+                                : inv.payment_status;
+                        return effectiveStatus === statusFilter;
+                    });
+                }
+
+                periodInvoices = periodInvoices.sort((a, b) => {
+                    const latestA = subPayments.find(payment => payment.invoice_id === a.id)?.settlement_date;
+                    const latestB = subPayments.find(payment => payment.invoice_id === b.id)?.settlement_date;
+                    if (latestA || latestB) {
+                        return new Date(latestB || '1900-01-01').getTime() - new Date(latestA || '1900-01-01').getTime();
+                    }
+                    return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
+                });
 
                 // ONLY include subscriptions that have invoices for the current period
                 if (periodInvoices.length === 0) continue;
@@ -420,7 +550,12 @@ export default function InvoicesPaymentsPage() {
                 if (sub.promised_date) {
                     extensionToCollect += Number(sub.balance) || 0;
                     extensionCollected += subPayments.reduce((sum, payment) => {
-                        if (!payment.settlement_date?.startsWith(selectedMonth)) return sum;
+                        const inSelectedRange = hasPaymentDateFilter
+                            ? (!paymentDateFrom || payment.settlement_date >= paymentDateFrom) && (!paymentDateTo || payment.settlement_date <= paymentDateTo)
+                            : hasBillingDateRangeFilter
+                                ? Boolean(payment.invoice_id && invoiceIdsForStats.has(payment.invoice_id))
+                                : payment.settlement_date?.startsWith(selectedMonth);
+                        if (!inSelectedRange) return sum;
                         if (payment.mode === 'Referral Credit') return sum;
                         return sum + (Number(payment.amount) || 0);
                     }, 0);
@@ -447,7 +582,19 @@ export default function InvoicesPaymentsPage() {
             // Convert to array and sort - only include customers with subscriptions that have invoices
             const grouped = Array.from(customerMap.values())
                 .filter(g => g.subscriptions.length > 0)
-                .sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+                .sort((a, b) => {
+                    const latestA = Math.max(
+                        0,
+                        ...a.subscriptions.flatMap(sub => sub.payments.map(payment => new Date(payment.settlement_date).getTime()))
+                    );
+                    const latestB = Math.max(
+                        0,
+                        ...b.subscriptions.flatMap(sub => sub.payments.map(payment => new Date(payment.settlement_date).getTime()))
+                    );
+
+                    if (latestA !== latestB) return latestB - latestA;
+                    return a.customer.name.localeCompare(b.customer.name);
+                });
 
             setGroupedData(grouped);
             setMonthlyStats({
@@ -468,7 +615,7 @@ export default function InvoicesPaymentsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBusinessUnit, selectedMonth, statusFilter, paymentExtensionFilter]);
+    }, [selectedBusinessUnit, reportFilterMode, selectedMonth, statusFilter, paymentExtensionFilter, billingDateFrom, billingDateTo, paymentDateFrom, paymentDateTo]);
 
     const toggleCustomer = (customerId: string) => {
         const newSet = new Set(expandedCustomers);
@@ -707,6 +854,79 @@ export default function InvoicesPaymentsPage() {
         }
     };
 
+    const getLatestInvoicePayment = (payments: Payment[], invoice: Invoice) => {
+        return payments
+            .filter(payment =>
+                payment.invoice_id === invoice.id ||
+                (!payment.invoice_id && payment.settlement_date >= invoice.from_date)
+            )
+            .sort((a, b) => new Date(b.settlement_date).getTime() - new Date(a.settlement_date).getTime())[0];
+    };
+
+    const selectedBusinessUnitLabel = selectedBusinessUnit === 'all'
+        ? 'All Business Units'
+        : isBusinessUnitCycleFilter(selectedBusinessUnit)
+            ? BUSINESS_UNIT_CYCLE_FILTERS[selectedBusinessUnit]
+        : businessUnits.find(bu => bu.id === selectedBusinessUnit)?.name || 'Selected Business Unit';
+    const selectedPeriodLabel = reportFilterMode === 'month'
+        ? new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        : reportFilterMode === 'billing-date-range'
+            ? `${billingDateFrom || 'Start'} to ${billingDateTo || 'Today'}`
+            : `${paymentDateFrom || 'Start'} to ${paymentDateTo || 'Today'}`;
+    const selectedArrangementLabel = paymentExtensionFilter === 'extension'
+        ? 'Customers with payment extension'
+        : paymentExtensionFilter === 'non-extension'
+            ? 'Regular billing customers'
+            : 'All payment arrangements';
+    const selectedStatusLabel = statusFilter === 'all' ? 'All statuses' : statusFilter;
+    const sortByLabel = {
+        name: 'Customer Name',
+        payment_date: 'Payment Date',
+        business_unit: 'Business Unit',
+        total_due: 'Total Due',
+        invoice_status: 'Invoice Status',
+        payment_arrangement: 'Payment Arrangement'
+    }[sortBy];
+
+    const getGroupLatestPaymentTime = (group: GroupedData) => Math.max(
+        0,
+        ...group.subscriptions.flatMap(sub => sub.payments.map(payment => new Date(payment.settlement_date).getTime()))
+    );
+
+    const getGroupBusinessUnitName = (group: GroupedData) => {
+        return getSubscriptionBusinessUnitName(group.subscriptions[0]?.subscription);
+    };
+
+    const getGroupTotalDue = (group: GroupedData) =>
+        group.subscriptions.reduce((sum, sub) => sum + (Number(sub.totalDue) || 0), 0);
+
+    const getGroupStatusText = (group: GroupedData) => {
+        const statuses = group.subscriptions.flatMap(sub => sub.periodInvoices.map(inv => getEffectiveStatus(inv)));
+        if (statuses.includes('Unpaid')) return 'Unpaid';
+        if (statuses.includes('Partially Paid')) return 'Partially Paid';
+        if (statuses.includes('Pending Verification')) return 'Pending Verification';
+        if (statuses.includes('Paid')) return 'Paid';
+        return 'No Invoice';
+    };
+
+    const getSortValue = (group: GroupedData) => {
+        switch (sortBy) {
+            case 'payment_date':
+                return getGroupLatestPaymentTime(group);
+            case 'business_unit':
+                return getGroupBusinessUnitName(group).toLowerCase();
+            case 'total_due':
+                return getGroupTotalDue(group);
+            case 'invoice_status':
+                return getGroupStatusText(group);
+            case 'payment_arrangement':
+                return group.subscriptions.some(sub => Boolean(sub.subscription.promised_date)) ? 'With extension' : 'No extension';
+            case 'name':
+            default:
+                return group.customer.name.toLowerCase();
+        }
+    };
+
     // Month options for filter
     const currentYear = new Date().getFullYear();
     const months: { value: string; label: string }[] = [];
@@ -719,13 +939,136 @@ export default function InvoicesPaymentsPage() {
     }
 
     // Filter and paginate
-    const filteredData = groupedData.filter(group =>
-        group.customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        group.customer.mobile_number?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredData = groupedData
+        .filter(group =>
+            group.customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            group.customer.mobile_number?.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .sort((a, b) => {
+            const aValue = getSortValue(a);
+            const bValue = getSortValue(b);
+            const direction = sortDirection === 'asc' ? 1 : -1;
+
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return (aValue - bValue) * direction;
+            }
+
+            return String(aValue).localeCompare(String(bValue)) * direction;
+        });
     const totalPages = Math.ceil(filteredData.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const paginatedData = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+    const escapeReportHtml = (value: unknown) =>
+        String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[char] || char));
+
+    const downloadReport = () => {
+        const rows = filteredData.flatMap(group =>
+            group.subscriptions.map(({ subscription, payments, periodInvoices, totalDue }) => {
+                const latestPayment = payments[0];
+                const unit = subscription.business_units as any;
+                const businessUnitName = Array.isArray(unit) ? unit[0]?.name || '' : unit?.name || '';
+                return {
+                    customer: group.customer.name,
+                    phone: group.customer.mobile_number || '',
+                    businessUnit: businessUnitName || '-',
+                    plan: subscription.plans?.name || 'Unknown Plan',
+                    location: subscription.label || subscription.address || 'No location',
+                    latestPayment: latestPayment
+                        ? `${new Date(latestPayment.settlement_date).toLocaleDateString()} - ${latestPayment.mode} - PHP ${Math.round(latestPayment.amount).toLocaleString()}`
+                        : 'No payment',
+                    balance: `PHP ${Math.round(totalDue).toLocaleString()}`,
+                    status: periodInvoices.length ? periodInvoices.map(inv => getEffectiveStatus(inv)).join(', ') : 'No invoice',
+                    arrangement: subscription.promised_date ? `With extension (${new Date(subscription.promised_date).toLocaleDateString()})` : 'No extension'
+                };
+            })
+        );
+
+        const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Invoices & Payments Report</title>
+<style>
+body{font-family:Arial,sans-serif;margin:32px;color:#111}
+h1{margin:0 0 4px;font-size:22px}
+.muted{color:#555;font-size:12px}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}
+.box{border:1px solid #ddd;border-radius:8px;padding:10px}
+.label{font-size:11px;color:#666;text-transform:uppercase}
+.value{font-weight:700;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}
+th{background:#f3f4f6;text-transform:uppercase;font-size:11px}
+@media print{body{margin:16px}.no-print{display:none}}
+</style>
+</head>
+<body>
+<button class="no-print" onclick="window.print()">Print / Save PDF</button>
+<h1>Invoices & Payments Report</h1>
+<div class="muted">Generated ${new Date().toLocaleString()}</div>
+<div class="summary">
+<div class="box"><div class="label">Period</div><div class="value">${escapeReportHtml(selectedPeriodLabel)}</div></div>
+<div class="box"><div class="label">Business Unit</div><div class="value">${escapeReportHtml(selectedBusinessUnitLabel)}</div></div>
+<div class="box"><div class="label">Arrangement</div><div class="value">${escapeReportHtml(selectedArrangementLabel)}</div></div>
+<div class="box"><div class="label">Order</div><div class="value">${escapeReportHtml(`${sortByLabel} ${sortDirection.toUpperCase()}`)}</div></div>
+</div>
+<div class="summary">
+<div class="box"><div class="label">Total Billed</div><div class="value">PHP ${Math.round(monthlyStats.billed).toLocaleString()}</div></div>
+<div class="box"><div class="label">Collected</div><div class="value">PHP ${Math.round(monthlyStats.collected).toLocaleString()}</div></div>
+<div class="box"><div class="label">Unpaid</div><div class="value">${monthlyStats.unpaidCount}</div></div>
+<div class="box"><div class="label">Customers Shown</div><div class="value">${filteredData.length}</div></div>
+</div>
+<table>
+<thead><tr><th>Customer</th><th>Business Unit</th><th>Plan / Location</th><th>Latest Payment</th><th>Balance</th><th>Status</th><th>Arrangement</th></tr></thead>
+<tbody>
+${rows.map(row => `<tr>
+<td><strong>${escapeReportHtml(row.customer)}</strong><br><span class="muted">${escapeReportHtml(row.phone)}</span></td>
+<td>${escapeReportHtml(row.businessUnit)}</td>
+<td>${escapeReportHtml(row.plan)}<br><span class="muted">${escapeReportHtml(row.location)}</span></td>
+<td>${escapeReportHtml(row.latestPayment)}</td>
+<td>${escapeReportHtml(row.balance)}</td>
+<td>${escapeReportHtml(row.status)}</td>
+<td>${escapeReportHtml(row.arrangement)}</td>
+</tr>`).join('')}
+</tbody>
+</table>
+</body>
+</html>`;
+
+        const reportFileName = `invoices-payments-report-${selectedPeriodLabel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.html`;
+        const openPrintableReport = () => {
+            const reportWindow = window.open('', '_blank');
+            if (!reportWindow) return false;
+            reportWindow.document.open();
+            reportWindow.document.write(html);
+            reportWindow.document.close();
+            reportWindow.document.title = reportFileName;
+            return true;
+        };
+        const isIosLike = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        if (isIosLike && openPrintableReport()) {
+            return;
+        }
+
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = reportFileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    };
 
     // Stats
     // Stats are now computed in fetchData and stored in monthlyStats state
@@ -804,94 +1147,352 @@ export default function InvoicesPaymentsPage() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-800">
-                    <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-gray-500" />
-                        <select
-                            value={selectedBusinessUnit}
-                            onChange={(e) => setSelectedBusinessUnit(e.target.value)}
-                            className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
-                        >
-                            <option value="all">All Business Units</option>
-                            {businessUnits.map(bu => (
-                                <option key={bu.id} value={bu.id}>{bu.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-gray-500" />
-                        <select
-                            value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(e.target.value)}
-                            className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
-                        >
-                            {months.slice(0, 24).map(m => (
-                                <option key={m.value} value={m.value}>{m.label}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-gray-500" />
-                        <select
-                            value={paymentExtensionFilter}
-                            onChange={(e) => {
-                                setPaymentExtensionFilter(e.target.value as PaymentExtensionFilter);
-                                setCurrentPage(1);
-                            }}
-                            className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
-                        >
-                            <option value="all">All</option>
-                            <option value="extension">Payment Extension</option>
-                            <option value="non-extension">Non-Extension</option>
-                        </select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">Status:</span>
-                        <div className="flex gap-1">
-                            {(['all', 'Unpaid', 'Partially Paid', 'Paid'] as const).map(status => (
-                                <button
-                                    key={status}
-                                    onClick={() => setStatusFilter(status)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === status
-                                        ? status === 'Paid' ? 'bg-emerald-600 text-white'
-                                            : status === 'Partially Paid' ? 'bg-amber-600 text-white'
-                                                : status === 'Unpaid' ? 'bg-red-600 text-white'
-                                                    : 'bg-purple-600 text-white'
-                                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                                        }`}
-                                >
-                                    {status === 'all' ? 'All' : status}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 ml-auto">
-                        <div className="relative">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                            <input
-                                type="text"
-                                placeholder="Search customer..."
-                                value={searchQuery}
+                <div className="mt-4 space-y-4 border-t border-gray-800 pt-4">
+                    <div className="flex flex-wrap items-end gap-2">
+                        <label className="w-full space-y-1 sm:w-40">
+                            <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                                <Building2 className="h-3.5 w-3.5" />
+                                Business Unit
+                            </span>
+                            <select
+                                value={selectedBusinessUnit}
                                 onChange={(e) => {
-                                    setSearchQuery(e.target.value);
+                                    setSelectedBusinessUnit(e.target.value);
                                     setCurrentPage(1);
                                 }}
-                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500 w-48"
-                            />
-                        </div>
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                            >
+                                <option value="all">All Business Units</option>
+                                {businessUnits.map(bu => (
+                                    <option key={bu.id} value={bu.id}>{bu.name}</option>
+                                ))}
+                                <option value="malanggam_extension_30th">Malanggam + Extension (30th)</option>
+                                <option value="extension_15th">Extension (15th)</option>
+                            </select>
+                        </label>
+
+                        <label className="w-full space-y-1 sm:w-36">
+                            <span className="text-xs text-gray-500">Filter By</span>
+                            <select
+                                value={reportFilterMode}
+                                onChange={(e) => {
+                                    const mode = e.target.value as ReportFilterMode;
+                                    setReportFilterMode(mode);
+                                    setCurrentPage(1);
+                                    if (mode === 'billing-date-range' && !billingDateFrom && !billingDateTo) {
+                                        const [year, month] = selectedMonth.split('-').map(Number);
+                                        const lastDay = new Date(year, month, 0).getDate();
+                                        setBillingDateFrom(`${year}-${String(month).padStart(2, '0')}-01`);
+                                        setBillingDateTo(`${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`);
+                                    }
+                                    if (mode === 'date-range' && !paymentDateFrom && !paymentDateTo) {
+                                        const [year, month] = selectedMonth.split('-').map(Number);
+                                        const lastDay = new Date(year, month, 0).getDate();
+                                        setPaymentDateFrom(`${year}-${String(month).padStart(2, '0')}-01`);
+                                        setPaymentDateTo(`${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`);
+                                    }
+                                }}
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                            >
+                                <option value="month">Billing Month</option>
+                                <option value="billing-date-range">Billing Date Range</option>
+                                <option value="date-range">Payment Date Range</option>
+                            </select>
+                        </label>
+
+                        {reportFilterMode === 'month' ? (
+                            <label className="w-full space-y-1 sm:w-36">
+                                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    Billing Month
+                                </span>
+                                <select
+                                    value={selectedMonth}
+                                    onChange={(e) => {
+                                        setSelectedMonth(e.target.value);
+                                        setCurrentPage(1);
+                                    }}
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                                >
+                                    {months.slice(0, 24).map(m => (
+                                        <option key={m.value} value={m.value}>{m.label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                        ) : (
+                            <div className="w-full space-y-1 sm:w-[260px]">
+                                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    {reportFilterMode === 'billing-date-range' ? 'Billing Date Range' : 'Payment Date Range'}
+                                </span>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input
+                                        type="date"
+                                        value={reportFilterMode === 'billing-date-range' ? billingDateFrom : paymentDateFrom}
+                                        onChange={(e) => {
+                                            if (reportFilterMode === 'billing-date-range') {
+                                                setBillingDateFrom(e.target.value);
+                                            } else {
+                                                setPaymentDateFrom(e.target.value);
+                                            }
+                                            setCurrentPage(1);
+                                        }}
+                                        className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                                    />
+                                    <input
+                                        type="date"
+                                        value={reportFilterMode === 'billing-date-range' ? billingDateTo : paymentDateTo}
+                                        min={(reportFilterMode === 'billing-date-range' ? billingDateFrom : paymentDateFrom) || undefined}
+                                        onChange={(e) => {
+                                            if (reportFilterMode === 'billing-date-range') {
+                                                setBillingDateTo(e.target.value);
+                                            } else {
+                                                setPaymentDateTo(e.target.value);
+                                            }
+                                            setCurrentPage(1);
+                                        }}
+                                        className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <label className="w-full space-y-1 sm:w-44">
+                            <span className="text-xs text-gray-500">Payment Arrangement</span>
+                            <select
+                                value={paymentExtensionFilter}
+                                onChange={(e) => {
+                                    setPaymentExtensionFilter(e.target.value as PaymentExtensionFilter);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                            >
+                                <option value="all">All customers</option>
+                                <option value="extension">With extension</option>
+                                <option value="non-extension">No extension</option>
+                            </select>
+                        </label>
+
+                        {reportFilterMode !== 'date-range' && (
+                            <label className="w-full space-y-1 sm:w-36">
+                                <span className="text-xs text-gray-500">Invoice Status</span>
+                                <select
+                                    value={statusFilter}
+                                    onChange={(e) => {
+                                        setStatusFilter(e.target.value as typeof statusFilter);
+                                        setCurrentPage(1);
+                                    }}
+                                    className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                                >
+                                    <option value="all">All statuses</option>
+                                    <option value="Unpaid">Unpaid</option>
+                                    <option value="Partially Paid">Partially Paid</option>
+                                    <option value="Paid">Paid</option>
+                                </select>
+                            </label>
+                        )}
+
+                        <label className="w-full space-y-1 sm:w-40">
+                            <span className="text-xs text-gray-500">Order By</span>
+                            <select
+                                value={sortBy}
+                                onChange={(e) => {
+                                    setSortBy(e.target.value as InvoiceSortBy);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                            >
+                                <option value="payment_date">Payment Date</option>
+                                <option value="name">Customer Name</option>
+                                <option value="business_unit">Business Unit</option>
+                                <option value="total_due">Total Due</option>
+                                {reportFilterMode !== 'date-range' && <option value="invoice_status">Invoice Status</option>}
+                                <option value="payment_arrangement">Payment Arrangement</option>
+                            </select>
+                        </label>
+
+                        <label className="w-full space-y-1 sm:w-24">
+                            <span className="text-xs text-gray-500">Direction</span>
+                            <select
+                                value={sortDirection}
+                                onChange={(e) => {
+                                    setSortDirection(e.target.value as SortDirection);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                            >
+                                <option value="desc">DESC</option>
+                                <option value="asc">ASC</option>
+                            </select>
+                        </label>
+
+                        <label className="w-full flex-1 space-y-1 sm:min-w-44">
+                            <span className="text-xs text-gray-500">Search</span>
+                            <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search..."
+                                        value={searchQuery}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            setCurrentPage(1);
+                                        }}
+                                        className="w-full bg-[#1a1a1a] border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                                    />
+                                </div>
+                                <button
+                                    onClick={fetchData}
+                                    className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                                    title="Refresh report"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                                </button>
+                            </div>
+                        </label>
+
                         <button
-                            onClick={fetchData}
-                            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                            onClick={() => setShowReportPreview(true)}
+                            className="w-full rounded-lg border border-blue-700/50 bg-blue-900/30 px-4 py-2 text-sm font-medium text-blue-100 transition-colors hover:bg-blue-800/40 sm:w-auto"
                         >
-                            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                            Preview Report
                         </button>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="font-semibold text-blue-200">Report View</span>
+                            <span className="rounded-full bg-blue-900/40 px-2.5 py-1 text-blue-100">{selectedPeriodLabel}</span>
+                            <span className="rounded-full bg-gray-800 px-2.5 py-1 text-gray-200">{selectedBusinessUnitLabel}</span>
+                            <span className="rounded-full bg-gray-800 px-2.5 py-1 text-gray-200">{selectedArrangementLabel}</span>
+                            <span className="rounded-full bg-gray-800 px-2.5 py-1 text-gray-200">{selectedStatusLabel}</span>
+                            <span className="rounded-full bg-gray-800 px-2.5 py-1 text-gray-200">Order: {sortByLabel} {sortDirection.toUpperCase()}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-blue-200/70">
+                            Payment arrangement means customers with a promised payment date. Use "With extension" to track accounts that were allowed to pay later.
+                        </p>
                     </div>
                 </div>
             </div>
+
+            {showReportPreview && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowReportPreview(false)} />
+                    <div className="relative w-full max-w-6xl max-h-[88vh] overflow-hidden rounded-2xl border border-gray-800 bg-[#0a0a0a] shadow-2xl">
+                        <div className="flex items-start justify-between border-b border-gray-800 p-5">
+                            <div>
+                                <h2 className="text-xl font-bold text-white">Invoices & Payments Report Preview</h2>
+                                <p className="mt-1 text-sm text-gray-400">Review the filtered list before using it for collection or reporting.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={downloadReport}
+                                    className="rounded-lg border border-emerald-700/50 bg-emerald-900/30 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-800/40"
+                                >
+                                    Download Report
+                                </button>
+                                <button
+                                    onClick={() => setShowReportPreview(false)}
+                                    className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+                                >
+                                    <X className="h-5 w-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="max-h-[calc(88vh-88px)] overflow-auto p-5">
+                            <div className="rounded-xl border border-gray-800 bg-[#111111] p-4">
+                                <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                                    <div>
+                                        <div className="text-xs uppercase text-gray-500">Period</div>
+                                        <div className="font-semibold text-white">{selectedPeriodLabel}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs uppercase text-gray-500">Business Unit</div>
+                                        <div className="font-semibold text-white">{selectedBusinessUnitLabel}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs uppercase text-gray-500">Arrangement</div>
+                                        <div className="font-semibold text-white">{selectedArrangementLabel}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs uppercase text-gray-500">Order</div>
+                                        <div className="font-semibold text-white">{sortByLabel} {sortDirection.toUpperCase()}</div>
+                                    </div>
+                                </div>
+                                <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+                                    <div className="rounded-lg bg-purple-950/30 p-3">
+                                        <div className="text-xs text-purple-300">Total Billed</div>
+                                        <div className="text-lg font-bold text-purple-100">₱{Math.round(monthlyStats.billed).toLocaleString()}</div>
+                                    </div>
+                                    <div className="rounded-lg bg-emerald-950/30 p-3">
+                                        <div className="text-xs text-emerald-300">Collected</div>
+                                        <div className="text-lg font-bold text-emerald-100">₱{Math.round(monthlyStats.collected).toLocaleString()}</div>
+                                    </div>
+                                    <div className="rounded-lg bg-red-950/30 p-3">
+                                        <div className="text-xs text-red-300">Unpaid</div>
+                                        <div className="text-lg font-bold text-red-100">{monthlyStats.unpaidCount}</div>
+                                    </div>
+                                    <div className="rounded-lg bg-sky-950/30 p-3">
+                                        <div className="text-xs text-sky-300">Customers Shown</div>
+                                        <div className="text-lg font-bold text-sky-100">{filteredData.length}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 overflow-hidden rounded-xl border border-gray-800">
+                                <table className="w-full min-w-[980px] text-sm">
+                                    <thead className="bg-[#1a1a1a] text-xs uppercase text-gray-500">
+                                        <tr>
+                                            <th className="p-3 text-left">Customer</th>
+                                            <th className="p-3 text-left">Business Unit</th>
+                                            <th className="p-3 text-left">Plan / Location</th>
+                                            <th className="p-3 text-left">Latest Payment</th>
+                                            <th className="p-3 text-right">Balance</th>
+                                            <th className="p-3 text-left">Status</th>
+                                            <th className="p-3 text-left">Arrangement</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800">
+                                        {filteredData.flatMap(group =>
+                                            group.subscriptions.map(({ subscription, payments, periodInvoices, totalDue }) => {
+                                                const latestPayment = payments[0];
+                                                return (
+                                                    <tr key={`${group.customer.id}-${subscription.id}`} className="text-gray-300">
+                                                        <td className="p-3">
+                                                            <div className="font-medium text-white">{group.customer.name}</div>
+                                                            <div className="text-xs text-gray-500">{group.customer.mobile_number || 'No phone'}</div>
+                                                        </td>
+                                                        <td className="p-3">{getGroupBusinessUnitName({ customer: group.customer, subscriptions: [{ subscription, invoices: [], periodInvoices, payments, totalPaid: 0, totalDue, balance: totalDue }] }) || '-'}</td>
+                                                        <td className="p-3">
+                                                            <div>{subscription.plans?.name || 'Unknown Plan'}</div>
+                                                            <div className="text-xs text-gray-500">{subscription.label || subscription.address || 'No location'}</div>
+                                                        </td>
+                                                        <td className="p-3">
+                                                            {latestPayment ? (
+                                                                <div>
+                                                                    <div className="text-emerald-300">{new Date(latestPayment.settlement_date).toLocaleDateString()}</div>
+                                                                    <div className="text-xs text-gray-500">{latestPayment.mode} • ₱{Math.round(latestPayment.amount).toLocaleString()}</div>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-gray-600">No payment</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-3 text-right font-semibold text-white">₱{Math.round(totalDue).toLocaleString()}</td>
+                                                        <td className="p-3">{periodInvoices.length ? periodInvoices.map(inv => getEffectiveStatus(inv)).join(', ') : 'No invoice'}</td>
+                                                        <td className="p-3">{subscription.promised_date ? `With extension (${new Date(subscription.promised_date).toLocaleDateString()})` : 'No extension'}</td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Data Table */}
             <div className="glass-card overflow-hidden">
@@ -907,7 +1508,7 @@ export default function InvoicesPaymentsPage() {
                         {(() => {
                             const monthLabel = new Date(selectedMonth + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
                             const buName = selectedBusinessUnit !== 'all'
-                                ? businessUnits.find(b => b.id === selectedBusinessUnit)?.name
+                                ? selectedBusinessUnitLabel
                                 : null;
 
                             // Different messages based on active filters
@@ -1094,6 +1695,7 @@ export default function InvoicesPaymentsPage() {
                                                                 <thead className="bg-[#1a1a1a]">
                                                                     <tr className="text-gray-400 text-xs">
                                                                         <th className="text-left p-3">Due Date</th>
+                                                                        <th className="text-left p-3">Payment Date</th>
                                                                         <th className="text-left p-3">Period</th>
                                                                         <th className="text-right p-3">Amount</th>
                                                                         <th className="text-center p-3">Status</th>
@@ -1119,7 +1721,7 @@ export default function InvoicesPaymentsPage() {
 
                                                                             return (
                                                                                 <tr className="bg-amber-950/20 hover:bg-amber-950/30 transition-colors">
-                                                                                    <td colSpan={4} className="p-3 text-center border-b border-gray-800/50">
+                                                                                    <td colSpan={5} className="p-3 text-center border-b border-gray-800/50">
                                                                                         <div className="flex items-center justify-center gap-2 text-amber-500/90 text-xs">
                                                                                             <AlertCircle className="w-3 h-3" />
                                                                                             <span>
@@ -1136,16 +1738,28 @@ export default function InvoicesPaymentsPage() {
                                                                     })()}
                                                                     {periodInvoices.length === 0 ? (
                                                                         <tr>
-                                                                            <td colSpan={4} className="p-4 text-center text-gray-500">
+                                                                            <td colSpan={5} className="p-4 text-center text-gray-500">
                                                                                 No invoices for this period
                                                                             </td>
                                                                         </tr>
                                                                     ) : (
-                                                                        periodInvoices.map(invoice => (
-                                                                            <tr key={invoice.id} className="hover:bg-[#151515]">
-                                                                                <td className="p-3 text-white">
-                                                                                    {new Date(invoice.due_date).toLocaleDateString()}
-                                                                                </td>
+                                                                        periodInvoices.map(invoice => {
+                                                                            const latestPayment = getLatestInvoicePayment(payments, invoice);
+                                                                            return (
+                                                                                <tr key={invoice.id} className="hover:bg-[#151515]">
+                                                                                    <td className="p-3 text-white">
+                                                                                        {new Date(invoice.due_date).toLocaleDateString()}
+                                                                                    </td>
+                                                                                    <td className="p-3">
+                                                                                        {latestPayment ? (
+                                                                                            <div>
+                                                                                                <div className="text-emerald-300">{new Date(latestPayment.settlement_date).toLocaleDateString()}</div>
+                                                                                                <div className="text-[10px] text-gray-500">{latestPayment.mode} • ₱{Math.round(latestPayment.amount).toLocaleString()}</div>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <span className="text-gray-600">-</span>
+                                                                                        )}
+                                                                                    </td>
                                                                                 <td className="p-3 text-gray-400">
                                                                                     {new Date(invoice.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(invoice.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                                                                     {invoice.is_prorated && (
@@ -1165,7 +1779,8 @@ export default function InvoicesPaymentsPage() {
                                                                                     </span>
                                                                                 </td>
                                                                             </tr>
-                                                                        ))
+                                                                            );
+                                                                        })
                                                                     )}
                                                                 </tbody>
                                                             </table>

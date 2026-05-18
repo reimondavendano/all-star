@@ -12,7 +12,7 @@ import ProspectConfirmationModal from './ProspectConfirmationModal';
 import ProspectSuccessModal from './ProspectSuccessModal';
 import MikrotikInputModal, { MikrotikData } from './MikrotikInputModal';
 import { addPppSecret } from '@/app/actions/mikrotik';
-import { buildSmsCustomerPortalLink } from '@/lib/portalLinks';
+import { sendWelcomeSubscriptionSms, type SmsDeliveryStatus } from '@/lib/clientWelcomeSms';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
     ssr: false,
@@ -74,6 +74,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [selectedStatus, setSelectedStatus] = useState<ProspectStatus | null>(null);
     const [mikrotikData, setMikrotikData] = useState<MikrotikData | null>(null);
+    const [smsStatus, setSmsStatus] = useState<SmsDeliveryStatus | null>(null);
 
     const [formData, setFormData] = useState({
         subscriber_id: '',
@@ -316,6 +317,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
             }
 
             // Send welcome SMS if Closed Won
+            setSmsStatus(null);
             if (selectedStatus === 'Closed Won' && subscriptionData) {
                 try {
                     // Get customer and plan details
@@ -331,32 +333,19 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                         .eq('id', formData.plan_id)
                         .single();
 
-                    if (customer?.mobile_number && plan) {
-                        // Use API route to send SMS (client-side can't access server env vars)
-                        const smsResponse = await fetch('/api/sms/send', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                to: customer.mobile_number,
-                                template: 'newSubscription',
-                                templateData: {
-                                    customerName: customer.name,
-                                    planName: plan.name,
-                                    amount: plan.monthly_fee,
-                                    portalLink: buildSmsCustomerPortalLink(formData.subscriber_id)
-                                }
-                            })
-                        });
-                        const smsResult = await smsResponse.json();
-                        if (!smsResult.success) {
-                            console.warn('Welcome SMS not sent:', smsResult.error);
-                        } else {
-                            console.log('Welcome SMS sent successfully');
-                        }
-                    }
+                    setSmsStatus(await sendWelcomeSubscriptionSms({
+                        to: customer?.mobile_number,
+                        customerId: formData.subscriber_id,
+                        customerName: customer?.name || selectedCustomer?.name || 'Customer',
+                        planName: plan?.name || 'Internet Plan',
+                        amount: plan?.monthly_fee || 0
+                    }));
                 } catch (smsError) {
                     console.error('Error sending welcome SMS:', smsError);
-                    // Don't fail the whole operation
+                    setSmsStatus({
+                        type: 'warning',
+                        message: `Customer was created, but welcome SMS was not sent: ${smsError instanceof Error ? smsError.message : 'Failed to prepare SMS details'}.`
+                    });
                 }
             }
 
@@ -403,6 +392,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
         setShowSuccessModal(false);
         setSelectedStatus(null);
         setMikrotikData(null);
+        setSmsStatus(null);
         onClose();
     };
 
@@ -973,6 +963,7 @@ export default function AddSubscriptionModal({ isOpen, onClose, onSuccess, initi
                     onClose={handleSuccessClose}
                     status={selectedStatus}
                     customerName={selectedCustomer.name}
+                    smsStatus={smsStatus}
                 />
             )}
         </div>

@@ -1,20 +1,23 @@
 'use client';
 
-import { CheckCircle, XCircle, Clock, X } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, X, MessageSquareWarning } from 'lucide-react';
 import type { ProspectStatus } from './ProspectStatusModal';
+import type { SmsDeliveryStatus } from '@/lib/clientWelcomeSms';
 
 interface ProspectSuccessModalProps {
     isOpen: boolean;
     onClose: () => void;
     status: ProspectStatus;
     customerName: string;
+    smsStatus?: SmsDeliveryStatus | null;
 }
 
 export default function ProspectSuccessModal({
     isOpen,
     onClose,
     status,
-    customerName
+    customerName,
+    smsStatus
 }: ProspectSuccessModalProps) {
     if (!isOpen) return null;
 
@@ -101,6 +104,16 @@ export default function ProspectSuccessModal({
                             Status: {status}
                         </span>
                     </div>
+
+                    {smsStatus && (
+                        <div className={`mb-6 flex items-start gap-3 rounded-lg border p-3 text-left ${smsStatus.type === 'success'
+                            ? 'border-green-500/40 bg-green-500/10 text-green-200'
+                            : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                            }`}>
+                            <MessageSquareWarning className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                            <p className="text-sm leading-relaxed">{smsStatus.message}</p>
+                        </div>
+                    )}
 
                     {/* Action Button */}
                     <button

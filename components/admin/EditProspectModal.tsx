@@ -5,7 +5,7 @@ import { X, User, Phone, MapPin, Home, Landmark as LandmarkIcon, Wifi, Calendar,
 import { supabase } from '@/lib/supabase';
 import { addPppSecret } from '@/app/actions/mikrotik';
 import { validatePhilippineMobileNumber } from '@/lib/validation';
-import { buildSmsCustomerPortalLink } from '@/lib/portalLinks';
+import { sendWelcomeSubscriptionSms, type SmsDeliveryStatus } from '@/lib/clientWelcomeSms';
 import dynamic from 'next/dynamic';
 
 const MapPicker = dynamic(() => import('@/components/admin/MapPicker'), {
@@ -62,6 +62,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     const [showPppModal, setShowPppModal] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [reason, setReason] = useState('');
+    const [smsStatus, setSmsStatus] = useState<SmsDeliveryStatus | null>(null);
 
     // PPP Secret form state
     const [pppForm, setPppForm] = useState({
@@ -120,6 +121,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             } else {
                 setCoordinates(null);
             }
+            setSmsStatus(null);
             // Initialize form data from prospect
             let initialDate = prospect.installation_date;
             if (!initialDate || initialDate < minDate) {
@@ -424,6 +426,7 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
     const handleConfirmApprove = async () => {
         setIsLoading(true);
         setPppError('');
+        setSmsStatus(null);
 
         try {
             // 0. Optionally add PPP secret to MikroTik (only if checkbox is checked)
@@ -629,31 +632,21 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
             if (prospectError) throw prospectError;
 
             // 5. Send welcome SMS to new subscriber
-            if (prospect.mobile_number) {
-                try {
-                    const planInfo = plans[prospect.plan_id];
-                    const smsResponse = await fetch('/api/sms/send', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            to: prospect.mobile_number,
-                            template: 'newSubscription',
-                            templateData: {
-                                customerName: prospect.name,
-                                planName: planInfo?.name || 'Internet Plan',
-                                amount: planInfo?.monthly_fee || 0,
-                                portalLink: buildSmsCustomerPortalLink(customerId)
-                            }
-                        })
-                    });
-                    const smsResult = await smsResponse.json();
-                    if (!smsResult.success) {
-                        console.warn('Welcome SMS not sent:', smsResult.error);
-                    }
-                } catch (smsError) {
-                    console.error('Error sending welcome SMS:', smsError);
-                    // Don't fail the operation for SMS errors
-                }
+            try {
+                const planInfo = plans[prospect.plan_id];
+                setSmsStatus(await sendWelcomeSubscriptionSms({
+                    to: prospect.mobile_number,
+                    customerId,
+                    customerName: prospect.name,
+                    planName: planInfo?.name || 'Internet Plan',
+                    amount: planInfo?.monthly_fee || 0
+                }));
+            } catch (smsError) {
+                console.error('Error sending welcome SMS:', smsError);
+                setSmsStatus({
+                    type: 'warning',
+                    message: `Customer was created, but welcome SMS was not sent: ${smsError instanceof Error ? smsError.message : 'Failed to prepare SMS details'}.`
+                });
             }
 
             setShowSuccess(true);
@@ -1375,6 +1368,15 @@ export default function EditProspectModal({ isOpen, onClose, prospect, onUpdate 
                                     ? 'Prospect has been updated with the reason.'
                                     : 'Prospect has been successfully approved and converted to a customer.'}
                             </p>
+                            {smsStatus && (
+                                <div className={`mb-6 flex w-full items-start gap-3 rounded-lg border p-3 text-left ${smsStatus.type === 'success'
+                                    ? 'border-green-500/40 bg-green-500/10 text-green-200'
+                                    : 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                                    }`}>
+                                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                                    <p className="text-sm leading-relaxed">{smsStatus.message}</p>
+                                </div>
+                            )}
                             <button
                                 onClick={handleSuccessClose}
                                 className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"

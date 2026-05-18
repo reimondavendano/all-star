@@ -6,6 +6,7 @@ import { processActivation } from '@/app/actions/activation';
 import { supabase } from '@/lib/supabase';
 import { addPppSecret, checkMikrotikStatus } from '@/app/actions/mikrotik';
 import { getMikrotikProfileForPlan } from '@/lib/mikrotikProfiles';
+import { sendWelcomeSubscriptionSms } from '@/lib/clientWelcomeSms';
 
 interface ActivationModalProps {
     isOpen: boolean;
@@ -207,16 +208,37 @@ export default function ActivationModal({ isOpen, onClose, subscription, onConfi
             if (subscription.subscriber_id) {
                 const { data: customer } = await supabase
                     .from('customers')
-                    .select('mobile_number')
+                    .select('name, mobile_number')
                     .eq('id', subscription.subscriber_id)
                     .single();
 
                 if (customer?.mobile_number) {
-                    await supabase
+                    const { data: convertedProspects } = await supabase
                         .from('prospects')
                         .update({ status: 'Closed Won' })
                         .eq('mobile_number', customer.mobile_number)
-                        .eq('status', 'Open');
+                        .eq('status', 'Open')
+                        .select('id');
+
+                    if ((convertedProspects?.length || 0) > 0) {
+                        const { data: plan } = await supabase
+                            .from('plans')
+                            .select('name, monthly_fee')
+                            .eq('name', subscription.plan_name || '')
+                            .maybeSingle();
+
+                        const smsStatus = await sendWelcomeSubscriptionSms({
+                            to: customer.mobile_number,
+                            customerId: subscription.subscriber_id,
+                            customerName: customer.name || subscription.customer_name || 'Customer',
+                            planName: plan?.name || subscription.plan_name || 'Internet Plan',
+                            amount: plan?.monthly_fee || 0
+                        });
+
+                        if (smsStatus.type !== 'success') {
+                            console.warn('[Activation] Welcome SMS not sent:', smsStatus.message);
+                        }
+                    }
                 }
             }
 
