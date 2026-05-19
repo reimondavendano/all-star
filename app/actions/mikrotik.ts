@@ -243,6 +243,14 @@ async function addViaBinary(target: string, secretData: any) {
     }, target);
 }
 
+function normalizePppUsername(username: string) {
+    return (username || '').replace(/\s+/g, '').trim();
+}
+
+function isSamePppUsername(a: string, b: string) {
+    return normalizePppUsername(a).toLowerCase() === normalizePppUsername(b).toLowerCase();
+}
+
 
 export async function addPppSecret(secretData: { name: string, password: string, service: string, profile: string, comment?: string, enabled?: boolean }) {
     try {
@@ -251,6 +259,7 @@ export async function addPppSecret(secretData: { name: string, password: string,
         // Ensure enabled is set (default to true if not provided)
         const dataToSend = {
             ...secretData,
+            name: normalizePppUsername(secretData.name),
             disabled: secretData.enabled === false ? 'true' : 'false'
         };
         // Remove enabled from the data since MikroTik uses 'disabled' instead
@@ -289,22 +298,23 @@ export async function togglePppConnection(
 ) {
     try {
         checkCredentials();
+        const lookupUsername = normalizePppUsername(username);
 
-        console.log(`[PPP] ${enable ? 'Enabling' : 'Disabling'} PPP secret: ${username}`);
+        console.log(`[PPP] ${enable ? 'Enabling' : 'Disabling'} PPP secret: ${lookupUsername}`);
 
         // 1. Try REST API (Tunnel)
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
                 const secrets = await fetchRestData(host || '', 'ppp/secret');
-                const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
+                const secret = Array.isArray(secrets) ? secrets.find((s: any) => isSamePppUsername(s.name, lookupUsername)) : null;
 
                 if (!secret) {
                     if (enable && createData) {
-                        console.log(`[PPP] Secret "${username}" not found, creating it now...`);
-                        return await addPppSecret({ name: username, ...createData });
+                        console.log(`[PPP] Secret "${lookupUsername}" not found, creating it now...`);
+                        return await addPppSecret({ name: lookupUsername, ...createData });
                     }
-                    return { success: false, error: `PPP secret "${username}" not found` };
+                    return { success: false, error: `PPP secret "${lookupUsername}" not found` };
                 }
 
                 // Update the secret's disabled status
@@ -315,14 +325,14 @@ export async function togglePppConnection(
                 // If disabling, also remove any active connection
                 if (!enable) {
                     const activeConnections = await fetchRestData(host || '', 'ppp/active');
-                    const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => a.name === username) : null;
+                    const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => isSamePppUsername(a.name, lookupUsername)) : null;
                     if (activeConn) {
-                        console.log(`[PPP] Removing active connection for ${username}`);
+                        console.log(`[PPP] Removing active connection for ${lookupUsername}`);
                         await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
                     }
                 }
 
-                console.log(`[PPP] Successfully ${enable ? 'enabled' : 'disabled'} ${username}`);
+                console.log(`[PPP] Successfully ${enable ? 'enabled' : 'disabled'} ${lookupUsername}`);
                 return { success: true };
             } catch (error: any) {
                 console.error(`[PPP] REST toggle failed: ${error.message}`);
@@ -338,17 +348,21 @@ export async function togglePppConnection(
 
         return await withBinaryConnection(async (client) => {
             // Find the secret
-            const secrets = await client.write('/ppp/secret/print', ['?name=' + username]);
+            let secrets = await client.write('/ppp/secret/print', ['?name=' + lookupUsername]);
+            if (!secrets || secrets.length === 0) {
+                const allSecrets = await client.write('/ppp/secret/print');
+                secrets = Array.isArray(allSecrets) ? allSecrets.filter((s: any) => isSamePppUsername(s.name, lookupUsername)) : [];
+            }
             if (!secrets || secrets.length === 0) {
                 if (enable && createData) {
-                    console.log(`[PPP] Secret "${username}" not found (Binary), creating it now...`);
+                    console.log(`[PPP] Secret "${lookupUsername}" not found (Binary), creating it now...`);
                     // We can call addPppSecret, but it might cycle. 
                     // Better to use addViaBinary directly if we know target.
                     // But addPppSecret handles credentials.
                     // Let's call addPppSecret to be safe and consistent.
-                    return await addPppSecret({ name: username, ...createData });
+                    return await addPppSecret({ name: lookupUsername, ...createData });
                 }
-                return { success: false, error: `PPP secret "${username}" not found` };
+                return { success: false, error: `PPP secret "${lookupUsername}" not found` };
             }
 
             const secretId = secrets[0]['.id'];
@@ -361,14 +375,18 @@ export async function togglePppConnection(
 
             // If disabling, remove active connection
             if (!enable) {
-                const activeConns = await client.write('/ppp/active/print', ['?name=' + username]);
+                let activeConns = await client.write('/ppp/active/print', ['?name=' + lookupUsername]);
+                if (!activeConns || activeConns.length === 0) {
+                    const allActive = await client.write('/ppp/active/print');
+                    activeConns = Array.isArray(allActive) ? allActive.filter((a: any) => isSamePppUsername(a.name, lookupUsername)) : [];
+                }
                 if (activeConns && activeConns.length > 0) {
-                    console.log(`[PPP] Removing active connection for ${username}`);
+                    console.log(`[PPP] Removing active connection for ${lookupUsername}`);
                     await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
                 }
             }
 
-            console.log(`[PPP] Successfully ${enable ? 'enabled' : 'disabled'} ${username}`);
+            console.log(`[PPP] Successfully ${enable ? 'enabled' : 'disabled'} ${lookupUsername}`);
             return { success: true };
         }, target);
 
@@ -383,35 +401,40 @@ export async function togglePppConnection(
 export async function updatePppSecret(username: string, updates: any) {
     try {
         checkCredentials();
+        const lookupUsername = normalizePppUsername(username);
+        const updatesToSend = {
+            ...updates,
+            ...(updates.name ? { name: normalizePppUsername(updates.name) } : {})
+        };
 
-        console.log(`[PPP] Updating PPP secret ${username}:`, updates);
+        console.log(`[PPP] Updating PPP secret ${lookupUsername}:`, updatesToSend);
 
         // 1. Try REST API (Tunnel)
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // First, find the secret by name
                 const secrets = await fetchRestData(host || '', 'ppp/secret');
-                const secret = Array.isArray(secrets) ? secrets.find((s: any) => s.name === username) : null;
+                const secret = Array.isArray(secrets) ? secrets.find((s: any) => isSamePppUsername(s.name, lookupUsername)) : null;
 
                 if (!secret) {
-                    return { success: false, error: `PPP secret "${username}" not found` };
+                    return { success: false, error: `PPP secret "${lookupUsername}" not found` };
                 }
 
                 // Update the secret
-                await fetchRestData(host || '', `ppp/secret/${secret['.id']}`, 'PATCH', updates);
+                await fetchRestData(host || '', `ppp/secret/${secret['.id']}`, 'PATCH', updatesToSend);
 
                 // If profile changed, remove active connection to enforce new profile immediately (optional, or let it apply on reconnect)
                 // Often better to kick the user so they reconnect with new profile
                 if (updates.profile) {
                     const activeConnections = await fetchRestData(host || '', 'ppp/active');
-                    const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => a.name === username) : null;
+                    const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => isSamePppUsername(a.name, lookupUsername)) : null;
                     if (activeConn) {
-                        console.log(`[PPP] Removing active connection for ${username} to apply profile change`);
+                        console.log(`[PPP] Removing active connection for ${lookupUsername} to apply profile change`);
                         await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
                     }
                 }
 
-                console.log(`[PPP] Successfully updated ${username}`);
+                console.log(`[PPP] Successfully updated ${lookupUsername}`);
                 return { success: true };
             } catch (error: any) {
                 console.error(`[PPP] REST update failed: ${error.message}`);
@@ -423,17 +446,21 @@ export async function updatePppSecret(username: string, updates: any) {
 
         return await withBinaryConnection(async (client) => {
             // Find the secret
-            const secrets = await client.write('/ppp/secret/print', ['?name=' + username]);
+            let secrets = await client.write('/ppp/secret/print', ['?name=' + lookupUsername]);
             if (!secrets || secrets.length === 0) {
-                return { success: false, error: `PPP secret "${username}" not found` };
+                const allSecrets = await client.write('/ppp/secret/print');
+                secrets = Array.isArray(allSecrets) ? allSecrets.filter((s: any) => isSamePppUsername(s.name, lookupUsername)) : [];
+            }
+            if (!secrets || secrets.length === 0) {
+                return { success: false, error: `PPP secret "${lookupUsername}" not found` };
             }
 
             const secretId = secrets[0]['.id'];
 
             // Prepare updates
             const updateParams = [`=.id=${secretId}`];
-            Object.keys(updates).forEach(key => {
-                updateParams.push(`=${key}=${updates[key]}`);
+            Object.keys(updatesToSend).forEach(key => {
+                updateParams.push(`=${key}=${updatesToSend[key]}`);
             });
 
             // Update
@@ -441,14 +468,18 @@ export async function updatePppSecret(username: string, updates: any) {
 
             // If profile changed, remove active connection
             if (updates.profile) {
-                const activeConns = await client.write('/ppp/active/print', ['?name=' + username]);
+                let activeConns = await client.write('/ppp/active/print', ['?name=' + lookupUsername]);
+                if (!activeConns || activeConns.length === 0) {
+                    const allActive = await client.write('/ppp/active/print');
+                    activeConns = Array.isArray(allActive) ? allActive.filter((a: any) => isSamePppUsername(a.name, lookupUsername)) : [];
+                }
                 if (activeConns && activeConns.length > 0) {
-                    console.log(`[PPP] Removing active connection for ${username} to apply profile change`);
+                    console.log(`[PPP] Removing active connection for ${lookupUsername} to apply profile change`);
                     await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
                 }
             }
 
-            console.log(`[PPP] Successfully updated ${username}`);
+            console.log(`[PPP] Successfully updated ${lookupUsername}`);
             return { success: true };
         }, target);
 
@@ -468,26 +499,27 @@ export async function updatePppSecret(username: string, updates: any) {
 export async function removeActivePppConnection(username: string) {
     try {
         checkCredentials();
+        const lookupUsername = normalizePppUsername(username);
 
-        console.log(`[PPP] Removing active connection for: ${username}`);
+        console.log(`[PPP] Removing active connection for: ${lookupUsername}`);
 
         // 1. Try REST API (Tunnel)
         if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
             try {
                 // Get active connections
                 const activeConnections = await fetchRestData(host || '', 'ppp/active');
-                const activeConn = Array.isArray(activeConnections) 
-                    ? activeConnections.find((a: any) => a.name === username) 
+                const activeConn = Array.isArray(activeConnections)
+                    ? activeConnections.find((a: any) => isSamePppUsername(a.name, lookupUsername))
                     : null;
 
                 if (!activeConn) {
-                    console.log(`[PPP] No active connection found for ${username}`);
+                    console.log(`[PPP] No active connection found for ${lookupUsername}`);
                     return { success: true, message: 'No active connection to remove' };
                 }
 
                 // Remove the active connection
                 await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
-                console.log(`[PPP] Successfully removed active connection for ${username}`);
+                console.log(`[PPP] Successfully removed active connection for ${lookupUsername}`);
                 return { success: true, message: 'Active connection removed' };
             } catch (error: any) {
                 console.error(`[PPP] REST remove failed: ${error.message}`);
@@ -502,21 +534,90 @@ export async function removeActivePppConnection(username: string) {
 
         return await withBinaryConnection(async (client) => {
             // Find active connection
-            const activeConns = await client.write('/ppp/active/print', ['?name=' + username]);
+            let activeConns = await client.write('/ppp/active/print', ['?name=' + lookupUsername]);
+            if (!activeConns || activeConns.length === 0) {
+                const allActive = await client.write('/ppp/active/print');
+                activeConns = Array.isArray(allActive) ? allActive.filter((a: any) => isSamePppUsername(a.name, lookupUsername)) : [];
+            }
             
             if (!activeConns || activeConns.length === 0) {
-                console.log(`[PPP] No active connection found for ${username}`);
+                console.log(`[PPP] No active connection found for ${lookupUsername}`);
                 return { success: true, message: 'No active connection to remove' };
             }
 
             // Remove the active connection
             await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
-            console.log(`[PPP] Successfully removed active connection for ${username}`);
+            console.log(`[PPP] Successfully removed active connection for ${lookupUsername}`);
             return { success: true, message: 'Active connection removed' };
         }, target);
 
     } catch (error: any) {
         console.error(`[PPP] Remove active connection error: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Remove a PPP secret from MikroTik.
+ * This mirrors the RouterOS/WebFig "Remove" button on PPP Secrets.
+ */
+export async function removePppSecret(username: string) {
+    try {
+        checkCredentials();
+        const lookupUsername = normalizePppUsername(username);
+
+        console.log(`[PPP] Removing PPP secret: ${lookupUsername}`);
+
+        if ((host && (host.includes('trycloudflare.com') || host.includes('ngrok-free'))) || process.env.MIKROTIK_PROXY_URL) {
+            try {
+                const secrets = await fetchRestData(host || '', 'ppp/secret');
+                const secret = Array.isArray(secrets) ? secrets.find((s: any) => isSamePppUsername(s.name, lookupUsername)) : null;
+
+                if (!secret) {
+                    return { success: true, message: 'PPP secret already removed' };
+                }
+
+                const activeConnections = await fetchRestData(host || '', 'ppp/active');
+                const activeConn = Array.isArray(activeConnections) ? activeConnections.find((a: any) => isSamePppUsername(a.name, lookupUsername)) : null;
+                if (activeConn) {
+                    await fetchRestData(host || '', `ppp/active/${activeConn['.id']}`, 'DELETE');
+                }
+
+                await fetchRestData(host || '', `ppp/secret/${secret['.id']}`, 'DELETE');
+                return { success: true, message: 'PPP secret removed' };
+            } catch (error: any) {
+                console.error(`[PPP] REST secret remove failed: ${error.message}`);
+            }
+        }
+
+        const target = host && !host.includes('trycloudflare.com') && !host.includes('ngrok-free')
+            ? host
+            : LOCAL_FALLBACK_IP;
+
+        return await withBinaryConnection(async (client) => {
+            let secrets = await client.write('/ppp/secret/print', ['?name=' + lookupUsername]);
+            if (!secrets || secrets.length === 0) {
+                const allSecrets = await client.write('/ppp/secret/print');
+                secrets = Array.isArray(allSecrets) ? allSecrets.filter((s: any) => isSamePppUsername(s.name, lookupUsername)) : [];
+            }
+            if (!secrets || secrets.length === 0) {
+                return { success: true, message: 'PPP secret already removed' };
+            }
+
+            let activeConns = await client.write('/ppp/active/print', ['?name=' + lookupUsername]);
+            if (!activeConns || activeConns.length === 0) {
+                const allActive = await client.write('/ppp/active/print');
+                activeConns = Array.isArray(allActive) ? allActive.filter((a: any) => isSamePppUsername(a.name, lookupUsername)) : [];
+            }
+            if (activeConns && activeConns.length > 0) {
+                await client.write('/ppp/active/remove', [`=.id=${activeConns[0]['.id']}`]);
+            }
+
+            await client.write('/ppp/secret/remove', [`=.id=${secrets[0]['.id']}`]);
+            return { success: true, message: 'PPP secret removed' };
+        }, target);
+    } catch (error: any) {
+        console.error(`[PPP] Remove secret error: ${error.message}`);
         return { success: false, error: error.message };
     }
 }

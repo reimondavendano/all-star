@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getMikrotikData, addPppSecret, syncMikrotikToDatabase } from '@/app/actions/mikrotik';
+import { getMikrotikData, addPppSecret, syncMikrotikToDatabase, updatePppSecret, togglePppConnection, removeActivePppConnection, removePppSecret } from '@/app/actions/mikrotik';
+import { processDisconnection } from '@/app/actions/disconnection';
+import { supabase } from '@/lib/supabase';
 import * as XLSX from 'xlsx';
 import {
     Server,
@@ -10,7 +12,6 @@ import {
     HardDrive,
     Clock,
     Wifi,
-    Network,
     AlertCircle,
     RefreshCw,
     Smartphone,
@@ -43,6 +44,37 @@ interface MikrotikData {
     ipAddresses: any[];
 }
 
+interface LocalPppSecret {
+    id: string;
+    name: string;
+    password?: string;
+    service?: string;
+    profile?: string;
+    enabled?: boolean;
+    disabled?: boolean;
+    comment?: string;
+    customerName?: string;
+    customerMobile?: string;
+    planName?: string;
+    businessUnitName?: string;
+    subscriptionId?: string;
+    subscriptionActive?: boolean;
+    balance?: number;
+    label?: string;
+    address?: string;
+}
+
+type PppStatusFilter = 'all' | 'connected' | 'disconnected' | 'disabled' | 'dc' | 'mismatch';
+
+interface PppConnectionCard {
+    key: string;
+    name: string;
+    secret?: any;
+    active?: any;
+    local?: LocalPppSecret;
+    status: 'connected' | 'disconnected' | 'disabled' | 'dc' | 'router-only' | 'database-only';
+}
+
 
 export default function MikrotikPage() {
     const [data, setData] = useState<MikrotikData | null>(null);
@@ -50,6 +82,7 @@ export default function MikrotikPage() {
     const [error, setError] = useState('');
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const isFetchingRef = useRef(false);
+    const [localPppSecrets, setLocalPppSecrets] = useState<LocalPppSecret[]>([]);
 
     // Add User Modal State
     const [showAddPppModal, setShowAddPppModal] = useState(false);
@@ -81,8 +114,11 @@ export default function MikrotikPage() {
 
     // Search and Pagination State
     const [pppSearchQuery, setPppSearchQuery] = useState('');
+    const [pppStatusFilter, setPppStatusFilter] = useState<PppStatusFilter>('all');
     const [pppCurrentPage, setPppCurrentPage] = useState(1);
-    const pppItemsPerPage = 20;
+    const pppItemsPerPage = 24;
+    const [pppActionLoading, setPppActionLoading] = useState<string | null>(null);
+    const [pppActionMessage, setPppActionMessage] = useState<{ success: boolean; message: string } | null>(null);
 
     // Edit Modal State
     const [showEditPppModal, setShowEditPppModal] = useState(false);
@@ -96,21 +132,153 @@ export default function MikrotikPage() {
         enabled: true
     });
 
+    const normalizePppName = (name: string) => name?.replace('<pppoe-', '').replace('>', '').replace(/\s+/g, '').trim() || '';
+
+    const fetchLocalPppSecrets = async () => {
+        const { data: customers, error } = await supabase
+            .from('customers')
+            .select(`
+                id,
+                name,
+                mobile_number,
+                subscriptions!subscriptions_subscriber_id_fkey(
+                    id,
+                    active,
+                    balance,
+                    label,
+                    address,
+                    plans(name, monthly_fee),
+                    business_units(name),
+                    mikrotik_ppp_secrets(*)
+                )
+            `)
+            .order('name', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching local PPP secrets:', error);
+            return;
+        }
+
+        const flattened: LocalPppSecret[] = [];
+        (customers || []).forEach((customer: any) => {
+            (customer.subscriptions || []).forEach((subscription: any) => {
+                const plan = Array.isArray(subscription.plans) ? subscription.plans[0] : subscription.plans;
+                const businessUnit = Array.isArray(subscription.business_units) ? subscription.business_units[0] : subscription.business_units;
+                (subscription.mikrotik_ppp_secrets || []).forEach((secret: any) => {
+                    flattened.push({
+                        ...secret,
+                        customerName: customer.name,
+                        customerMobile: customer.mobile_number,
+                        planName: plan?.name,
+                        businessUnitName: businessUnit?.name,
+                        subscriptionId: subscription.id,
+                        subscriptionActive: subscription.active,
+                        balance: subscription.balance,
+                        label: subscription.label,
+                        address: subscription.address
+                    });
+                });
+            });
+        });
+
+        setLocalPppSecrets(flattened);
+    };
+
     // Helper to get secret details by name
     const getSecretByName = (name: string) => {
         if (!data?.pppSecrets) return null;
-        const cleanName = name.replace('<pppoe-', '').replace('>', '');
-        return data.pppSecrets.find((s: any) => s.name === cleanName);
+        const cleanName = normalizePppName(name);
+        return data.pppSecrets.find((s: any) => normalizePppName(s.name) === cleanName);
     };
 
-    // Filter and paginate PPP interfaces
+    const buildPppCards = (): PppConnectionCard[] => {
+        const cards = new Map<string, PppConnectionCard>();
+
+        (data?.pppSecrets || []).forEach((secret: any) => {
+            const name = normalizePppName(secret.name);
+            if (!name) return;
+            cards.set(name, {
+                key: name,
+                name,
+                secret,
+                status: secret.disabled === 'true' ? 'disabled' : secret.profile === 'DC' ? 'dc' : 'disconnected'
+            });
+        });
+
+        (data?.pppActive || []).forEach((active: any) => {
+            const name = normalizePppName(active.name);
+            if (!name) return;
+            const existing = cards.get(name);
+            cards.set(name, {
+                ...(existing || { key: name, name, status: 'router-only' as const }),
+                active,
+                status: existing?.secret?.disabled === 'true' ? 'disabled' : 'connected'
+            });
+        });
+
+        localPppSecrets.forEach(local => {
+            const name = normalizePppName(local.name);
+            if (!name) return;
+            const existing = cards.get(name);
+            if (existing) {
+                cards.set(name, {
+                    ...existing,
+                    local,
+                    status: existing.status
+                });
+            } else {
+                cards.set(name, {
+                    key: name,
+                    name,
+                    local,
+                    status: local.disabled || local.enabled === false ? 'disabled' : local.profile === 'DC' ? 'dc' : 'database-only'
+                });
+            }
+        });
+
+        return Array.from(cards.values());
+    };
+
+    const pppCards = buildPppCards();
+    const pppCounts = {
+        all: pppCards.length,
+        connected: pppCards.filter(card => card.status === 'connected').length,
+        disconnected: pppCards.filter(card => card.status === 'disconnected' || card.status === 'database-only').length,
+        disabled: pppCards.filter(card => card.status === 'disabled').length,
+        dc: pppCards.filter(card => card.status === 'dc').length,
+        mismatch: pppCards.filter(card => card.status === 'router-only' || card.status === 'database-only').length
+    };
+
+    const filteredPppCards = pppCards
+        .filter(card => {
+            if (pppStatusFilter === 'mismatch') return card.status === 'router-only' || card.status === 'database-only';
+            if (pppStatusFilter !== 'all') return card.status === pppStatusFilter || (pppStatusFilter === 'disconnected' && card.status === 'database-only');
+            return true;
+        })
+        .filter(card => {
+            const haystack = [
+                card.name,
+                card.local?.customerName,
+                card.local?.customerMobile,
+                card.local?.planName,
+                card.local?.businessUnitName,
+                card.secret?.profile,
+                card.local?.profile
+            ].filter(Boolean).join(' ').toLowerCase();
+            return haystack.includes(pppSearchQuery.toLowerCase());
+        })
+        .sort((a, b) => {
+            const statusWeight = { connected: 0, disconnected: 1, dc: 2, disabled: 3, 'database-only': 4, 'router-only': 5 };
+            return statusWeight[a.status] - statusWeight[b.status] || a.name.localeCompare(b.name);
+        });
+
+    const pppTotalPages = Math.max(1, Math.ceil(filteredPppCards.length / pppItemsPerPage));
+    const pppStartIndex = (pppCurrentPage - 1) * pppItemsPerPage;
+    const paginatedPppCards = filteredPppCards.slice(pppStartIndex, pppStartIndex + pppItemsPerPage);
     const filteredPppInterfaces = data?.pppInterfaces?.filter((ppp: any) => {
-        const cleanName = ppp.name.replace('<pppoe-', '').replace('>', '');
+        const cleanName = normalizePppName(ppp.name);
         return cleanName.toLowerCase().includes(pppSearchQuery.toLowerCase());
     }) || [];
-
-    const pppTotalPages = Math.ceil(filteredPppInterfaces.length / pppItemsPerPage);
-    const pppStartIndex = (pppCurrentPage - 1) * pppItemsPerPage;
     const paginatedPppInterfaces = filteredPppInterfaces.slice(pppStartIndex, pppStartIndex + pppItemsPerPage);
 
 
@@ -127,6 +295,7 @@ export default function MikrotikPage() {
 
         try {
             console.log('Fetching Mikrotik data...');
+            await fetchLocalPppSecrets();
             const result = await getMikrotikData();
 
             if (result.success && result.data) {
@@ -171,6 +340,156 @@ export default function MikrotikPage() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
+    const getPppStatusLabel = (status: PppConnectionCard['status']) => {
+        if (status === 'connected') return 'Connected';
+        if (status === 'disconnected') return 'Disconnected';
+        if (status === 'disabled') return 'Disabled';
+        if (status === 'dc') return 'DC Profile';
+        if (status === 'router-only') return 'Router Only';
+        return 'Database Only';
+    };
+
+    const getPppStatusClass = (status: PppConnectionCard['status']) => {
+        if (status === 'connected') return 'border-emerald-500/40 bg-emerald-950/20 text-emerald-300';
+        if (status === 'disconnected') return 'border-amber-500/40 bg-amber-950/20 text-amber-300';
+        if (status === 'disabled' || status === 'dc') return 'border-red-500/40 bg-red-950/20 text-red-300';
+        return 'border-sky-500/40 bg-sky-950/20 text-sky-300';
+    };
+
+    const openPppEditModal = (card: PppConnectionCard) => {
+        const source = card.secret || card.local || {};
+        setEditingPpp(card);
+        setEditPppForm({
+            name: card.name,
+            password: source.password || '',
+            service: source.service || 'pppoe',
+            profile: source.profile || '50MBPS',
+            comment: source.comment || '',
+            enabled: source.disabled === 'true' || source.disabled === true ? false : source.enabled !== false
+        });
+        setShowEditPppModal(true);
+    };
+
+    const runPppAction = async (key: string, action: () => Promise<any>, successMessage: string) => {
+        setPppActionLoading(key);
+        setPppActionMessage(null);
+        try {
+            const result = await action();
+            if (result?.success) {
+                setPppActionMessage({ success: true, message: successMessage });
+                await fetchData();
+            } else {
+                setPppActionMessage({ success: false, message: result?.error || 'MikroTik action failed' });
+            }
+        } catch (error: any) {
+            setPppActionMessage({ success: false, message: error?.message || 'MikroTik action failed' });
+        } finally {
+            setPppActionLoading(null);
+        }
+    };
+
+    const handleDisconnectSession = (card: PppConnectionCard) => {
+        if (card.local?.subscriptionId) {
+            const confirmed = window.confirm(`Disconnect ${card.local.customerName || card.name}? This will mark the subscription inactive, generate the disconnection invoice, set MikroTik to DC/disabled, and remove the active session.`);
+            if (!confirmed) return;
+
+            runPppAction(
+                `disconnect-${card.name}`,
+                () => processDisconnection(card.local!.subscriptionId!, new Date(), true),
+                `${card.local.customerName || card.name} has been disconnected.`
+            );
+            return;
+        }
+
+        const confirmed = window.confirm(`No linked subscription was found for "${card.name}". Remove only the active MikroTik session?`);
+        if (!confirmed) return;
+        runPppAction(`disconnect-${card.name}`, () => removeActivePppConnection(card.name), `${card.name} active session removed.`);
+    };
+
+    const handleTogglePpp = (card: PppConnectionCard, enable: boolean) => {
+        const source = card.secret || card.local || {};
+        runPppAction(
+            `${enable ? 'enable' : 'disable'}-${card.name}`,
+            () => togglePppConnection(card.name, enable, enable ? {
+                password: source.password || '',
+                service: source.service || 'pppoe',
+                profile: source.profile || 'default',
+                comment: source.comment || ''
+            } : undefined),
+            `${card.name} ${enable ? 'enabled' : 'disabled'} on MikroTik.`
+        );
+    };
+
+    const handleSavePppEdit = () => {
+        const normalizedName = normalizePppName(editPppForm.name);
+        const updates = {
+            name: normalizedName,
+            password: editPppForm.password,
+            service: editPppForm.service,
+            profile: editPppForm.profile,
+            comment: editPppForm.comment,
+            disabled: editPppForm.enabled ? 'false' : 'true'
+        };
+
+        runPppAction(
+            `edit-${normalizedName}`,
+            async () => {
+                const result = await updatePppSecret(normalizedName, updates);
+                if (!result.success) return result;
+
+                let query = supabase
+                    .from('mikrotik_ppp_secrets')
+                    .update({
+                        name: normalizedName,
+                        password: editPppForm.password,
+                        service: editPppForm.service,
+                        profile: editPppForm.profile,
+                        comment: editPppForm.comment,
+                        enabled: editPppForm.enabled,
+                        disabled: !editPppForm.enabled,
+                        last_synced_at: new Date().toISOString()
+                    });
+
+                if ((editingPpp as PppConnectionCard)?.local?.id) {
+                    query = query.eq('id', (editingPpp as PppConnectionCard).local!.id);
+                } else {
+                    query = query.eq('name', normalizedName);
+                }
+
+                await query;
+
+                return result;
+            },
+            `${normalizedName} PPP secret updated.`
+        );
+        setShowEditPppModal(false);
+    };
+
+    const handleRemovePppSecret = (card: PppConnectionCard) => {
+        const confirmed = window.confirm(`Remove PPP secret "${card.name}" from MikroTik and this system? This cannot be undone.`);
+        if (!confirmed) return;
+
+        runPppAction(
+            `remove-${card.name}`,
+            async () => {
+                const result = await removePppSecret(card.name);
+                if (!result.success) return result;
+
+                let query = supabase.from('mikrotik_ppp_secrets').delete();
+                if (card.local?.id) {
+                    query = query.eq('id', card.local.id);
+                } else {
+                    query = query.eq('name', normalizePppName(card.name));
+                }
+
+                await query;
+
+                return result;
+            },
+            `${card.name} PPP secret removed.`
+        );
+    };
+
     // Handle Add PPP User
     const handleAddPppUser = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -178,8 +497,9 @@ export default function MikrotikPage() {
         setPppAddError('');
 
         try {
+            const normalizedName = normalizePppName(pppForm.name);
             const result = await addPppSecret({
-                name: pppForm.name,
+                name: normalizedName,
                 password: pppForm.password,
                 service: pppForm.service,
                 profile: pppForm.profile,
@@ -492,68 +812,234 @@ export default function MikrotikPage() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Interfaces List */}
-                        <div className="tech-card p-6 rounded-xl">
-                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                                <Network className="w-5 h-5 text-red-500" />
-                                Interfaces
-                            </h3>
-                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {data.interfaces.map((iface: any) => (
-                                    <div key={iface['.id']} className="p-3 bg-white/5 rounded-lg border border-white/5 hover:border-red-500/30 transition-colors">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="font-medium text-white flex items-center gap-2">
-                                                <span className={`w-2 h-2 rounded-full ${iface.running === 'true' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-                                                {iface.name}
-                                            </span>
-                                            <span className="text-xs text-gray-400 font-mono">{iface.type}</span>
-                                        </div>
-                                        <div className="flex justify-between text-xs text-gray-500 font-mono">
-                                            <span>TX: {formatBytes(parseInt(iface['tx-byte']))}</span>
-                                            <span>RX: {formatBytes(parseInt(iface['rx-byte']))}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                    <div className="grid grid-cols-1 gap-6">
 
-                        {/* IP Addresses */}
+                        {/* PPP Operations - Full Width */}
                         <div className="tech-card p-6 rounded-xl">
-                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                                <Globe className="w-5 h-5 text-blue-500" />
-                                IP Addresses ({data.ipAddresses?.length || 0})
-                            </h3>
-                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {data.ipAddresses && data.ipAddresses.length > 0 ? (
-                                    data.ipAddresses.map((ip: any) => (
-                                        <div key={ip['.id']} className="p-3 bg-white/5 rounded-lg border border-white/5 hover:border-blue-500/30 transition-colors">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="font-medium text-white font-mono">
-                                                    {ip.address}
-                                                </span>
-                                                <span className={`text-xs px-2 py-0.5 rounded ${ip.disabled === 'true' ? 'bg-red-900/30 text-red-400' : 'bg-green-900/30 text-green-400'}`}>
-                                                    {ip.disabled === 'true' ? 'Disabled' : 'Active'}
-                                                </span>
-                                            </div>
-                                            <div className="flex justify-between text-xs text-gray-500 font-mono">
-                                                <span>Interface: {ip.interface}</span>
-                                                <span>Network: {ip.network || '-'}</span>
-                                            </div>
-                                            {ip.comment && (
-                                                <p className="text-xs text-gray-400 mt-1">{ip.comment}</p>
-                                            )}
-                                        </div>
-                                    ))
-                                ) : (
-                                    <p className="text-gray-500 text-center py-4">No IP addresses found</p>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                            <Globe className="w-5 h-5 text-red-500" />
+                                            PPP Connection Operations
+                                        </h3>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Manage customer PPP sessions from this system using the MikroTik API.
+                                        </p>
+                                    </div>
+                                    <div className="relative w-full xl:w-80">
+                                        <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search customer, phone, PPP, profile..."
+                                            value={pppSearchQuery}
+                                            onChange={(e) => {
+                                                setPppSearchQuery(e.target.value);
+                                                setPppCurrentPage(1);
+                                            }}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+                                    {([
+                                        ['all', 'All', pppCounts.all],
+                                        ['connected', 'Connected', pppCounts.connected],
+                                        ['disconnected', 'Disconnected', pppCounts.disconnected],
+                                        ['disabled', 'Disabled', pppCounts.disabled],
+                                        ['dc', 'DC Profile', pppCounts.dc],
+                                        ['mismatch', 'Needs Sync', pppCounts.mismatch]
+                                    ] as const).map(([value, label, count]) => (
+                                        <button
+                                            key={value}
+                                            onClick={() => {
+                                                setPppStatusFilter(value);
+                                                setPppCurrentPage(1);
+                                            }}
+                                            className={`rounded-lg border px-3 py-2 text-left transition-colors ${pppStatusFilter === value
+                                                ? 'border-red-500/60 bg-red-950/30 text-white'
+                                                : 'border-white/10 bg-black/30 text-gray-400 hover:border-white/20 hover:text-white'
+                                                }`}
+                                        >
+                                            <div className="text-[11px] uppercase tracking-wide">{label}</div>
+                                            <div className="mt-1 text-lg font-bold">{count}</div>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {pppActionMessage && (
+                                    <div className={`rounded-lg border px-4 py-3 text-sm ${pppActionMessage.success
+                                        ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
+                                        : 'border-red-500/30 bg-red-950/20 text-red-300'
+                                        }`}>
+                                        {pppActionMessage.message}
+                                    </div>
                                 )}
                             </div>
+
+                            <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[760px] overflow-y-auto pr-2 custom-scrollbar">
+                                {paginatedPppCards.map((card) => {
+                                    const isExpanded = expandedPpp === card.key;
+                                    const profile = card.secret?.profile || card.local?.profile || 'No profile';
+                                    const isBusy = Boolean(pppActionLoading?.endsWith(card.name));
+                                    const canEnable = Boolean(card.secret || card.local?.password);
+
+                                    return (
+                                        <div
+                                            key={card.key}
+                                            className={`rounded-xl border bg-black/30 transition-colors ${card.status === 'connected'
+                                                ? 'border-emerald-500/30 hover:border-emerald-400/50'
+                                                : card.status === 'disabled' || card.status === 'dc'
+                                                    ? 'border-red-500/30 hover:border-red-400/50'
+                                                    : 'border-white/10 hover:border-red-500/30'
+                                                }`}
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedPpp(isExpanded ? null : card.key)}
+                                                className="w-full p-4 text-left"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`h-2.5 w-2.5 rounded-full ${card.status === 'connected' ? 'bg-emerald-400' : card.status === 'disabled' || card.status === 'dc' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                                                            <h4 className="truncate font-semibold text-white">{card.local?.customerName || card.name}</h4>
+                                                        </div>
+                                                        <p className="mt-1 truncate font-mono text-xs text-cyan-300">{card.name}</p>
+                                                    </div>
+                                                    <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium ${getPppStatusClass(card.status)}`}>
+                                                        {getPppStatusLabel(card.status)}
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                                                    <div>
+                                                        <p className="text-gray-500">Profile</p>
+                                                        <p className="truncate font-medium text-white">{profile}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-gray-500">Plan / Unit</p>
+                                                        <p className="truncate font-medium text-white">{card.local?.planName || card.local?.businessUnitName || '-'}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-gray-500">Uptime</p>
+                                                        <p className="font-mono text-gray-300">{card.active?.uptime || '-'}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-gray-500">Traffic</p>
+                                                        <p className="font-mono text-gray-300">{formatBytes(parseInt(card.active?.['rx-byte'] || 0))}</p>
+                                                    </div>
+                                                </div>
+                                            </button>
+
+                                            {isExpanded && (
+                                                <div className="border-t border-white/10 px-4 pb-4">
+                                                    <div className="grid grid-cols-2 gap-3 py-3 text-xs">
+                                                        <div>
+                                                            <p className="text-gray-500">Mobile</p>
+                                                            <p className="text-gray-300">{card.local?.customerMobile || '-'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-gray-500">Address</p>
+                                                            <p className="truncate text-gray-300">{card.local?.label || card.local?.address || '-'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-gray-500">TX</p>
+                                                            <p className="font-mono text-gray-300">{formatBytes(parseInt(card.active?.['tx-byte'] || 0))}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-gray-500">RX</p>
+                                                            <p className="font-mono text-gray-300">{formatBytes(parseInt(card.active?.['rx-byte'] || 0))}</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <button
+                                                            onClick={() => openPppEditModal(card)}
+                                                            className="rounded-lg border border-blue-500/30 bg-blue-950/20 px-3 py-2 text-xs font-medium text-blue-300 hover:bg-blue-900/30"
+                                                        >
+                                                            Edit Secret
+                                                        </button>
+                                                        {card.status === 'connected' ? (
+                                                            <button
+                                                                onClick={() => handleDisconnectSession(card)}
+                                                                disabled={isBusy}
+                                                                className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs font-medium text-amber-300 hover:bg-amber-900/30 disabled:opacity-50"
+                                                            >
+                                                                Disconnect
+                                                            </button>
+                                                        ) : card.status === 'disabled' ? (
+                                                            <button
+                                                                onClick={() => handleTogglePpp(card, true)}
+                                                                disabled={isBusy || !canEnable}
+                                                                className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-xs font-medium text-emerald-300 hover:bg-emerald-900/30 disabled:opacity-50"
+                                                            >
+                                                                Enable
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => handleTogglePpp(card, false)}
+                                                                disabled={isBusy || card.status === 'database-only'}
+                                                                className="rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-900/30 disabled:opacity-50"
+                                                            >
+                                                                Disable
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleRemovePppSecret(card)}
+                                                            disabled={isBusy}
+                                                            className="col-span-2 rounded-lg border border-red-600/40 bg-red-950/30 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+                                                        >
+                                                            Remove PPP Secret
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {filteredPppCards.length === 0 && (
+                                    <div className="col-span-full text-center py-10">
+                                        <p className="text-gray-500">
+                                            {pppSearchQuery ? 'No matching PPP accounts found' : 'No PPP accounts found'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {filteredPppCards.length > 0 && (
+                                <div className="mt-4 pt-4 border-t border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <p className="text-xs text-gray-500">
+                                        Showing {pppStartIndex + 1}-{Math.min(pppStartIndex + pppItemsPerPage, filteredPppCards.length)} of {filteredPppCards.length}
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => setPppCurrentPage(prev => Math.max(1, prev - 1))}
+                                            disabled={pppCurrentPage === 1}
+                                            className="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </button>
+                                        <span className="text-sm text-gray-400">
+                                            Page {pppCurrentPage} of {pppTotalPages}
+                                        </span>
+                                        <button
+                                            onClick={() => setPppCurrentPage(prev => Math.min(pppTotalPages, prev + 1))}
+                                            disabled={pppCurrentPage === pppTotalPages}
+                                            className="p-2 text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
 
                         {/* PPP Interfaces - Full Width with Search and Pagination */}
-                        <div className="tech-card p-6 rounded-xl lg:col-span-2">
+                        <div className="hidden">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
                                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                                     <Globe className="w-5 h-5 text-red-500" />
@@ -741,7 +1227,7 @@ export default function MikrotikPage() {
                         <form onSubmit={handleAddPppUser} className="p-6 space-y-4">
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Username</label>
-                                <input type="text" required value={pppForm.name} onChange={(e) => setPppForm({ ...pppForm, name: e.target.value })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="Enter username" />
+                                <input type="text" required value={pppForm.name} onChange={(e) => setPppForm({ ...pppForm, name: normalizePppName(e.target.value) })} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500" placeholder="Enter username" />
                             </div>
                             <div>
                                 <label className="block text-sm text-gray-400 mb-2">Password</label>
@@ -888,6 +1374,17 @@ export default function MikrotikPage() {
                                 <label htmlFor="edit-ppp-enabled" className="text-sm font-medium text-gray-300">Enabled</label>
                             </div>
 
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleRemovePppSecret(editingPpp as PppConnectionCard);
+                                    setShowEditPppModal(false);
+                                }}
+                                className="w-full rounded-lg border border-red-600/40 bg-red-950/30 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-900/40"
+                            >
+                                Remove PPP Secret
+                            </button>
+
                             {/* Buttons */}
                             <div className="flex gap-3 mt-6">
                                 <button
@@ -897,14 +1394,11 @@ export default function MikrotikPage() {
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        // TODO: Implement update PPP secret API call
-                                        alert('Edit functionality coming soon! For now, please edit directly in MikroTik WinBox.');
-                                        setShowEditPppModal(false);
-                                    }}
-                                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                                    onClick={handleSavePppEdit}
+                                    disabled={pppActionLoading === `edit-${editPppForm.name}`}
+                                    className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
                                 >
-                                    Save Changes
+                                    {pppActionLoading === `edit-${editPppForm.name}` ? 'Saving...' : 'Save Changes'}
                                 </button>
                             </div>
                         </div>

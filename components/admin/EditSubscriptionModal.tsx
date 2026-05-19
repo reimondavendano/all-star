@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, User, MapPin, Wifi, CheckCircle, Loader2, CreditCard, Copy, Globe, Hash, Save, ArrowUpDown, Shield, CalendarClock } from 'lucide-react';
+import { X, User, MapPin, Wifi, CheckCircle, Loader2, CreditCard, Copy, Globe, Hash, Save, ArrowUpDown, Shield, CalendarClock, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { syncSubscriptionToMikrotik, checkMikrotikStatus } from '@/app/actions/mikrotik';
+import { syncSubscriptionToMikrotik, checkMikrotikStatus, updatePppSecret, removePppSecret } from '@/app/actions/mikrotik';
 import { changeSubscriptionPlan, previewPlanChangeInvoices } from '@/app/actions/subscription';
 import { getPlanChangeDateWindow } from '@/lib/billing';
 import dynamic from 'next/dynamic';
@@ -65,9 +65,12 @@ interface PlanChangePreview {
 interface MikrotikPppSecret {
     id: string;
     name: string;
+    password?: string | null;
     service: string;
     profile: string;
     local_address?: string | null;
+    enabled?: boolean | null;
+    disabled?: boolean | null;
     comment?: string | null;
 }
 
@@ -102,6 +105,10 @@ function datePartsToISO(year: number, monthIndex: number, day: number) {
     return new Date(Date.UTC(year, monthIndex, day)).toISOString().split('T')[0];
 }
 
+function normalizePppUsername(username: string) {
+    return (username || '').replace(/\s+/g, '').trim();
+}
+
 function formatDisplayDate(dateString?: string | null) {
     if (!dateString) return '-';
     return new Date(`${dateString}T00:00:00`).toLocaleDateString('en-PH', {
@@ -129,6 +136,7 @@ export default function EditSubscriptionModal({
     const [showConfirmation, setShowConfirmation] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
     const [successMessage, setSuccessMessage] = useState('The subscription details have been saved.');
+    const [pppMessageModal, setPppMessageModal] = useState<{ type: 'success' | 'error'; title: string; message: string } | null>(null);
     const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [pendingActiveStatus, setPendingActiveStatus] = useState<boolean | null>(null);
     const [planChangeDate, setPlanChangeDate] = useState(initialPlanChangeDate || new Date().toISOString().split('T')[0]);
@@ -139,6 +147,15 @@ export default function EditSubscriptionModal({
     // MikroTik PPP Secret State
     const [pppSecret, setPppSecret] = useState<MikrotikPppSecret | null>(null);
     const [loadingPpp, setLoadingPpp] = useState(false);
+    const [pppForm, setPppForm] = useState({
+        name: '',
+        password: '',
+        service: 'pppoe',
+        profile: '',
+        local_address: '',
+        comment: '',
+        enabled: true
+    });
 
     const [formData, setFormData] = useState({
         active: subscription.active,
@@ -169,6 +186,7 @@ export default function EditSubscriptionModal({
             setActiveTab(initialTab || 'subscription');
             setPlanPreview(null);
             setPlanChangeError(null);
+            setPppMessageModal(null);
             setPlanChangeDate(initialPlanChangeDate || new Date().toISOString().split('T')[0]);
 
             // Initialize form data when modal opens or subscription changes
@@ -248,7 +266,29 @@ export default function EditSubscriptionModal({
                 .eq('subscription_id', subscription.id)
                 .single();
 
-            if (data) setPppSecret(data);
+            if (data) {
+                setPppSecret(data);
+                setPppForm({
+                    name: normalizePppUsername(data.name || ''),
+                    password: data.password || '',
+                    service: data.service || 'pppoe',
+                    profile: data.profile || '',
+                    local_address: data.local_address || '',
+                    comment: data.comment || '',
+                    enabled: data.disabled === true ? false : data.enabled !== false
+                });
+            } else {
+                setPppSecret(null);
+                setPppForm({
+                    name: '',
+                    password: '',
+                    service: 'pppoe',
+                    profile: '',
+                    local_address: '',
+                    comment: '',
+                    enabled: true
+                });
+            }
         } catch (error) {
             console.error('Error fetching PPP secret:', error);
         } finally {
@@ -395,7 +435,112 @@ export default function EditSubscriptionModal({
         subscription.plan_id
     ]);
 
+    const handleSavePppSecret = async () => {
+        if (!pppSecret) return;
+
+        setIsLoading(true);
+        try {
+            const normalizedName = normalizePppUsername(pppForm.name);
+            const lookupName = normalizePppUsername(pppSecret.name);
+            const routerUpdates: Record<string, string> = {
+                name: normalizedName,
+                password: pppForm.password,
+                service: pppForm.service,
+                profile: pppForm.profile,
+                comment: pppForm.comment,
+                disabled: pppForm.enabled ? 'false' : 'true'
+            };
+
+            if (pppForm.local_address) {
+                routerUpdates['local-address'] = pppForm.local_address;
+            }
+
+            const result = await updatePppSecret(lookupName, routerUpdates);
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to update MikroTik PPP secret');
+            }
+
+            const { error } = await supabase
+                .from('mikrotik_ppp_secrets')
+                .update({
+                    name: normalizedName,
+                    password: pppForm.password || null,
+                    service: pppForm.service,
+                    profile: pppForm.profile,
+                    local_address: pppForm.local_address || null,
+                    comment: pppForm.comment || null,
+                    enabled: pppForm.enabled,
+                    disabled: !pppForm.enabled,
+                    last_synced_at: new Date().toISOString()
+                })
+                .eq('id', pppSecret.id);
+
+            if (error) throw error;
+
+            setPppSecret({ ...pppSecret, name: normalizedName });
+            setPppForm(prev => ({ ...prev, name: normalizedName }));
+            setPppMessageModal({
+                type: 'success',
+                title: 'PPP Secret Updated',
+                message: `Saved as "${normalizedName}" in the database and updated in MikroTik.`
+            });
+            onUpdate();
+        } catch (error) {
+            console.error('Error updating MikroTik PPP secret:', error);
+            setPppMessageModal({
+                type: 'error',
+                title: 'MikroTik Update Failed',
+                message: error instanceof Error ? error.message : 'Failed to update MikroTik PPP secret'
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRemovePppSecret = async () => {
+        if (!pppSecret) return;
+        const confirmed = window.confirm(`Remove PPP secret "${pppSecret.name}" from MikroTik and this system? This cannot be undone.`);
+        if (!confirmed) return;
+
+        setIsLoading(true);
+        try {
+            const result = await removePppSecret(normalizePppUsername(pppSecret.name));
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to remove MikroTik PPP secret');
+            }
+
+            const { error } = await supabase
+                .from('mikrotik_ppp_secrets')
+                .delete()
+                .eq('id', pppSecret.id);
+
+            if (error) throw error;
+
+            setPppSecret(null);
+            setPppMessageModal({
+                type: 'success',
+                title: 'PPP Secret Removed',
+                message: 'The PPP secret was removed from MikroTik and this system.'
+            });
+            onUpdate();
+        } catch (error) {
+            console.error('Error removing MikroTik PPP secret:', error);
+            setPppMessageModal({
+                type: 'error',
+                title: 'MikroTik Remove Failed',
+                message: error instanceof Error ? error.message : 'Failed to remove MikroTik PPP secret'
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleUpdateClick = async () => {
+        if (activeTab === 'mikrotik') {
+            await handleSavePppSecret();
+            return;
+        }
+
         if (hasPlanChanged) {
             if (activeTab !== 'plan') {
                 setActiveTab('plan');
@@ -1025,24 +1170,84 @@ export default function EditSubscriptionModal({
                                         <div className="grid grid-cols-2 gap-4 text-sm">
                                             <div>
                                                 <label className="text-gray-500 block mb-1">Username</label>
-                                                <div className="text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.name}</div>
+                                                <input
+                                                    value={pppForm.name}
+                                                    onChange={(e) => setPppForm({ ...pppForm, name: normalizePppUsername(e.target.value) })}
+                                                    className="w-full text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                />
                                             </div>
                                             <div>
                                                 <label className="text-gray-500 block mb-1">Service</label>
-                                                <div className="text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.service}</div>
+                                                <select
+                                                    value={pppForm.service}
+                                                    onChange={(e) => setPppForm({ ...pppForm, service: e.target.value })}
+                                                    className="w-full text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                >
+                                                    <option value="any">any</option>
+                                                    <option value="pppoe">pppoe</option>
+                                                    <option value="pptp">pptp</option>
+                                                    <option value="l2tp">l2tp</option>
+                                                    <option value="ovpn">ovpn</option>
+                                                    <option value="sstp">sstp</option>
+                                                </select>
                                             </div>
                                             <div>
                                                 <label className="text-gray-500 block mb-1">Profile</label>
-                                                <div className="text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.profile}</div>
+                                                <input
+                                                    value={pppForm.profile}
+                                                    onChange={(e) => setPppForm({ ...pppForm, profile: e.target.value })}
+                                                    className="w-full text-white bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                />
                                             </div>
                                             <div>
                                                 <label className="text-gray-500 block mb-1">Local Address</label>
-                                                <div className="text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800">{pppSecret.local_address || '-'}</div>
+                                                <input
+                                                    value={pppForm.local_address}
+                                                    onChange={(e) => setPppForm({ ...pppForm, local_address: e.target.value })}
+                                                    className="w-full text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                    placeholder="-"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-gray-500 block mb-1">Password</label>
+                                                <input
+                                                    type="text"
+                                                    value={pppForm.password}
+                                                    onChange={(e) => setPppForm({ ...pppForm, password: e.target.value })}
+                                                    className="w-full text-white font-mono bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                />
+                                            </div>
+                                            <div className="flex items-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPppForm({ ...pppForm, enabled: !pppForm.enabled })}
+                                                    className={`relative w-14 h-7 rounded-full transition-colors ${pppForm.enabled ? 'bg-purple-600' : 'bg-gray-700'}`}
+                                                >
+                                                    <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-transform shadow-md ${pppForm.enabled ? 'left-8' : 'left-1'}`} />
+                                                </button>
+                                                <span className="ml-3 text-sm text-gray-400">{pppForm.enabled ? 'Enabled' : 'Disabled'}</span>
                                             </div>
                                             <div className="col-span-2">
                                                 <label className="text-gray-500 block mb-1">Comment</label>
-                                                <div className="text-gray-400 italic">{pppSecret.comment || 'No comment'}</div>
+                                                <textarea
+                                                    value={pppForm.comment}
+                                                    onChange={(e) => setPppForm({ ...pppForm, comment: e.target.value })}
+                                                    className="w-full text-gray-300 bg-[#0a0a0a] px-3 py-2 rounded border border-gray-800 focus:outline-none focus:border-purple-500"
+                                                    rows={2}
+                                                    placeholder="No comment"
+                                                />
                                             </div>
+                                        </div>
+                                        <div className="pt-4 border-t border-gray-800 flex justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={handleRemovePppSecret}
+                                                disabled={isLoading}
+                                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-600/40 bg-red-950/30 text-sm font-medium text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                Remove PPP Secret
+                                            </button>
                                         </div>
                                     </div>
                                 ) : (
@@ -1099,6 +1304,37 @@ export default function EditSubscriptionModal({
                         <h3 className="text-xl font-bold text-white mb-2">Updated Successfully</h3>
                         <p className="text-gray-400 mb-6">{successMessage}</p>
                         <button onClick={handleSuccessClose} className="w-full px-4 py-2 bg-green-600 rounded-lg text-white">Close</button>
+                    </div>
+                </div>
+            )}
+
+            {pppMessageModal && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/90 backdrop-blur-sm" onClick={() => setPppMessageModal(null)} />
+                    <div className={`relative bg-[#0a0a0a] border-2 rounded-xl shadow w-full max-w-md p-6 ${
+                        pppMessageModal.type === 'success' ? 'border-green-500/50' : 'border-red-500/50'
+                    }`}>
+                        <div className="flex items-start gap-4">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${
+                                pppMessageModal.type === 'success' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'
+                            }`}>
+                                {pppMessageModal.type === 'success' ? <CheckCircle className="w-7 h-7" /> : <X className="w-7 h-7" />}
+                            </div>
+                            <div className="min-w-0">
+                                <h3 className="text-xl font-bold text-white mb-2">{pppMessageModal.title}</h3>
+                                <p className="text-sm leading-relaxed text-gray-400">{pppMessageModal.message}</p>
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                            <button
+                                onClick={() => setPppMessageModal(null)}
+                                className={`px-5 py-2 rounded-lg text-white font-medium ${
+                                    pppMessageModal.type === 'success' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                            >
+                                OK
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
