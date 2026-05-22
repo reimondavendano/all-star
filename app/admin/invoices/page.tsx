@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import * as XLSX from 'xlsx';
 import {
     FileText,
     CreditCard,
@@ -1075,6 +1076,50 @@ ${rows.map(row => `<tr>
         URL.revokeObjectURL(url);
     };
 
+    const downloadExcel = () => {
+        const rows = filteredData.flatMap(group =>
+            group.subscriptions.map(({ subscription, payments, periodInvoices, totalDue }) => {
+                const latestPayment = payments[0];
+                const unit = subscription.business_units as any;
+                const businessUnitName = Array.isArray(unit) ? unit[0]?.name || '' : unit?.name || '';
+                return {
+                    'Customer': group.customer.name,
+                    'Phone': group.customer.mobile_number || '',
+                    'Business Unit': businessUnitName || '-',
+                    'Plan': subscription.plans?.name || 'Unknown Plan',
+                    'Location': subscription.label || subscription.address || 'No location',
+                    'Latest Payment Date': latestPayment ? new Date(latestPayment.settlement_date).toLocaleDateString() : 'No payment',
+                    'Latest Payment Mode': latestPayment ? latestPayment.mode : '',
+                    'Latest Payment Amount': latestPayment ? Math.round(latestPayment.amount) : '',
+                    'Balance': Math.round(totalDue),
+                    'Status': periodInvoices.length ? periodInvoices.map(inv => getEffectiveStatus(inv)).join(', ') : 'No invoice',
+                    'Arrangement': subscription.promised_date ? `With extension (${new Date(subscription.promised_date).toLocaleDateString()})` : 'No extension'
+                };
+            })
+        );
+
+        const summaryRow = {
+            'Customer': 'SUMMARY',
+            'Phone': '',
+            'Business Unit': '',
+            'Plan': '',
+            'Location': '',
+            'Latest Payment Date': '',
+            'Latest Payment Mode': 'Total Billed:',
+            'Latest Payment Amount': Math.round(monthlyStats.billed),
+            'Balance': 'Total Collected:',
+            'Status': Math.round(monthlyStats.collected),
+            'Arrangement': `Unpaid: ${monthlyStats.unpaidCount}`
+        };
+
+        const ws = XLSX.utils.json_to_sheet([...rows, {}, summaryRow]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Invoices & Payments");
+        
+        const reportFileName = `invoices-payments-report-${selectedPeriodLabel.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.xlsx`;
+        XLSX.writeFile(wb, reportFileName);
+    };
+
     // Stats
     // Stats are now computed in fetchData and stored in monthlyStats state
     // const totalDue = groupedData.reduce((sum, g) => sum + g.subscriptions.reduce((s, sub) => s + sub.totalDue, 0), 0);
@@ -1396,6 +1441,12 @@ ${rows.map(row => `<tr>
                                     className="rounded-lg border border-emerald-700/50 bg-emerald-900/30 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-800/40"
                                 >
                                     Download Report
+                                </button>
+                                <button
+                                    onClick={downloadExcel}
+                                    className="rounded-lg border border-blue-700/50 bg-blue-900/30 px-4 py-2 text-sm font-medium text-blue-100 transition-colors hover:bg-blue-800/40"
+                                >
+                                    Download via Excel
                                 </button>
                                 <button
                                     onClick={() => setShowReportPreview(false)}
