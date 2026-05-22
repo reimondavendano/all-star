@@ -191,6 +191,7 @@ export default function CollectorInvoicesPage() {
         extensionCollected: 0
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showPayAllConfirm, setShowPayAllConfirm] = useState(false);
 
     useEffect(() => {
         fetchBusinessUnits();
@@ -560,6 +561,7 @@ export default function CollectorInvoicesPage() {
             settlementDate: new Date().toISOString().split('T')[0],
             notes: ''
         });
+        setShowPayAllConfirm(false);
     };
 
     const handlePayAll = async () => {
@@ -639,6 +641,7 @@ export default function CollectorInvoicesPage() {
             alert('Failed to process payment');
         } finally {
             setIsSubmitting(false);
+            setShowPayAllConfirm(false);
         }
     };
 
@@ -1696,138 +1699,259 @@ ${rows.map(row => `<tr>
             </div>
 
             {/* Pay All Modal */}
-            {payAllData && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPayAllData(null)} />
-                    <div className="relative bg-[#0a0a0a] border border-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-                        <div className="p-6 border-b border-gray-800/50 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-xl font-bold text-white">Pay All Balance</h2>
-                                <p className="text-sm text-gray-400">{payAllData.customer.name}</p>
-                            </div>
-                            <button
-                                onClick={() => setPayAllData(null)}
-                                className="p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
+            {payAllData && (() => {
+                const totalDue = payAllData.totalAmount;
+                const enteredAmount = parseFloat(payAllForm.amount) || 0;
+                const remainingBalance = totalDue - enteredAmount;
+                const isOverpaid = enteredAmount > totalDue;
 
-                        <div className="p-6 space-y-6">
-                            <div className="bg-amber-950/10 rounded-xl p-4 border border-amber-900/20">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-amber-500/80 text-sm">Total Outstanding</span>
-                                    <span className="text-xl font-bold text-amber-500">₱{Math.round(payAllData.totalAmount).toLocaleString()}</span>
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setPayAllData(null)} />
+
+                        <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-amber-900/50 rounded-2xl shadow-[0_0_60px_rgba(245,158,11,0.15)] w-full max-w-md overflow-hidden">
+                            <div className="relative p-6 border-b border-gray-800/50">
+                                <div className="absolute inset-0 bg-gradient-to-r from-amber-600/10 via-orange-600/10 to-yellow-600/10" />
+                                <div className="relative flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-600 to-orange-600 flex items-center justify-center shadow-lg">
+                                        <Wallet className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-white">Pay All Invoices</h2>
+                                        <p className="text-sm text-gray-400">{payAllData.customer.name}</p>
+                                    </div>
                                 </div>
+                                <button onClick={() => setPayAllData(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
 
-                                {(() => {
-                                    // Calculate breakdown
-                                    const subtotal = payAllData.invoiceSum || 0;
-                                    const totalToPay = payAllData.totalAmount;
-                                    const creditAmount = subtotal - totalToPay;
-                                    const penaltyAmount = totalToPay - subtotal;
+                            {showPayAllConfirm ? (
+                                <div className="p-6 space-y-6">
+                                    <div className="text-center space-y-2">
+                                        <div className="w-16 h-16 mx-auto rounded-full bg-amber-950/80 border border-amber-500/50 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.2)] animate-pulse">
+                                            <Info className="w-8 h-8 text-amber-400" />
+                                        </div>
+                                        <h3 className="text-lg font-bold text-white">Confirm Settle All</h3>
+                                        <p className="text-sm text-gray-400">Are you sure you want to settle all outstanding invoices for this subscriber?</p>
+                                    </div>
 
-                                    return (
-                                        <div className="space-y-1 text-xs text-gray-400">
-                                            <div className="flex justify-between">
-                                                <span>Invoice Sum</span>
-                                                <span>₱{Math.round(subtotal).toLocaleString()}</span>
+                                    <div className="bg-gray-950/80 border border-gray-800/50 rounded-xl p-4 space-y-3">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-400">Customer</span>
+                                            <span className="text-white font-medium">{payAllData.customer.name}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-400">Invoices Settle</span>
+                                            <span className="text-amber-400 font-semibold">{payAllData.invoices.length} unpaid invoice(s)</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-400">Payment Mode</span>
+                                            <span className="text-amber-400 font-semibold">{payAllForm.mode}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-400">Settlement Date</span>
+                                            <span className="text-white font-medium">{payAllForm.settlementDate}</span>
+                                        </div>
+                                        {payAllForm.notes && (
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-gray-400">Notes</span>
+                                                <span className="text-white font-medium truncate max-w-[200px]">{payAllForm.notes}</span>
                                             </div>
-                                            {creditAmount > 0 && Math.abs(creditAmount) > 1 && (
-                                                <div className="flex justify-between text-emerald-400">
-                                                    <span>Credits / Adjustments</span>
-                                                    <span>-₱{Math.round(creditAmount).toLocaleString()}</span>
-                                                </div>
-                                            )}
-                                            {penaltyAmount > 0 && Math.abs(penaltyAmount) > 1 && (
-                                                <div className="flex justify-between text-amber-500">
-                                                    <span>Other Charges</span>
-                                                    <span>+₱{Math.round(penaltyAmount).toLocaleString()}</span>
+                                        )}
+                                        <div className="flex justify-between text-sm border-t border-gray-900 pt-3">
+                                            <span className="text-gray-300 font-semibold">Total Outstanding</span>
+                                            <span className="text-gray-300">₱{Math.round(totalDue).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-amber-400 font-semibold">Total Payment Amount</span>
+                                            <span className="text-amber-400 text-lg font-bold">₱{Math.round(enteredAmount).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm border-t border-gray-900 pt-3">
+                                            <span className="text-gray-400">New Balance</span>
+                                            <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-400' : 'text-amber-500'}`}>
+                                                ₱{Math.round(Math.max(0, remainingBalance)).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            onClick={handlePayAll}
+                                            disabled={isSubmitting}
+                                            className="w-full py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-semibold shadow-lg shadow-amber-955/30 flex items-center justify-center gap-2 transition-all"
+                                        >
+                                            {isSubmitting ? 'Recording Settle...' : 'Yes, Settle All Invoices'}
+                                        </button>
+                                        <button
+                                            onClick={() => setShowPayAllConfirm(false)}
+                                            disabled={isSubmitting}
+                                            className="w-full py-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 rounded-xl font-medium transition-all"
+                                        >
+                                            Cancel / Edit
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="p-6 space-y-4">
+                                        {/* Invoices summary */}
+                                        <div className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50 space-y-2">
+                                            <div className="text-xs text-gray-500 mb-2">{payAllData.invoices.length} unpaid invoice(s)</div>
+                                            {payAllData.invoices
+                                                .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+                                                .map(inv => (
+                                                    <div key={inv.id} className="flex justify-between text-xs">
+                                                        <span className="text-gray-400">
+                                                            {new Date(inv.from_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(inv.to_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                                        </span>
+                                                        <span className="text-white">₱{Math.round(inv.amount_due - (inv.amount_paid || 0)).toLocaleString()}</span>
+                                                    </div>
+                                                ))}
+
+                                            {(() => {
+                                                const subtotal = payAllData.invoiceSum || 0;
+                                                const totalToPay = payAllData.totalAmount;
+                                                const creditAmount = subtotal - totalToPay;
+                                                const penaltyAmount = totalToPay - subtotal;
+
+                                                return (
+                                                    <>
+                                                        <div className="border-t border-gray-700/50 pt-2 mt-2 space-y-1">
+                                                            <div className="flex justify-between text-xs">
+                                                                <span className="text-gray-400">Subtotal</span>
+                                                                <span className="text-white">₱{Math.round(subtotal).toLocaleString()}</span>
+                                                            </div>
+
+                                                            {creditAmount > 0 && Math.abs(creditAmount) > 1 && (
+                                                                <div className="flex justify-between text-xs">
+                                                                    <span className="text-emerald-400">Credits / Adjustments</span>
+                                                                    <span className="text-emerald-400">-₱{Math.round(creditAmount).toLocaleString()}</span>
+                                                                </div>
+                                                            )}
+
+                                                            {penaltyAmount > 0 && Math.abs(penaltyAmount) > 1 && (
+                                                                <div className="flex justify-between text-xs">
+                                                                    <span className="text-amber-400">Other Charges / Penalties</span>
+                                                                    <span className="text-amber-400">+₱{Math.round(penaltyAmount).toLocaleString()}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="border-t border-gray-700/50 pt-2 mt-2 flex justify-between">
+                                                            <span className="text-sm font-medium text-gray-300">Total Outstanding</span>
+                                                            <span className="text-sm font-bold text-white">₱{Math.round(totalToPay).toLocaleString()}</span>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm text-gray-400 mb-2">Amount (₱)</label>
+                                            <input
+                                                type="number"
+                                                value={payAllForm.amount}
+                                                onChange={(e) => setPayAllForm({ ...payAllForm, amount: e.target.value })}
+                                                className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+
+                                        {/* Live Balance Preview Block */}
+                                        <div className="bg-gray-950/80 rounded-xl p-4 border border-amber-950/20 space-y-2">
+                                            <div className="flex justify-between text-sm">
+                                                <span className="text-gray-400">Total Outstanding:</span>
+                                                <span className="text-white font-medium">₱{Math.round(totalDue).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm border-t border-gray-900 pt-2">
+                                                <span className="text-gray-400">Entered Payment:</span>
+                                                <span className="text-amber-400 font-semibold">₱{Math.round(enteredAmount).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between text-sm border-t border-gray-900 pt-2">
+                                                <span className="text-gray-400">Remaining Balance:</span>
+                                                <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-400' : 'text-amber-500'}`}>
+                                                    ₱{Math.round(Math.max(0, remainingBalance)).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            {isOverpaid && (
+                                                <div className="flex items-center gap-2 mt-2 p-2.5 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 animate-pulse">
+                                                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                                    <span>Amount exceeds total outstanding balance.</span>
                                                 </div>
                                             )}
                                         </div>
-                                    );
-                                })()}
-                            </div>
 
-                            <div>
-                                <label className="block text-sm text-gray-400 mb-2">Amount (₱)</label>
-                                <input
-                                    type="number"
-                                    value={payAllForm.amount}
-                                    onChange={(e) => setPayAllForm({ ...payAllForm, amount: e.target.value })}
-                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
-                                    placeholder="0.00"
-                                />
-                            </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-400 mb-2">Payment Mode</label>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPayAllForm({ ...payAllForm, mode: 'Cash' })}
+                                                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'Cash'
+                                                        ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
+                                                        : 'bg-gray-900/50 border-gray-700 text-gray-400'
+                                                        }`}
+                                                >
+                                                    <Banknote className="w-4 h-4" />
+                                                    Cash
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPayAllForm({ ...payAllForm, mode: 'E-Wallet' })}
+                                                    className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'E-Wallet'
+                                                        ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
+                                                        : 'bg-gray-900/50 border-gray-700 text-gray-400'
+                                                        }`}
+                                                >
+                                                    <Smartphone className="w-4 h-4" />
+                                                    E-Wallet
+                                                </button>
+                                            </div>
+                                        </div>
 
-                            <div>
-                                <label className="block text-sm text-gray-400 mb-2">Payment Mode</label>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setPayAllForm({ ...payAllForm, mode: 'Cash' })}
-                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'Cash'
-                                            ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
-                                            : 'bg-gray-900/50 border-gray-700 text-gray-400'
-                                            }`}
-                                    >
-                                        <Banknote className="w-4 h-4" />
-                                        Cash
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPayAllForm({ ...payAllForm, mode: 'E-Wallet' })}
-                                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-colors ${payAllForm.mode === 'E-Wallet'
-                                            ? 'bg-amber-900/30 border-amber-700/50 text-amber-400'
-                                            : 'bg-gray-900/50 border-gray-700 text-gray-400'
-                                            }`}
-                                    >
-                                        <Smartphone className="w-4 h-4" />
-                                        E-Wallet
-                                    </button>
-                                </div>
-                            </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-400 mb-2">Settlement Date</label>
+                                            <input
+                                                type="date"
+                                                value={payAllForm.settlementDate}
+                                                onChange={(e) => setPayAllForm({ ...payAllForm, settlementDate: e.target.value })}
+                                                className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
+                                            />
+                                        </div>
 
-                            <div>
-                                <label className="block text-sm text-gray-400 mb-2">Settlement Date</label>
-                                <input
-                                    type="date"
-                                    value={payAllForm.settlementDate}
-                                    onChange={(e) => setPayAllForm({ ...payAllForm, settlementDate: e.target.value })}
-                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500"
-                                />
-                            </div>
+                                        <div>
+                                            <label className="block text-sm text-gray-400 mb-2">Notes (optional)</label>
+                                            <textarea
+                                                value={payAllForm.notes}
+                                                onChange={(e) => setPayAllForm({ ...payAllForm, notes: e.target.value })}
+                                                className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 h-20 resize-none"
+                                                placeholder="Add notes..."
+                                            />
+                                        </div>
+                                    </div>
 
-                            <div>
-                                <label className="block text-sm text-gray-400 mb-2">Notes (optional)</label>
-                                <textarea
-                                    value={payAllForm.notes}
-                                    onChange={(e) => setPayAllForm({ ...payAllForm, notes: e.target.value })}
-                                    className="w-full bg-gray-900/50 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 h-20 resize-none"
-                                    placeholder="Add notes..."
-                                />
-                            </div>
-
-                            <div className="pt-4 flex gap-3">
-                                <button
-                                    onClick={() => setPayAllData(null)}
-                                    className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium w-full"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handlePayAll}
-                                    disabled={isSubmitting || !payAllForm.amount}
-                                    className="px-6 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-medium shadow-lg w-full disabled:opacity-50"
-                                >
-                                    {isSubmitting ? 'Processing...' : 'Pay Now'}
-                                </button>
-                            </div>
+                                    <div className="p-6 border-t border-gray-800/50 flex justify-end gap-3">
+                                        <button
+                                            onClick={() => setPayAllData(null)}
+                                            className="px-6 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-medium"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={() => setShowPayAllConfirm(true)}
+                                            disabled={!payAllForm.amount || isOverpaid || parseFloat(payAllForm.amount) <= 0}
+                                            className="px-6 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl font-medium shadow-lg disabled:opacity-50"
+                                        >
+                                            Continue
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Quick Collect Modal */}
             <QuickCollectModal

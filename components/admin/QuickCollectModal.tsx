@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp, Minus, MessageSquare } from 'lucide-react';
+import { X, Zap, User, Loader2, CreditCard, CheckCircle, Search, Building2, RefreshCw, ChevronLeft, ChevronRight, Users, Banknote, TrendingUp, Minus, MessageSquare, AlertTriangle, HelpCircle, Info, AlertCircle } from 'lucide-react';
 import InvoiceNotesModal from '@/components/collector/InvoiceNotesModal';
 
 interface DebtorSubscription {
@@ -44,6 +44,14 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     const [partialPaymentId, setPartialPaymentId] = useState<string | null>(null);
     const [partialAmount, setPartialAmount] = useState<string>('');
 
+    // Confirmation States
+    const [confirmData, setConfirmData] = useState<{
+        debtor: DebtorSubscription;
+        amount: number;
+        isPartial: boolean;
+    } | null>(null);
+    const [confirmCollectAll, setConfirmCollectAll] = useState(false);
+
     useEffect(() => {
         if (isOpen) {
             fetchBusinessUnits();
@@ -51,6 +59,8 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
             setSuccessIds(new Set());
             setCurrentPage(1);
             setTotalCollectedAmount(0);
+            setConfirmData(null);
+            setConfirmCollectAll(false);
         }
     }, [isOpen]);
 
@@ -154,13 +164,15 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
         }
     };
 
-    const handleQuickCollect = async (debtor: DebtorSubscription, isPartial: boolean = false) => {
+    const handleQuickCollect = async (debtor: DebtorSubscription, isPartial: boolean = false, amountParam?: number) => {
         setProcessingId(debtor.id);
 
         try {
             let amount: number;
             
-            if (isPartial) {
+            if (amountParam !== undefined) {
+                amount = amountParam;
+            } else if (isPartial) {
                 amount = parseFloat(partialAmount);
                 if (isNaN(amount) || amount <= 0) {
                     alert('Please enter a valid amount');
@@ -284,6 +296,8 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
     const paginatedDebtors = filteredDebtors.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
     const handleClose = () => {
+        setConfirmData(null);
+        setConfirmCollectAll(false);
         if (successIds.size > 0) {
             onSuccess();
         }
@@ -316,6 +330,147 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
 
             <div className="relative bg-gradient-to-b from-[#0f0f0f] to-[#0a0a0a] border border-amber-900/50 rounded-2xl shadow-[0_0_60px_rgba(245,158,11,0.15)] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
+                {/* Single Transaction Confirmation Overlay */}
+                {confirmData && (
+                    <div className="absolute inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-6">
+                        <div className="bg-[#121212] border border-amber-955/50 rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.1)] w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                            {/* Inner Header */}
+                            <div className="relative p-6 border-b border-gray-800/50 text-center">
+                                <div className="absolute inset-0 bg-gradient-to-r from-amber-600/5 via-orange-600/5 to-yellow-600/5" />
+                                <div className="w-16 h-16 mx-auto rounded-full bg-amber-955/80 border border-amber-500/50 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.2)] mb-3 animate-pulse">
+                                    <HelpCircle className="w-8 h-8 text-amber-400" />
+                                </div>
+                                <h3 className="text-lg font-bold text-white">Confirm Payment</h3>
+                                <p className="text-xs text-gray-400 mt-1">Please verify the payment details below:</p>
+                            </div>
+
+                            {/* Details Container */}
+                            <div className="p-6 space-y-4">
+                                <div className="bg-gray-950/80 border border-gray-800/50 rounded-xl p-4 space-y-3">
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500">Customer</span>
+                                        <span className="text-white font-medium truncate max-w-[200px]">{confirmData.debtor.customer_name}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500">Plan / Unit</span>
+                                        <span className="text-white font-medium">{confirmData.debtor.plan_name} • {confirmData.debtor.business_unit_name}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-gray-500">Payment Type</span>
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${confirmData.isPartial ? 'bg-blue-900/30 text-blue-400' : 'bg-amber-900/30 text-amber-400'}`}>
+                                            {confirmData.isPartial ? 'Partial Payment' : 'Full Payment'}
+                                        </span>
+                                    </div>
+
+                                    {/* Live Math */}
+                                    <div className="border-t border-gray-900 pt-3 space-y-2">
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-gray-400">Current Balance</span>
+                                            <span className="text-white font-medium">₱{Math.round(confirmData.debtor.total_due).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-emerald-400 font-semibold">Payment Amount</span>
+                                            <span className="text-emerald-400 text-sm font-bold">₱{Math.round(confirmData.amount).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs border-t border-gray-900/50 pt-2">
+                                            <span className="text-gray-400">Remaining Balance</span>
+                                            <span className={`font-bold ${Math.max(0, confirmData.debtor.total_due - confirmData.amount) <= 0 ? 'text-green-400' : 'text-amber-500'}`}>
+                                                ₱{Math.round(Math.max(0, confirmData.debtor.total_due - confirmData.amount)).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Confirmation Buttons */}
+                                <div className="flex flex-col gap-2 pt-2">
+                                    <button
+                                        onClick={async () => {
+                                            const { debtor, isPartial, amount } = confirmData;
+                                            setConfirmData(null);
+                                            await handleQuickCollect(debtor, isPartial, amount);
+                                        }}
+                                        className="w-full py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-semibold shadow-lg shadow-emerald-950/20 transition-all text-xs"
+                                    >
+                                        Yes, Confirm Payment
+                                    </button>
+                                    <button
+                                        onClick={() => setConfirmData(null)}
+                                        className="w-full py-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 rounded-xl font-medium transition-all text-xs"
+                                    >
+                                        Cancel / Go Back
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Collect All Confirmation Overlay */}
+                {confirmCollectAll && (() => {
+                    const pageDebtors = paginatedDebtors.filter(d => !successIds.has(d.id));
+                    const totalSum = pageDebtors.reduce((sum, d) => sum + d.total_due, 0);
+
+                    return (
+                        <div className="absolute inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-6">
+                            <div className="bg-[#121212] border border-amber-955/50 rounded-2xl shadow-[0_0_40px_rgba(245,158,11,0.1)] w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+                                {/* Header */}
+                                <div className="relative p-6 border-b border-gray-800/50 text-center">
+                                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-600/5 via-green-600/5 to-teal-600/5" />
+                                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-955/85 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.2)] mb-3 animate-pulse">
+                                        <AlertTriangle className="w-8 h-8 text-emerald-400" />
+                                    </div>
+                                    <h3 className="text-lg font-bold text-white">Confirm Collect All</h3>
+                                    <p className="text-xs text-gray-400 mt-1">Batch process all outstanding accounts on this page:</p>
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-6 space-y-4">
+                                    {/* Breakdown Box */}
+                                    <div className="bg-gray-950/80 border border-gray-800/50 rounded-xl p-4 space-y-3">
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-gray-500">Total Accounts to Settle</span>
+                                            <span className="text-white font-bold">{pageDebtors.length} accounts</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs border-t border-gray-900 pt-2">
+                                            <span className="text-emerald-400 font-semibold">Cumulative collected sum</span>
+                                            <span className="text-emerald-400 text-base font-bold">₱{Math.round(totalSum).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Mini list for scrolling summary */}
+                                    <div className="max-h-36 overflow-y-auto border border-gray-800/50 rounded-lg p-2.5 bg-gray-900/30 space-y-1.5 text-[11px]">
+                                        {pageDebtors.map(debtor => (
+                                            <div key={debtor.id} className="flex justify-between text-gray-400">
+                                                <span className="truncate max-w-[180px]">{debtor.customer_name}</span>
+                                                <span className="text-white font-medium">₱{Math.round(debtor.total_due).toLocaleString()}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex flex-col gap-2 pt-2">
+                                        <button
+                                            onClick={async () => {
+                                                setConfirmCollectAll(false);
+                                                await handleCollectAllOnPage();
+                                            }}
+                                            className="w-full py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-semibold shadow-lg shadow-emerald-950/20 transition-all text-xs"
+                                        >
+                                            Yes, Settle All {pageDebtors.length} Accounts
+                                        </button>
+                                        <button
+                                            onClick={() => setConfirmCollectAll(false)}
+                                            className="w-full py-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 rounded-xl font-medium transition-all text-xs"
+                                        >
+                                            Cancel / Go Back
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Header */}
                 <div className="relative p-5 border-b border-gray-800/50">
                     <div className="absolute inset-0 bg-gradient-to-r from-amber-600/10 via-orange-600/10 to-yellow-600/10" />
@@ -439,7 +594,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                 </div>
 
                                 <button
-                                    onClick={handleCollectAllOnPage}
+                                    onClick={() => setConfirmCollectAll(true)}
                                     disabled={processingBatch || paginatedDebtors.filter(d => !successIds.has(d.id)).length === 0}
                                     className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white text-xs rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
@@ -456,13 +611,15 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                     )}
                                 </button>
                             </div>
-
+ 
                             {/* List */}
                             <div className="space-y-2">
                                 {paginatedDebtors.map((debtor) => {
                                     const isProcessing = processingId === debtor.id;
                                     const isSuccess = successIds.has(debtor.id);
-
+                                    const partialAmountNum = parseFloat(partialAmount) || 0;
+                                    const isOverpaid = partialAmountNum > debtor.total_due;
+ 
                                     return (
                                         <div
                                             key={debtor.id}
@@ -476,7 +633,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-violet-600 flex items-center justify-center flex-shrink-0">
                                                     <User className="w-4 h-4 text-white" />
                                                 </div>
-
+ 
                                                 {/* Customer Info */}
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
@@ -495,7 +652,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                         <span>{debtor.unpaid_invoice_count} unpaid invoices</span>
                                                     </div>
                                                 </div>
-
+ 
                                                 {/* Amount */}
                                                 <div className="text-right flex-shrink-0 mr-2">
                                                     <div className="text-base font-bold text-white">
@@ -505,7 +662,7 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                         Total Due
                                                     </div>
                                                 </div>
-
+ 
                                                 {/* Action Buttons */}
                                                 <div className="flex-shrink-0 flex items-center gap-1.5">
                                                     {isSuccess ? (
@@ -527,7 +684,14 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                                     autoFocus
                                                                     onKeyDown={(e) => {
                                                                         if (e.key === 'Enter') {
-                                                                            handleQuickCollect(debtor, true);
+                                                                            const amt = parseFloat(partialAmount);
+                                                                            if (!isNaN(amt) && amt > 0 && amt <= debtor.total_due) {
+                                                                                setConfirmData({
+                                                                                    debtor,
+                                                                                    amount: amt,
+                                                                                    isPartial: true
+                                                                                });
+                                                                            }
                                                                         } else if (e.key === 'Escape') {
                                                                             setPartialPaymentId(null);
                                                                             setPartialAmount('');
@@ -536,9 +700,18 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                                 />
                                                             </div>
                                                             <button
-                                                                onClick={() => handleQuickCollect(debtor, true)}
-                                                                disabled={isProcessing || !partialAmount}
-                                                                className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white rounded-lg font-medium text-xs disabled:opacity-50"
+                                                                onClick={() => {
+                                                                    const amt = parseFloat(partialAmount);
+                                                                    if (!isNaN(amt) && amt > 0 && amt <= debtor.total_due) {
+                                                                        setConfirmData({
+                                                                            debtor,
+                                                                            amount: amt,
+                                                                            isPartial: true
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                disabled={isProcessing || !partialAmount || parseFloat(partialAmount) <= 0 || isOverpaid}
+                                                                className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white rounded-lg font-medium text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                                                             >
                                                                 {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Pay'}
                                                             </button>
@@ -556,7 +729,11 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                         // Normal Mode - Full and Partial buttons
                                                         <>
                                                             <button
-                                                                onClick={() => handleQuickCollect(debtor, false)}
+                                                                onClick={() => setConfirmData({
+                                                                    debtor,
+                                                                    amount: debtor.total_due,
+                                                                    isPartial: false
+                                                                })}
                                                                 disabled={isProcessing || processingBatch}
                                                                 className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white rounded-lg font-medium shadow-lg shadow-amber-900/20 transition-all disabled:opacity-50 text-xs"
                                                             >
@@ -582,6 +759,23 @@ export default function QuickCollectModal({ isOpen, onClose, onSuccess }: QuickC
                                                     )}
                                                 </div>
                                             </div>
+
+                                            {/* Live Math Helper for Partial Payment */}
+                                            {partialPaymentId === debtor.id && (
+                                                <div className="mt-3 pt-3 border-t border-gray-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                                                    <div className="flex items-center gap-4 flex-wrap text-gray-400">
+                                                        <span>Outstanding: <strong className="text-white">₱{Math.round(debtor.total_due).toLocaleString()}</strong></span>
+                                                        <span>Payment: <strong className="text-blue-400">₱{Math.round(partialAmountNum).toLocaleString()}</strong></span>
+                                                        <span>Remaining: <strong className={`${Math.max(0, debtor.total_due - partialAmountNum) <= 0 ? 'text-green-400' : 'text-amber-500'}`}>₱{Math.round(Math.max(0, debtor.total_due - partialAmountNum)).toLocaleString()}</strong></span>
+                                                    </div>
+                                                    {isOverpaid && (
+                                                        <span className="text-red-400 font-semibold animate-pulse flex items-center gap-1">
+                                                            <AlertCircle className="w-3.5 h-3.5" />
+                                                            Amount exceeds outstanding balance!
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })}

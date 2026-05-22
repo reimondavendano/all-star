@@ -68,6 +68,10 @@ export default function VerificationPage() {
     // Status Tab - default to pending
     const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
 
+    // New Filters
+    const [searchQuery, setSearchQuery] = useState('');
+    const [businessUnit, setBusinessUnit] = useState('all');
+
     // Modal State
     const [selectedPayment, setSelectedPayment] = useState<any>(null);
     const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
@@ -296,13 +300,36 @@ export default function VerificationPage() {
         return match ? match[1] : null;
     };
 
+    // Apply search and business unit filters first
+    const baseFilteredPayments = payments.filter(p => {
+        const customerName = p.subscription?.customer?.name?.toLowerCase() || '';
+        const matchesSearch = customerName.includes(searchQuery.toLowerCase());
+        
+        const address = p.subscription?.address?.toLowerCase() || '';
+        const dueDate = p.invoice?.due_date ? new Date(p.invoice.due_date) : null;
+        
+        let matchesUnit = true;
+        if (businessUnit === 'malanggam') {
+            matchesUnit = address.includes('malanggam');
+        } else if (businessUnit === 'bulihan') {
+            matchesUnit = address.includes('bulihan');
+        } else if (businessUnit === 'extension') {
+            matchesUnit = address.includes('extension');
+        } else if (businessUnit === 'malanggam_extension_30th') {
+            matchesUnit = (address.includes('malanggam') || address.includes('extension')) && 
+                          (dueDate?.getDate() === 30);
+        }
+
+        return matchesSearch && matchesUnit;
+    });
+
     // Filter payments based on status tab
-    const filteredPayments = payments.filter(p => p.status === statusTab);
+    const filteredPayments = baseFilteredPayments.filter(p => p.status === statusTab);
 
     // Stats
-    const pendingCount = payments.filter(p => p.status === 'pending').length;
-    const approvedCount = payments.filter(p => p.status === 'approved').length;
-    const rejectedCount = payments.filter(p => p.status === 'rejected').length;
+    const pendingCount = baseFilteredPayments.filter(p => p.status === 'pending').length;
+    const approvedCount = baseFilteredPayments.filter(p => p.status === 'approved').length;
+    const rejectedCount = baseFilteredPayments.filter(p => p.status === 'rejected').length;
 
     // Generate month options (last 12 months)
     const monthOptions = [];
@@ -378,21 +405,51 @@ export default function VerificationPage() {
                 <div className="glass-card overflow-hidden border border-gray-800 rounded-xl bg-[#0a0a0a]">
                     {/* Header with Filters */}
                     <div className="p-6 border-b border-gray-800">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                             <h2 className="text-lg font-semibold text-white">E-Wallet Payments</h2>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* Search Filter */}
+                                <div className="relative">
+                                    <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search name..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg pl-9 pr-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500 w-full sm:w-48"
+                                    />
+                                </div>
+
+                                {/* Business Unit Filter */}
+                                <div className="flex items-center gap-2">
+                                    <Building className="w-4 h-4 text-gray-500" />
+                                    <select
+                                        value={businessUnit}
+                                        onChange={(e) => setBusinessUnit(e.target.value)}
+                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                        <option value="all">All Units</option>
+                                        <option value="malanggam">Malanggam</option>
+                                        <option value="bulihan">Bulihan</option>
+                                        <option value="extension">Extension</option>
+                                        <option value="malanggam_extension_30th">Malanggam + Extension (30th)</option>
+                                    </select>
+                                </div>
+
                                 {/* Month Filter */}
-                                <Calendar className="w-4 h-4 text-gray-500" />
-                                <select
-                                    value={selectedMonth}
-                                    onChange={(e) => setSelectedMonth(e.target.value)}
-                                    className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
-                                >
-                                    {monthOptions.map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-gray-500" />
+                                    <select
+                                        value={selectedMonth}
+                                        onChange={(e) => setSelectedMonth(e.target.value)}
+                                        className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                                    >
+                                        {monthOptions.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
