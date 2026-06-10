@@ -91,6 +91,7 @@ type SortDirection = 'asc' | 'desc';
 
 const BUSINESS_UNIT_CYCLE_FILTERS = {
     malanggam_extension_30th: 'Malanggam + Extension (30th)',
+    extension_30th: 'Extension (30th)',
     extension_15th: 'Extension (15th)'
 } as const;
 
@@ -114,6 +115,9 @@ const matchesBusinessUnitFilter = (subscription: { business_units?: any; invoice
     if (selectedFilter === 'malanggam_extension_30th') {
         return businessUnitName.includes('malanggam') ||
             (businessUnitName.includes('extension') && subscription.invoice_date === '30th');
+    }
+    if (selectedFilter === 'extension_30th') {
+        return businessUnitName.includes('extension') && subscription.invoice_date === '30th';
     }
 
     return businessUnitName.includes('extension') && isExtension15thCycle(subscription.invoice_date);
@@ -1017,6 +1021,7 @@ ${rows.map(row => `<tr>
                                     <option key={bu.id} value={bu.id}>{bu.name}</option>
                                 ))}
                                 <option value="malanggam_extension_30th">Malanggam + Extension (30th)</option>
+                                <option value="extension_30th">Extension (30th)</option>
                                 <option value="extension_15th">Extension (15th)</option>
                             </select>
                         </label>

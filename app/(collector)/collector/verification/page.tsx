@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { approvePayment, rejectPayment } from '@/app/actions/subscription';
 import VerifyPaymentModal from '@/components/admin/VerifyPaymentModal';
+import { getVerificationPaymentStatus } from '@/lib/paymentVerification';
 
 interface VerificationItem {
     id: string;
@@ -36,6 +37,7 @@ interface VerificationItem {
         due_date: string;
         from_date: string;
         to_date: string;
+        payment_status?: string;
     };
 }
 
@@ -87,7 +89,8 @@ export default function CollectorVerificationPage() {
                     invoice:invoices (
                         due_date,
                         from_date,
-                        to_date
+                        to_date,
+                        payment_status
                     )
                 `)
                 .eq('mode', 'E-Wallet')
@@ -104,18 +107,13 @@ export default function CollectorVerificationPage() {
                     sub.customer = Array.isArray(sub.customer) ? sub.customer[0] : sub.customer;
                 }
 
-                // Determine status from notes
-                let status: 'pending' | 'approved' | 'rejected' = 'approved';
-                if (p.notes?.includes('Pending Verification')) {
-                    status = 'pending';
-                } else if (p.notes?.includes('REJECTED')) {
-                    status = 'rejected';
-                }
+                const invoice = Array.isArray(p.invoice) ? p.invoice[0] : p.invoice;
+                const status = getVerificationPaymentStatus(p.notes, invoice?.payment_status);
 
                 return {
                     ...p,
                     subscription: sub,
-                    invoice: Array.isArray(p.invoice) ? p.invoice[0] : p.invoice,
+                    invoice,
                     status
                 };
             });

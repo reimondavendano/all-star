@@ -557,8 +557,8 @@ export async function approvePayment(paymentId: string, approvedAmount: number, 
         const currentBalance = sub?.balance || 0;
 
         // 3. Update payment record (remove "Pending Verification" from notes, update amount if different)
-        const updatedNotes = payment.notes
-            .replace('(Pending Verification)', '(Verified)')
+        const updatedNotes = (payment.notes || 'Manual Payment')
+            .replace(/\s*\(?Pending Verification\)?/i, ' (Verified)')
             + (adminNotes ? ` | Admin: ${adminNotes}` : '')
             + (approvedAmount !== originalAmount ? ` | Original: ₱${originalAmount}, Approved: ₱${approvedAmount}` : '');
 
@@ -631,8 +631,8 @@ export async function rejectPayment(paymentId: string, reason?: string) {
         if (paymentError || !payment) throw new Error('Payment not found');
 
         // 2. Update payment notes to mark as rejected (or delete it)
-        const updatedNotes = payment.notes
-            .replace('(Pending Verification)', '(REJECTED)')
+        const updatedNotes = (payment.notes || 'Manual Payment')
+            .replace(/\s*\(?Pending Verification\)?/i, ' (REJECTED)')
             + (reason ? ` | Reason: ${reason}` : '');
 
         await supabase

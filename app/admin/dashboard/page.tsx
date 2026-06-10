@@ -186,6 +186,27 @@ interface SubscriptionStats {
 
 const CATEGORY_COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
 const PAYMENT_METHOD_COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#22c55e', '#8b5cf6', '#ef4444'];
+const EMPTY_UUID = '00000000-0000-0000-0000-000000000000';
+
+const BUSINESS_UNIT_CYCLE_FILTERS = {
+    malanggam_ext_30th: 'Malanggam + Ext. (30th)',
+    extension_30th: 'Extension (30th)',
+    extension_15th: 'Extension (15th)'
+} as const;
+
+type BusinessUnitCycleFilter = keyof typeof BUSINESS_UNIT_CYCLE_FILTERS;
+
+const isBusinessUnitCycleFilter = (value: string): value is BusinessUnitCycleFilter =>
+    value in BUSINESS_UNIT_CYCLE_FILTERS;
+
+const getBusinessUnitFilterLabel = (
+    value: string,
+    businessUnits: { id: string; name: string }[]
+) => {
+    if (value === 'all') return 'All Business Units';
+    if (isBusinessUnitCycleFilter(value)) return BUSINESS_UNIT_CYCLE_FILTERS[value];
+    return businessUnits.find(bu => bu.id === value)?.name || 'Selected Business Unit';
+};
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -359,9 +380,9 @@ export default function DashboardPage() {
             setBusinessUnits(buData || []);
 
             let selectedBuIds: string[] = [];
-            let malanggamExt30thSubIds: string[] | null = null; // explicit sub IDs for 30th filter
+            let cycleFilteredSubIds: string[] | null = null;
 
-            if (selectedBusinessUnit === 'malanggam_ext_30th') {
+            if (isBusinessUnitCycleFilter(selectedBusinessUnit)) {
                 const malanggamBuIds = (buData || [])
                     .filter(bu => bu.name.toLowerCase().includes('malanggam'))
                     .map(bu => bu.id);
@@ -369,24 +390,39 @@ export default function DashboardPage() {
                     .filter(bu => bu.name.toLowerCase().includes('extension'))
                     .map(bu => bu.id);
 
-                // Get all Malanggam sub IDs
-                const { data: malanggamSubs } = await supabase
-                    .from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
-                // Get only Extension sub IDs with invoice_date = '30th'
-                const { data: ext30thSubs } = await supabase
-                    .from('subscriptions').select('id')
-                    .in('business_unit_id', extensionBuIds)
-                    .eq('invoice_date', '30th');
+                if (selectedBusinessUnit === 'malanggam_ext_30th') {
+                    const { data: malanggamSubs } = await supabase
+                        .from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
+                    const { data: ext30thSubs } = await supabase
+                        .from('subscriptions').select('id')
+                        .in('business_unit_id', extensionBuIds)
+                        .eq('invoice_date', '30th');
 
-                malanggamExt30thSubIds = [
-                    ...(malanggamSubs || []).map(s => s.id),
-                    ...(ext30thSubs || []).map(s => s.id)
-                ];
-                // selectedBuIds covers both BUs for BU performance table display
-                selectedBuIds = [...malanggamBuIds, ...extensionBuIds];
+                    cycleFilteredSubIds = [
+                        ...(malanggamSubs || []).map(s => s.id),
+                        ...(ext30thSubs || []).map(s => s.id)
+                    ];
+                    selectedBuIds = [...malanggamBuIds, ...extensionBuIds];
+                } else {
+                    const { data: extensionSubs } = await supabase
+                        .from('subscriptions').select('id, invoice_date')
+                        .in('business_unit_id', extensionBuIds);
+
+                    cycleFilteredSubIds = (extensionSubs || [])
+                        .filter(sub => selectedBusinessUnit === 'extension_30th'
+                            ? sub.invoice_date === '30th'
+                            : !sub.invoice_date || sub.invoice_date === '15th'
+                        )
+                        .map(sub => sub.id);
+                    selectedBuIds = extensionBuIds;
+                }
             } else if (selectedBusinessUnit !== 'all') {
                 selectedBuIds = [selectedBusinessUnit];
             }
+
+            const cycleSubIdsForQuery = cycleFilteredSubIds && cycleFilteredSubIds.length > 0
+                ? cycleFilteredSubIds
+                : [EMPTY_UUID];
 
             // 1. Total customers - need to filter if business unit selected
             let totalCustomers = 0;
@@ -394,25 +430,32 @@ export default function DashboardPage() {
                 const { count } = await supabase.from('customers').select('*', { count: 'exact', head: true });
                 totalCustomers = count || 0;
             } else {
-                // Count distinct customers that have subscriptions in this BU
-                const { data: custData } = await supabase
+                // Count distinct customers that have subscriptions in this BU/filter.
+                let customerSubsQuery = supabase
                     .from('subscriptions')
-                    .select('subscriber_id')
-                    .in('business_unit_id', selectedBuIds);
+                    .select('subscriber_id');
+                customerSubsQuery = cycleFilteredSubIds !== null
+                    ? customerSubsQuery.in('id', cycleSubIdsForQuery)
+                    : customerSubsQuery.in('business_unit_id', selectedBuIds);
+                const { data: custData } = await customerSubsQuery;
                 const uniqueCustomers = new Set((custData || []).map(s => s.subscriber_id));
                 totalCustomers = uniqueCustomers.size;
             }
 
             // 2. Active subscriptions
             let subsQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('active', true);
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                subsQuery = subsQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 subsQuery = subsQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: activeSubscriptions } = await subsQuery;
 
             // 3. Subscription Stats (filtered by BU)
             let inactiveQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('active', false);
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                inactiveQuery = inactiveQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 inactiveQuery = inactiveQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: inactiveSubs } = await inactiveQuery;
@@ -420,7 +463,9 @@ export default function DashboardPage() {
             let newThisMonthQuery = supabase.from('subscriptions').select('*', { count: 'exact', head: true });
             newThisMonthQuery = applyDateFilter(newThisMonthQuery, 'created_at', startOfMonth, startOfNextMonth);
 
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                newThisMonthQuery = newThisMonthQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 newThisMonthQuery = newThisMonthQuery.in('business_unit_id', selectedBuIds);
             }
             const { count: newThisMonth } = await newThisMonthQuery;
@@ -428,13 +473,11 @@ export default function DashboardPage() {
             // 4. Invoice totals for current month - FILTER BY BUSINESS UNIT through subscriptions
             // First get subscription IDs for the selected business unit
             let subscriptionIdsForBU: string[] = [];
-            if (malanggamExt30thSubIds !== null) {
-                // Already computed specific sub IDs for Malanggam + Ext (30th)
-                subscriptionIdsForBU = malanggamExt30thSubIds;
+            if (cycleFilteredSubIds !== null) {
+                subscriptionIdsForBU = cycleFilteredSubIds;
             } else if (selectedBusinessUnit !== 'all') {
                 const { data: buSubs } = await supabase
-                    .from('subscriptions')
-                    .select('id')
+                    .from('subscriptions').select('id')
                     .in('business_unit_id', selectedBuIds);
                 subscriptionIdsForBU = (buSubs || []).map(s => s.id);
             }
@@ -519,7 +562,9 @@ export default function DashboardPage() {
 
             // Tally subscribers from active subscriptions for accurate overall subscriber count per BU
             let buSubsQuery = supabase.from('subscriptions').select('business_units(name)').eq('active', true);
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                buSubsQuery = buSubsQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 buSubsQuery = buSubsQuery.in('business_unit_id', selectedBuIds);
             }
             const { data: buSubsActive } = await buSubsQuery;
@@ -615,7 +660,9 @@ export default function DashboardPage() {
                 .order('created_at', { ascending: false })
                 .limit(10);
 
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                paymentsQuery = paymentsQuery.in('subscription_id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 paymentsQuery = paymentsQuery.in('subscriptions.business_unit_id', selectedBuIds);
             }
 
@@ -639,7 +686,9 @@ export default function DashboardPage() {
                 .order('created_at', { ascending: false })
                 .limit(10);
 
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                invoicesQuery = invoicesQuery.in('subscription_id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 invoicesQuery = invoicesQuery.in('subscriptions.business_unit_id', selectedBuIds);
             }
 
@@ -663,7 +712,9 @@ export default function DashboardPage() {
                 .order('created_at', { ascending: false })
                 .limit(10);
 
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                subscribersQuery = subscribersQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 subscribersQuery = subscribersQuery.in('business_unit_id', selectedBuIds);
             }
 
@@ -819,7 +870,7 @@ export default function DashboardPage() {
                 .eq('active', true)
                 .or('is_free.is.null,is_free.eq.false');
 
-            if (malanggamExt30thSubIds !== null) {
+            if (cycleFilteredSubIds !== null) {
                 if (subscriptionIdsForBU.length > 0) {
                     extensionSubsQuery = extensionSubsQuery.in('id', subscriptionIdsForBU);
                 }
@@ -827,7 +878,7 @@ export default function DashboardPage() {
                 extensionSubsQuery = extensionSubsQuery.in('business_unit_id', selectedBuIds);
             }
 
-            const { data: extensionSubsRaw } = malanggamExt30thSubIds !== null && subscriptionIdsForBU.length === 0
+            const { data: extensionSubsRaw } = cycleFilteredSubIds !== null && subscriptionIdsForBU.length === 0
                 ? { data: [] }
                 : await extensionSubsQuery;
 
@@ -1017,7 +1068,9 @@ export default function DashboardPage() {
                 `)
                 .gte('created_at', thirtyDaysAgoISO)
                 .order('created_at', { ascending: false });
-            if (selectedBusinessUnit !== 'all') {
+            if (cycleFilteredSubIds !== null) {
+                newInstallsQuery = newInstallsQuery.in('id', cycleSubIdsForQuery);
+            } else if (selectedBusinessUnit !== 'all') {
                 newInstallsQuery = newInstallsQuery.in('business_unit_id', selectedBuIds);
             }
             const { data: newInstallsData } = await newInstallsQuery;
@@ -1079,7 +1132,7 @@ export default function DashboardPage() {
                 .lt('created_at', startOfNextMonth)
                 .order('created_at', { ascending: false });
 
-            if (malanggamExt30thSubIds !== null) {
+            if (cycleFilteredSubIds !== null) {
                 if (subscriptionIdsForBU.length > 0) {
                     planChangesQuery = planChangesQuery.in('subscription_id', subscriptionIdsForBU);
                 }
@@ -1087,7 +1140,7 @@ export default function DashboardPage() {
                 planChangesQuery = planChangesQuery.in('subscriptions.business_unit_id', selectedBuIds);
             }
 
-            const { data: planChangesRaw } = malanggamExt30thSubIds !== null && subscriptionIdsForBU.length === 0
+            const { data: planChangesRaw } = cycleFilteredSubIds !== null && subscriptionIdsForBU.length === 0
                 ? { data: [] }
                 : await planChangesQuery;
 
@@ -1220,16 +1273,26 @@ export default function DashboardPage() {
             let filterBuIds: string[] = [];
             let filterSubIds: string[] | null = null;
 
-            if (selectedBusinessUnit === 'malanggam_ext_30th') {
+            if (isBusinessUnitCycleFilter(selectedBusinessUnit)) {
                 const { data: buData } = await supabase.from('business_units').select('id, name');
                 const malanggamBuIds = (buData || []).filter(bu => bu.name.toLowerCase().includes('malanggam')).map(bu => bu.id);
                 const extensionBuIds = (buData || []).filter(bu => bu.name.toLowerCase().includes('extension')).map(bu => bu.id);
-                const { data: malanggamSubs } = await supabase.from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
-                const { data: ext30Subs } = await supabase.from('subscriptions').select('id').in('business_unit_id', extensionBuIds).eq('invoice_date', '30th');
-                filterSubIds = [
-                    ...(malanggamSubs || []).map((s: any) => s.id),
-                    ...(ext30Subs || []).map((s: any) => s.id)
-                ];
+                if (selectedBusinessUnit === 'malanggam_ext_30th') {
+                    const { data: malanggamSubs } = await supabase.from('subscriptions').select('id').in('business_unit_id', malanggamBuIds);
+                    const { data: ext30Subs } = await supabase.from('subscriptions').select('id').in('business_unit_id', extensionBuIds).eq('invoice_date', '30th');
+                    filterSubIds = [
+                        ...(malanggamSubs || []).map((s: any) => s.id),
+                        ...(ext30Subs || []).map((s: any) => s.id)
+                    ];
+                } else {
+                    const { data: extensionSubs } = await supabase.from('subscriptions').select('id, invoice_date').in('business_unit_id', extensionBuIds);
+                    filterSubIds = (extensionSubs || [])
+                        .filter((sub: any) => selectedBusinessUnit === 'extension_30th'
+                            ? sub.invoice_date === '30th'
+                            : !sub.invoice_date || sub.invoice_date === '15th'
+                        )
+                        .map((sub: any) => sub.id);
+                }
             } else if (selectedBusinessUnit !== 'all') {
                 filterBuIds = [selectedBusinessUnit];
             }
@@ -1284,13 +1347,7 @@ export default function DashboardPage() {
 
             addRow(['Dashboard Report', '']);
             addRow(['Period', selectedPeriod]);
-            let businessUnitName = 'All Business Units';
-            if (selectedBusinessUnit === 'malanggam_ext_30th') {
-                businessUnitName = 'Malanggam + Ext. (30th)';
-            } else if (selectedBusinessUnit !== 'all') {
-                const found = businessUnits.find(b => b.id === selectedBusinessUnit);
-                if (found) businessUnitName = found.name;
-            }
+            const businessUnitName = getBusinessUnitFilterLabel(selectedBusinessUnit, businessUnits);
             addRow(['Business Unit Filter', businessUnitName]);
             addRow([]);
 
@@ -1440,6 +1497,8 @@ export default function DashboardPage() {
                         >
                             <option value="all">All Business Units</option>
                             <option value="malanggam_ext_30th">Malanggam + Ext. (30th)</option>
+                            <option value="extension_30th">Extension (30th)</option>
+                            <option value="extension_15th">Extension (15th)</option>
                             {businessUnits.map(bu => (
                                 <option key={bu.id} value={bu.id}>{bu.name}</option>
                             ))}

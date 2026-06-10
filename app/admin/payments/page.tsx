@@ -23,6 +23,7 @@ interface Subscription {
     address?: string;
     label?: string;
     balance?: number;
+    invoice_date?: string | null;
     customers: {
         id: string;
         name: string;
@@ -44,6 +45,38 @@ interface GroupedData {
     businessUnitName: string;
     subscriptions: Subscription[];
 }
+
+const BUSINESS_UNIT_CYCLE_FILTERS = {
+    malanggam_extension_30th: 'Malanggam + Extension (30th)',
+    extension_30th: 'Extension (30th)',
+    extension_15th: 'Extension (15th)'
+} as const;
+
+type BusinessUnitCycleFilter = keyof typeof BUSINESS_UNIT_CYCLE_FILTERS;
+
+const isBusinessUnitCycleFilter = (value: string): value is BusinessUnitCycleFilter =>
+    value in BUSINESS_UNIT_CYCLE_FILTERS;
+
+const isExtension15thCycle = (invoiceDate: string | null | undefined) =>
+    !invoiceDate || invoiceDate === '15th';
+
+const matchesBusinessUnitFilter = (
+    subscription: { business_units?: { id?: string; name?: string } | null; invoice_date?: string | null },
+    selectedFilter: string
+) => {
+    if (!isBusinessUnitCycleFilter(selectedFilter)) return true;
+
+    const businessUnitName = subscription.business_units?.name?.toLowerCase() || '';
+    if (selectedFilter === 'malanggam_extension_30th') {
+        return businessUnitName.includes('malanggam') ||
+            (businessUnitName.includes('extension') && subscription.invoice_date === '30th');
+    }
+    if (selectedFilter === 'extension_30th') {
+        return businessUnitName.includes('extension') && subscription.invoice_date === '30th';
+    }
+
+    return businessUnitName.includes('extension') && isExtension15thCycle(subscription.invoice_date);
+};
 
 export default function PaymentsPage() {
     const [groupedData, setGroupedData] = useState<GroupedData[]>([]);
@@ -96,6 +129,7 @@ export default function PaymentsPage() {
                         address,
                         label,
                         balance,
+                        invoice_date,
                     customers!subscriptions_subscriber_id_fkey (
                             id,
                             name
@@ -148,6 +182,7 @@ export default function PaymentsPage() {
                         address: inv.subscriptions.address,
                         label: inv.subscriptions.label,
                         balance: inv.subscriptions.balance,
+                        invoice_date: inv.subscriptions.invoice_date,
                         customers: Array.isArray(inv.subscriptions.customers) ? inv.subscriptions.customers[0] : inv.subscriptions.customers,
                         plans: Array.isArray(inv.subscriptions.plans) ? inv.subscriptions.plans[0] : inv.subscriptions.plans,
                         business_units: Array.isArray(inv.subscriptions.business_units) ? inv.subscriptions.business_units[0] : inv.subscriptions.business_units,
@@ -216,7 +251,9 @@ export default function PaymentsPage() {
         // Filter by business unit
         const filteredSubs = selectedBusinessUnit === 'all'
             ? subscriptions
-            : subscriptions.filter(sub => sub.business_units.id === selectedBusinessUnit);
+            : isBusinessUnitCycleFilter(selectedBusinessUnit)
+                ? subscriptions.filter(sub => matchesBusinessUnitFilter(sub, selectedBusinessUnit))
+                : subscriptions.filter(sub => sub.business_units.id === selectedBusinessUnit);
 
         filteredSubs.forEach(sub => {
             const custId = sub.customers.id;
@@ -267,6 +304,9 @@ export default function PaymentsPage() {
                             {businessUnits.map(unit => (
                                 <option key={unit.id} value={unit.id}>{unit.name}</option>
                             ))}
+                            <option value="malanggam_extension_30th">Malanggam + Extension (30th)</option>
+                            <option value="extension_30th">Extension (30th)</option>
+                            <option value="extension_15th">Extension (15th)</option>
                         </select>
 
                         <input

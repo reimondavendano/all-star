@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 import { getPendingPlanChangeRequestCount } from '@/app/actions/planChangeRequests';
+import { getVerificationMonthWindow, isPendingVerificationPayment } from '@/lib/paymentVerification';
 
 const navigation = [
     { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, badge: null },
@@ -68,14 +69,24 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
                 setOpenProspectsCount(prospectsCount);
             }
 
-            // Count pending verification payments (notes contains "Pending Verification")
+            const { startDate, endDate } = getVerificationMonthWindow();
+
+            // Match the E-Payment Verification month picker scope, then count only actionable pending e-wallet payments.
             const { data: paymentsData, error: paymentsError } = await supabase
                 .from('payments')
-                .select('notes')
-                .ilike('notes', '%Pending Verification%');
+                .select('notes, invoice:invoices(payment_status)')
+                .eq('mode', 'E-Wallet')
+                .gte('created_at', `${startDate}T00:00:00`)
+                .lte('created_at', `${endDate}T23:59:59`);
 
             if (!paymentsError && paymentsData) {
-                setUnverifiedPaymentsCount(paymentsData.length);
+                setUnverifiedPaymentsCount(paymentsData.filter((payment: any) => {
+                    const invoice = Array.isArray(payment.invoice) ? payment.invoice[0] : payment.invoice;
+                    return isPendingVerificationPayment(payment.notes, invoice?.payment_status);
+                }).length);
+            } else if (paymentsError) {
+                console.error('Error fetching pending e-payment count:', paymentsError);
+                setUnverifiedPaymentsCount(0);
             }
 
             const requestsCount = await getPendingPlanChangeRequestCount();
@@ -103,6 +114,11 @@ export default function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     // Real-time updates for payments
     useRealtimeSubscription({
         table: 'payments',
+        onAny: fetchCounts
+    });
+
+    useRealtimeSubscription({
+        table: 'invoices',
         onAny: fetchCounts
     });
 
