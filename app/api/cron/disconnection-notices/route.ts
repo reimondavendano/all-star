@@ -23,9 +23,13 @@ function getSupabaseAdmin() {
 export async function GET(request: Request) {
     try {
         // Verify cron secret to prevent unauthorized access
-        const authHeader = request.headers.get('authorization');
-        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        // Allow in dev mode when CRON_SECRET is not set (matches main cron route behavior)
+        const cronSecret = process.env.CRON_SECRET;
+        if (cronSecret) {
+            const authHeader = request.headers.get('authorization');
+            if (authHeader !== `Bearer ${cronSecret}`) {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
         }
 
         const supabase = getSupabaseAdmin();

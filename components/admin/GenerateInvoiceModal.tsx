@@ -10,6 +10,7 @@ import {
     needsProrating,
     toISODateString,
     formatDatePH,
+    calculateDailyRate,
 } from '@/lib/billing';
 
 interface GenerateInvoiceModalProps {
@@ -38,11 +39,21 @@ interface SubscriptionPreview {
     referralCreditApplied: boolean;
     periodStart: string;
     periodEnd: string;
+    isPendingPlanChange?: boolean;
+    pendingPlanChangeId?: string;
+}
+
+interface BuOption {
+    key: string;
+    buId: string;
+    displayName: string;
+    invoiceDateFilter: string | null;
+    lockedCycle: '15th' | '30th' | null;
 }
 
 export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: GenerateInvoiceModalProps) {
     const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
-    const [selectedUnit, setSelectedUnit] = useState<string>('');
+    const [selectedKey, setSelectedKey] = useState<string>('');
     const [billingMonth, setBillingMonth] = useState(new Date().toISOString().slice(0, 7));
     const [cycleDate, setCycleDate] = useState<'15th' | '30th'>('15th');
     const [eligibleSubs, setEligibleSubs] = useState<number>(0);
@@ -74,18 +85,47 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         if (selectedUnit && billingMonth && cycleDate) {
             checkEligibleSubscriptions();
         }
-    }, [selectedUnit, billingMonth, cycleDate]);
+    }, [selectedKey, billingMonth, cycleDate]);
 
     // Auto-select cycle date based on business unit
     useEffect(() => {
-        if (selectedUnit) {
-            const unit = businessUnits.find(u => u.id === selectedUnit);
-            if (unit) {
-                const schedule = getBillingSchedule(unit.name);
-                setCycleDate(schedule.dueDay === 15 ? '15th' : '30th');
+        if (selectedKey) {
+            const opt = buOptions.find(o => o.key === selectedKey);
+            if (opt?.lockedCycle) {
+                setCycleDate(opt.lockedCycle);
+            } else if (!opt?.lockedCycle) {
+                const unit = businessUnits.find(u => u.id === (opt?.buId ?? selectedKey));
+                if (unit) {
+                    const schedule = getBillingSchedule(unit.name);
+                    setCycleDate(schedule.dueDay === 15 ? '15th' : '30th');
+                }
             }
         }
-    }, [selectedUnit, businessUnits]);
+    }, [selectedKey, businessUnits]);
+
+    // Virtual options: Extension BU expands into two entries (15th and 30th)
+    const buOptions: BuOption[] = businessUnits.flatMap((bu): BuOption[] => {
+        if (bu.name.toLowerCase().includes('extension')) {
+            return [
+                { key: `${bu.id}-15th`, buId: bu.id, displayName: 'Extension (15th)', invoiceDateFilter: '15th', lockedCycle: '15th' },
+                { key: `${bu.id}-30th`, buId: bu.id, displayName: 'Extension (30th)', invoiceDateFilter: '30th', lockedCycle: '30th' },
+            ];
+        }
+        return [{
+            key: bu.id,
+            buId: bu.id,
+            displayName: bu.name,
+            invoiceDateFilter: null,
+            lockedCycle: bu.name.toLowerCase().includes('bulihan') ? '15th'
+                : bu.name.toLowerCase().includes('malanggam') ? '30th'
+                : null,
+        }];
+    });
+
+    const activeOption = buOptions.find(o => o.key === selectedKey);
+    // Derive the actual BU id and invoice_date filter from selected key
+    const selectedUnit = activeOption?.buId ?? '';
+    const invoiceDateFilter = activeOption?.invoiceDateFilter ?? null;
 
     const fetchBusinessUnits = async () => {
         const { data } = await supabase
@@ -94,7 +134,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             .order('name');
         setBusinessUnits(data || []);
         if (data && data.length > 0 && !selectedUnit) {
-            setSelectedUnit(data[0].id);
+            const firstNonExt = data.find(d => !d.name.toLowerCase().includes('extension'));
+            setSelectedKey(firstNonExt?.id ?? data[0].id);
         }
     };
 
@@ -114,8 +155,9 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             const yearInt = parseInt(year);
             const monthInt = parseInt(month);
 
-            // Calculate billing dates
-            const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
+            // Calculate billing dates – use invoiceDateFilter as cycle override for Extension virtual selections
+            const effectiveCycle = (invoiceDateFilter ?? cycleDate) as '15th' | '30th';
+            const dates = calculateBillingDates(unit.name, yearInt, monthInt, effectiveCycle);
 
             // Fetch all subscriptions for the selected business unit (exclude FREE subscriptions)
             // For Extension, also filter by invoice_date to match the selected cycle (15th or 30th)
@@ -148,9 +190,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 .eq('active', true)
                 .or('is_free.is.null,is_free.eq.false'); // Exclude FREE subscriptions
 
-            // For Extension: filter by invoice_date (15th or 30th) based on selected cycleDate
-            if (isExtension) {
-                subsQuery = subsQuery.eq('invoice_date', cycleDate);
+            if (invoiceDateFilter) {
+                subsQuery = subsQuery.eq('invoice_date', invoiceDateFilter);
             }
 
             const { data: subs, error } = await subsQuery;
@@ -230,10 +271,84 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 }
             });
 
+            // Fetch unprocessed approved plan changes for this batch of subscriptions
+            const { data: pendingPlanChanges } = await supabase
+                .from('plan_changes')
+                .select('*')
+                .eq('processed', false)
+                .eq('status', 'approved')
+                .in('subscription_id', subIds);
+
+            const pendingPlanChangeMap = new Map<string, any>();
+            pendingPlanChanges?.forEach(change => {
+                pendingPlanChangeMap.set(change.subscription_id, change);
+            });
+
             // Filter out already invoiced subscriptions and calculate amounts
             const eligible: SubscriptionPreview[] = [];
 
             for (const sub of subs) {
+                // ── Pending plan change takes priority ──────────────────────────
+                // Must check BEFORE invoicedIds, because the customer may already
+                // have the OLD-plan prorated invoice in this month but still needs
+                // the NEW-plan prorated invoice for the remaining days.
+                const pendingPlanChange = pendingPlanChangeMap.get(sub.id);
+                if (pendingPlanChange) {
+                    const changeDate = new Date(pendingPlanChange.change_date);
+                    const billingPeriodEnd = new Date(pendingPlanChange.billing_period_end);
+
+                    if (changeDate <= dates.toDate && billingPeriodEnd >= dates.fromDate) {
+                        const start = new Date(changeDate);
+                        const end = new Date(billingPeriodEnd);
+                        start.setHours(0, 0, 0, 0);
+                        end.setHours(0, 0, 0, 0);
+                        const timeDiff = end.getTime() - start.getTime();
+                        const daysOnNewPlan = Math.max(0, Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1);
+                        const amount = Math.round(calculateDailyRate(pendingPlanChange.new_monthly_fee) * daysOnNewPlan);
+
+                        if (amount > 0) {
+                            // Guard: check if new-plan invoice already exists for this exact period
+                            const { data: existingNewPlanInv } = await supabase
+                                .from('invoices')
+                                .select('id')
+                                .eq('subscription_id', sub.id)
+                                .eq('from_date', pendingPlanChange.change_date)
+                                .eq('to_date', pendingPlanChange.billing_period_end)
+                                .maybeSingle();
+
+                            if (!existingNewPlanInv) {
+                                const customer = sub.customers as any;
+                                eligible.push({
+                                    id: sub.id,
+                                    customerName: customer?.name || 'Unknown',
+                                    customerId: customer?.id || '',
+                                    customerMobile: customer?.mobile_number || '',
+                                    customerPortal: (sub as any).customer_portal || `/portal/${customer?.id}`,
+                                    planName: 'New Plan (Prorated)',
+                                    monthlyFee: pendingPlanChange.new_monthly_fee,
+                                    dateInstalled: sub.date_installed,
+                                    currentBalance: Number(sub.balance) || 0,
+                                    isProrated: true,
+                                    proratedDays: daysOnNewPlan,
+                                    calculatedAmount: amount,
+                                    finalAmount: amount,
+                                    creditsApplied: 0,
+                                    referralDiscount: 0,
+                                    hasReferrer: false,
+                                    referralCreditApplied: false,
+                                    periodStart: pendingPlanChange.change_date,
+                                    periodEnd: pendingPlanChange.billing_period_end,
+                                    isPendingPlanChange: true,
+                                    pendingPlanChangeId: pendingPlanChange.id,
+                                });
+                            }
+                        }
+                    }
+                    // Plan change handled (or skipped) — do NOT fall through to regular flow
+                    continue;
+                }
+
+                // ── Regular invoice flow ────────────────────────────────────────
                 if (invoicedIds.has(sub.id)) continue;
 
                 const customer = sub.customers as any;
@@ -372,14 +487,18 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
             // Calculate dates based on business unit
             const dates = calculateBillingDates(unit.name, yearInt, monthInt, cycleDate);
 
-            const invoices = [];
+            const invoices: any[] = [];
             const subscriptionUpdates: Array<{ id: string; balance: number; referral_credit_applied?: boolean }> = [];
+            const planChangeIdsToUpdate: string[] = [];
 
             for (const sub of subsWithBalances) {
+                if (sub.isPendingPlanChange && sub.pendingPlanChangeId) {
+                    planChangeIdsToUpdate.push(sub.pendingPlanChangeId);
+                }
                 // Prepare invoice
                 invoices.push({
                     subscription_id: sub.id,
-                    due_date: toISODateString(dates.dueDate),
+                    due_date: sub.isPendingPlanChange ? sub.periodEnd : toISODateString(dates.dueDate),
                     from_date: sub.periodStart,
                     to_date: sub.periodEnd,
                     amount_due: sub.finalAmount,
@@ -486,6 +605,14 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                 if (updateError) {
                     console.error(`Failed to update subscription ${update.id}`, updateError);
                 }
+            }
+
+            // Mark plan changes as processed
+            if (planChangeIdsToUpdate.length > 0) {
+                await supabase
+                    .from('plan_changes')
+                    .update({ processed: true })
+                    .in('id', planChangeIdsToUpdate);
             }
 
             // Send SMS notifications if enabled
@@ -657,7 +784,7 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         return null;
     };
 
-    const lockedCycleDate = getLockedCycleDate();
+    const lockedCycleDate = activeOption?.lockedCycle ?? getLockedCycleDate();
 
     // Calculate billing period for display
     const getBillingPeriodDisplay = () => {
@@ -665,7 +792,8 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
         if (!unit) return '';
 
         const [year, month] = billingMonth.split('-');
-        const dates = calculateBillingDates(unit.name, parseInt(year), parseInt(month), cycleDate);
+        const effectiveCycleTooltip = (invoiceDateFilter ?? cycleDate) as '15th' | '30th';
+        const dates = calculateBillingDates(unit.name, parseInt(year), parseInt(month), effectiveCycleTooltip);
 
         return `${formatDatePH(dates.fromDate)} - ${formatDatePH(dates.toDate)}`;
     };
@@ -720,12 +848,12 @@ export default function GenerateInvoiceModal({ isOpen, onClose, onSuccess }: Gen
                             <label className="text-sm font-medium text-gray-400">Business Unit</label>
                             <div className="relative">
                                 <select
-                                    value={selectedUnit}
-                                    onChange={(e) => setSelectedUnit(e.target.value)}
+                                    value={selectedKey}
+                                    onChange={(e) => setSelectedKey(e.target.value)}
                                     className="w-full bg-[#1a1a1a] border border-gray-800 rounded-lg px-4 py-2 text-white appearance-none focus:border-blue-500 focus:outline-none"
                                 >
-                                    {businessUnits.map(unit => (
-                                        <option key={unit.id} value={unit.id}>{unit.name}</option>
+                                    {buOptions.map(opt => (
+                                        <option key={opt.key} value={opt.key}>{opt.displayName}</option>
                                     ))}
                                 </select>
                                 <Building2 className="absolute right-3 top-2.5 w-4 h-4 text-gray-500 pointer-events-none" />
