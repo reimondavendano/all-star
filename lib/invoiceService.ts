@@ -901,6 +901,7 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
                 )
             `)
             .in('payment_status', ['Unpaid', 'Partially Paid'])
+            .lt('due_date', toISODateString(today))
             .eq('subscriptions.active', true);
 
         const smsMessages: Array<{ to: string; message: string }> = [];
