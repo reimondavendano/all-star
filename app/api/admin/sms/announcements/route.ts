@@ -36,7 +36,7 @@ export async function POST(request: Request) {
                 customers:subscriber_id (
                     id,
                     name,
-                    phone_number
+                    mobile_number
                 )
             `)
             .eq('active', true);
@@ -64,8 +64,8 @@ export async function POST(request: Request) {
         const phoneMap = new Map<string, string>(); // phone -> name
 
         targetSubscriptions.forEach((sub: any) => {
-            if (sub.customers && sub.customers.phone_number) {
-                const phone = sub.customers.phone_number.trim();
+            if (sub.customers && sub.customers.mobile_number) {
+                const phone = sub.customers.mobile_number.trim();
                 if (phone && phone.length >= 10) {
                     phoneMap.set(phone, sub.customers.name);
                 }
