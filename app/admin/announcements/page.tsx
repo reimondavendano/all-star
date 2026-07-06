@@ -23,6 +23,7 @@ export default function AnnouncementsPage() {
     // Status state
     const [status, setStatus] = useState<{ type: 'success' | 'error' | null; text: string }>({ type: null, text: '' });
     const [stats, setStats] = useState<{ targeted: number; sent: number; failed: number } | null>(null);
+    const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
     // Subscriber count estimation
     const [estimatedSubscribers, setEstimatedSubscribers] = useState<number | null>(null);
@@ -116,9 +117,11 @@ export default function AnnouncementsPage() {
         setIsConfirmOpen(false);
         setIsLoading(true);
         setStatus({ type: null, text: '' });
+        setProgress(null);
         
         try {
-            const res = await fetch('/api/admin/sms/announcements', {
+            // 1. Prepare messages
+            const prepareRes = await fetch('/api/admin/sms/announcements/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -127,17 +130,60 @@ export default function AnnouncementsPage() {
                 })
             });
             
-            const data = await res.json();
+            const prepareData = await prepareRes.json();
             
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to send bulk SMS');
+            if (!prepareRes.ok) {
+                throw new Error(prepareData.error || 'Failed to prepare bulk SMS');
+            }
+
+            const messages = prepareData.messages;
+            const totalTargeted = prepareData.totalTargeted;
+
+            if (!messages || messages.length === 0) {
+                throw new Error('No valid subscribers found.');
+            }
+
+            setProgress({ current: 0, total: totalTargeted });
+
+            // 2. Process in batches
+            const BATCH_SIZE = 10;
+            const DELAY_BETWEEN_BATCHES = 6000; // 6 seconds for 100 SMS/min rate limit
+            let totalSent = 0;
+            let totalFailed = 0;
+
+            for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+                const batch = messages.slice(i, i + BATCH_SIZE);
+                
+                const batchRes = await fetch('/api/admin/sms/announcements/send-batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: batch })
+                });
+
+                const batchData = await batchRes.json();
+                
+                if (batchRes.ok && batchData.success) {
+                    totalSent += batchData.sent || 0;
+                    totalFailed += batchData.failed || 0;
+                } else {
+                    console.error('Batch failed:', batchData);
+                    // Add all as failed if the batch completely failed
+                    totalFailed += batch.length;
+                }
+
+                setProgress({ current: Math.min(i + BATCH_SIZE, totalTargeted), total: totalTargeted });
+
+                // Delay between batches to respect rate limit, except after the last batch
+                if (i + BATCH_SIZE < messages.length) {
+                    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+                }
             }
             
             setStatus({ type: 'success', text: 'Bulk SMS campaign completed successfully!' });
             setStats({
-                targeted: data.stats?.totalTargeted || 0,
-                sent: data.stats?.sent || 0,
-                failed: data.stats?.failed || 0
+                targeted: totalTargeted,
+                sent: totalSent,
+                failed: totalFailed
             });
             setMessage(''); // Clear message on success
             fetchSmsCredits();
@@ -146,6 +192,7 @@ export default function AnnouncementsPage() {
             setStatus({ type: 'error', text: error.message });
         } finally {
             setIsLoading(false);
+            setProgress(null);
         }
     };
 
@@ -271,7 +318,7 @@ export default function AnnouncementsPage() {
                         {isLoading ? (
                             <>
                                 <Loader2 className="w-5 h-5 animate-spin" />
-                                Sending Bulk SMS...
+                                {progress ? `Sending ${progress.current} of ${progress.total}...` : 'Preparing SMS...'}
                             </>
                         ) : (
                             <>
