@@ -26,6 +26,8 @@ import {
 } from '@/lib/invoiceService';
 import { runAutoDisconnectionBatch } from '@/lib/autoDisconnectionService';
 
+export const maxDuration = 300; // 5 minutes max duration for Vercel
+
 // Verify cron secret to prevent unauthorized access
 const CRON_SECRET = process.env.CRON_SECRET;
 
