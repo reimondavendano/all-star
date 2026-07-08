@@ -135,27 +135,33 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
 
         result.due = candidates.length;
 
-        for (const candidate of candidates) {
-            const disconnectResult = await processSubscriptionDisconnection(
-                candidate.subscriptionId,
-                dateOnlyToUTCNoon(candidate.promisedDate),
-                true,
-                'payment_extension'
-            );
+        // Process in chunks to speed up execution and avoid Vercel timeouts
+        const CHUNK_SIZE = 5;
+        for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+            const chunk = candidates.slice(i, i + CHUNK_SIZE);
+            
+            await Promise.all(chunk.map(async (candidate) => {
+                const disconnectResult = await processSubscriptionDisconnection(
+                    candidate.subscriptionId,
+                    dateOnlyToUTCNoon(candidate.promisedDate),
+                    true,
+                    'payment_extension'
+                );
 
-            if (disconnectResult.success) {
-                result.disconnected += 1;
-            } else {
-                result.errors.push(`${candidate.customerName}: ${disconnectResult.error || 'Unknown error'}`);
-            }
+                if (disconnectResult.success) {
+                    result.disconnected += 1;
+                } else {
+                    result.errors.push(`${candidate.customerName}: ${disconnectResult.error || 'Unknown error'}`);
+                }
 
-            result.details.push({
-                ...candidate,
-                success: disconnectResult.success,
-                error: disconnectResult.error,
-                generatedInvoiceId: disconnectResult.invoiceId,
-                amount: disconnectResult.amount,
-            });
+                result.details.push({
+                    ...candidate,
+                    success: disconnectResult.success,
+                    error: disconnectResult.error,
+                    generatedInvoiceId: disconnectResult.invoiceId,
+                    amount: disconnectResult.amount,
+                });
+            }));
         }
 
         result.success = result.errors.length === 0;

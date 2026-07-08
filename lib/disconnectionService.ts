@@ -44,27 +44,15 @@ export async function processSubscriptionDisconnection(
 
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        const { error: updateError } = await supabase
-            .from('subscriptions')
-            .update({
-                active: false,
-                last_disconnection_date: disconnectionDate.toISOString(),
-                promised_date: null
-            })
-            .eq('id', subscriptionId);
-
-        if (updateError) {
-            return {
-                success: false,
-                error: updateError.message
-            };
-        }
-
         const { syncSubscriptionToMikrotik, removeActivePppConnection } = await import('@/app/actions/mikrotik');
         const mikrotikResult = await syncSubscriptionToMikrotik(subscriptionId, false);
 
         if (!mikrotikResult.success) {
             console.error('[Disconnect] MikroTik sync failed:', mikrotikResult.error);
+            return {
+                success: false,
+                error: `MikroTik sync failed: ${mikrotikResult.error}`
+            };
         }
 
         const { data: pppSecret } = await supabase
@@ -82,6 +70,22 @@ export async function processSubscriptionDisconnection(
             } else {
                 console.log(`[Disconnect] Successfully removed active connection for ${pppSecret.name}`);
             }
+        }
+
+        const { error: updateError } = await supabase
+            .from('subscriptions')
+            .update({
+                active: false,
+                last_disconnection_date: disconnectionDate.toISOString(),
+                promised_date: null
+            })
+            .eq('id', subscriptionId);
+
+        if (updateError) {
+            return {
+                success: false,
+                error: updateError.message
+            };
         }
 
         return {
