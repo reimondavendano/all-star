@@ -24,7 +24,7 @@ import {
     sendDisconnectionWarningsForExtension,
     getTodaysTasks,
 } from '@/lib/invoiceService';
-import { runAutoDisconnectionBatch } from '@/lib/autoDisconnectionService';
+import { runAutoDisconnectionBatch, runGeneralAutoDisconnectionBatch } from '@/lib/autoDisconnectionService';
 
 export const maxDuration = 300; // 5 minutes max duration for Vercel
 
@@ -216,6 +216,16 @@ export async function GET(request: NextRequest) {
         }
         if (autoDisconnectResult.errors.length > 0) {
             results.errors.push(...autoDisconnectResult.errors.map(error => `Payment Extension Auto Disconnection: ${error}`));
+        }
+
+        // 5. General Auto Disconnection Batch (Rules)
+        const generalAutoDisconnectResult = await runGeneralAutoDisconnectionBatch(today);
+        (results as any).generalAutoDisconnections = generalAutoDisconnectResult;
+        if (generalAutoDisconnectResult.due > 0) {
+            results.tasksExecuted.push(`General Auto Disconnection: ${generalAutoDisconnectResult.disconnected}/${generalAutoDisconnectResult.due}`);
+        }
+        if (generalAutoDisconnectResult.errors.length > 0) {
+            results.errors.push(...generalAutoDisconnectResult.errors.map(error => `General Auto Disconnection: ${error}`));
         }
 
         // If no tasks were scheduled for today

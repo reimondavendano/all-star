@@ -24,6 +24,7 @@
     "node-routeros": "^1.6.8",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "react-hot-toast": "^2.6.0",
     "react-leaflet": "^5.0.0",
     "recharts": "^3.4.1",
     "routeros-client": "^1.1.1",

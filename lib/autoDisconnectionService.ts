@@ -18,7 +18,7 @@ type AutoDisconnectionCandidate = {
     businessUnitName: string;
     promisedDate: string;
     disconnectOn: string;
-    reason: 'payment_extension';
+    reason: 'payment_extension' | 'standard';
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
@@ -171,3 +171,134 @@ export async function runAutoDisconnectionBatch(now = new Date()): Promise<AutoD
         return result;
     }
 }
+
+export async function runGeneralAutoDisconnectionBatch(now = new Date()): Promise<AutoDisconnectionBatchResult> {
+    const supabase = getSupabaseAdmin();
+    const todayISO = getPhilippineTodayISO(now);
+    const result: AutoDisconnectionBatchResult = {
+        success: false,
+        checked: 0,
+        due: 0,
+        disconnected: 0,
+        skipped: 0,
+        errors: [],
+        details: [],
+    };
+
+    try {
+        const { data: rules, error: rulesError } = await supabase
+            .from('auto_disconnect_rules')
+            .select('*')
+            .not('disconnect_date', 'is', null);
+
+        if (rulesError) {
+            result.errors.push(`Error fetching auto disconnect rules: ${rulesError.message}`);
+            return result;
+        }
+
+        const activeRules = (rules || []).filter(r => {
+            const disconnectOn = addDaysISO(r.disconnect_date, 1);
+            return todayISO === disconnectOn;
+        });
+
+        if (activeRules.length === 0) {
+            result.success = true;
+            return result;
+        }
+
+        const { data: subs, error: subsError } = await supabase
+            .from('subscriptions')
+            .select(`
+                id, active, is_free, balance, invoice_date, business_unit_id,
+                promised_date,
+                business_units ( name ), 
+                customers!subscriptions_subscriber_id_fkey ( name )
+            `)
+            .eq('active', true)
+            .gt('balance', 0);
+
+        if (subsError) {
+            result.errors.push(`Error fetching subscriptions: ${subsError.message}`);
+            return result;
+        }
+
+        for (const rule of activeRules) {
+            const candidates = (subs || []).filter(sub => {
+                if (sub.is_free) return false;
+                
+                // CRITICAL: Skip if they have a manual payment extension (promised_date).
+                // The individual extension cron job handles these.
+                if (sub.promised_date) return false;
+                
+                if (sub.business_unit_id !== rule.business_unit_id) return false;
+                if (rule.invoice_cycle && sub.invoice_date !== rule.invoice_cycle) return false;
+                
+                return true;
+            });
+
+            result.checked += subs?.length || 0;
+            result.due += candidates.length;
+
+            const CHUNK_SIZE = 5;
+            for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
+                const chunk = candidates.slice(i, i + CHUNK_SIZE);
+                
+                await Promise.all(chunk.map(async (candidate) => {
+                    const customerName = firstRelation(candidate.customers)?.name || 'Unknown';
+                    const buName = firstRelation(candidate.business_units)?.name || '';
+
+                    const disconnectResult = await processSubscriptionDisconnection(
+                        candidate.id,
+                        dateOnlyToUTCNoon(rule.disconnect_date),
+                        true,
+                        'standard'
+                    );
+
+                    if (disconnectResult.success) {
+                        result.disconnected += 1;
+                    } else {
+                        result.errors.push(`${customerName}: ${disconnectResult.error || 'Unknown error'}`);
+                    }
+
+                    result.details.push({
+                        subscriptionId: candidate.id,
+                        customerName,
+                        businessUnitName: buName,
+                        promisedDate: rule.disconnect_date,
+                        disconnectOn: todayISO,
+                        reason: 'standard' as const,
+                        success: disconnectResult.success,
+                        error: disconnectResult.error,
+                        generatedInvoiceId: disconnectResult.invoiceId,
+                        amount: disconnectResult.amount,
+                    });
+                }));
+            }
+
+            if (rule.is_recurring) {
+                // Roll over to next month
+                const dateParts = rule.disconnect_date.split('-');
+                let y = parseInt(dateParts[0]);
+                let m = parseInt(dateParts[1]);
+                const d = parseInt(dateParts[2]);
+                m++;
+                if (m > 12) {
+                    m = 1;
+                    y++;
+                }
+                const newDateStr = `${y}-${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+                await supabase.from('auto_disconnect_rules').update({ disconnect_date: newDateStr }).eq('id', rule.id);
+            } else {
+                // Clear the date so it doesn't run again
+                await supabase.from('auto_disconnect_rules').update({ disconnect_date: null }).eq('id', rule.id);
+            }
+        }
+
+        result.success = result.errors.length === 0;
+        return result;
+    } catch (error) {
+        result.errors.push(`Unexpected error in general batch: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return result;
+    }
+}
+

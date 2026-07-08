@@ -19,7 +19,8 @@ import {
     LogOut,
     ArrowUpDown,
     Send,
-    Database
+    Database,
+    Power
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,6 +47,7 @@ const moreMenuItems = [
     { name: 'Locations', href: '/admin/locations', icon: MapPin, badge: null },
     { name: 'Mikrotik', href: '/admin/mikrotik', icon: Router, badge: null },
     { name: 'Announcements', href: '/admin/announcements', icon: Send, badge: null },
+    { name: 'Auto Disconnect', href: '/admin/auto-disconnect', icon: Power, badge: null },
     { name: 'Data Manager', href: '/admin/data-manager', icon: Database, badge: null },
 ];
 
