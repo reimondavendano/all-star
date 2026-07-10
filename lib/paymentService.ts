@@ -80,6 +80,24 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         const previousBalance = Number(subscription.balance) || 0;
         const paymentAmount = params.amount;
 
+        // Determine target invoice
+        let targetInvoiceId = params.invoiceId;
+        
+        if (!targetInvoiceId) {
+            const { data: recentInvoice } = await supabase
+                .from('invoices')
+                .select('id')
+                .eq('subscription_id', params.subscriptionId)
+                .in('payment_status', ['Unpaid', 'Partially Paid'])
+                .order('due_date', { ascending: false })
+                .limit(1)
+                .single();
+                
+            if (recentInvoice) {
+                targetInvoiceId = recentInvoice.id;
+            }
+        }
+
         // 2. Insert payment record
         const { data: payment, error: paymentError } = await supabase
             .from('payments')
@@ -89,6 +107,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
                 mode: params.mode,
                 settlement_date: params.settlementDate,
                 notes: params.notes || null,
+                invoice_id: targetInvoiceId || null,
             })
             .select('id')
             .single();
@@ -121,97 +140,76 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
             console.error('Failed to update subscription balance:', updateError);
         }
 
-        // 5. Update invoice status if an invoice was specified
+        // 5. Update invoice status if an invoice was specified or found
         let invoiceStatus: 'Paid' | 'Partially Paid' | 'Unpaid' | undefined;
 
-        if (params.invoiceId) {
+        if (targetInvoiceId) {
             // Get the invoice
             const { data: invoice } = await supabase
                 .from('invoices')
                 .select('id, amount_due')
-                .eq('id', params.invoiceId)
+                .eq('id', targetInvoiceId)
                 .single();
 
             if (invoice) {
-                // Get total payments for THIS specific invoice (with subscription_id check for safety)
+                // Determine status
+                if (!params.invoiceId) {
+                    // Try to determine status based on total paid vs total invoiced
+                    const { data: allPayments } = await supabase
+                        .from('payments')
+                        .select('amount')
+                        .eq('subscription_id', params.subscriptionId);
+
+                    const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+
+                    const { data: allInvoices } = await supabase
+                        .from('invoices')
+                        .select('amount_due')
+                        .eq('subscription_id', params.subscriptionId);
+
+                    const totalInvoiced = allInvoices?.reduce((sum, i) => sum + Number(i.amount_due), 0) || 0;
+
+                    if (totalPaid >= totalInvoiced) {
+                        invoiceStatus = 'Paid';
+                    } else if (totalPaid > 0) {
+                        invoiceStatus = 'Partially Paid';
+                    } else {
+                        invoiceStatus = 'Unpaid';
+                    }
+                } else {
+                    const { data: invoicePayments } = await supabase
+                        .from('payments')
+                        .select('amount')
+                        .eq('invoice_id', targetInvoiceId)
+                        .eq('subscription_id', params.subscriptionId);
+
+                    const totalPaidForInvoice = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
+
+                    if (totalPaidForInvoice >= invoice.amount_due) {
+                        invoiceStatus = 'Paid';
+                    } else if (totalPaidForInvoice > 0) {
+                        invoiceStatus = 'Partially Paid';
+                    } else {
+                        invoiceStatus = 'Unpaid';
+                    }
+                }
+
+                // Get amount paid for this invoice to update
                 const { data: invoicePayments } = await supabase
                     .from('payments')
                     .select('amount')
-                    .eq('invoice_id', params.invoiceId)
-                    .eq('subscription_id', params.subscriptionId);
-
-                const totalPaidForInvoice = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
-
-                // Determine status based on how much of THIS invoice is paid
-                if (totalPaidForInvoice >= invoice.amount_due) {
-                    invoiceStatus = 'Paid';
-                } else if (totalPaidForInvoice > 0) {
-                    invoiceStatus = 'Partially Paid';
-                } else {
-                    invoiceStatus = 'Unpaid';
-                }
+                    .eq('invoice_id', targetInvoiceId);
+                
+                const invoiceAmountPaid = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
 
                 // Update both payment_status AND amount_paid
                 await supabase
                     .from('invoices')
                     .update({ 
                         payment_status: invoiceStatus,
-                        amount_paid: totalPaidForInvoice
+                        amount_paid: invoiceAmountPaid
                     })
-                    .eq('id', params.invoiceId);
-            }
-        } else {
-            // Try to update the most recent unpaid invoice
-            const { data: recentInvoice } = await supabase
-                .from('invoices')
-                .select('id, amount_due')
-                .eq('subscription_id', params.subscriptionId)
-                .in('payment_status', ['Unpaid', 'Partially Paid'])
-                .order('due_date', { ascending: false })
-                .limit(1)
-                .single();
-
-            if (recentInvoice) {
-                // Get all payments for this subscription
-                const { data: allPayments } = await supabase
-                    .from('payments')
-                    .select('amount')
-                    .eq('subscription_id', params.subscriptionId);
-
-                const totalPaid = allPayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-
-                // Calculate how much has been paid vs total invoiced
-                const { data: allInvoices } = await supabase
-                    .from('invoices')
-                    .select('amount_due')
-                    .eq('subscription_id', params.subscriptionId);
-
-                const totalInvoiced = allInvoices?.reduce((sum, i) => sum + Number(i.amount_due), 0) || 0;
-
-                // If total paid covers all invoiced, mark as paid
-                if (totalPaid >= totalInvoiced) {
-                    invoiceStatus = 'Paid';
-                } else if (totalPaid > 0) {
-                    invoiceStatus = 'Partially Paid';
-                } else {
-                    invoiceStatus = 'Unpaid';
-                }
-
-                // Calculate amount paid for this specific invoice
-                const { data: invoicePayments } = await supabase
-                    .from('payments')
-                    .select('amount')
-                    .eq('invoice_id', recentInvoice.id);
-                
-                const invoiceAmountPaid = Math.round(invoicePayments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0);
-
-                await supabase
-                    .from('invoices')
-                    .update({ 
-                        payment_status: invoiceStatus,
-                        amount_paid: invoiceAmountPaid 
-                    })
-                    .eq('id', recentInvoice.id);
+                    .eq('id', targetInvoiceId);
             }
         }
 

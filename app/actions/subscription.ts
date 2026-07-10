@@ -605,7 +605,10 @@ export async function approvePayment(paymentId: string, approvedAmount: number, 
 
             await supabase
                 .from('invoices')
-                .update({ payment_status: newStatus })
+                .update({ 
+                    payment_status: newStatus,
+                    amount_paid: totalPaid
+                })
                 .eq('id', invoiceId);
         }
 
