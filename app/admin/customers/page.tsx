@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
     Search, ChevronLeft, ChevronRight, ChevronDown, RefreshCw,
@@ -64,6 +64,17 @@ interface Customer {
     name: string;
     mobile_number?: string;
     created_at: string;
+    'y-coordinates'?: number;
+    plans?: { name: string; monthly_fee: number };
+    business_units?: { name: string };
+    mikrotik_ppp_secrets?: MikrotikPPP[];
+}
+
+interface Customer {
+    id: string;
+    name: string;
+    mobile_number?: string;
+    created_at: string;
     subscriptions?: Subscription[];
 }
 
@@ -71,6 +82,7 @@ export default function CustomersSubscriptionsPage() {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('All Business Units');
     const [currentPage, setCurrentPage] = useState(1);
     const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
     const [expandedSubscriptions, setExpandedSubscriptions] = useState<Set<string>>(new Set());
@@ -332,10 +344,45 @@ export default function CustomersSubscriptionsPage() {
         }
     };
 
-    const filteredCustomers = customers.filter(c =>
-        c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.mobile_number?.includes(searchQuery)
-    );
+    const businessUnits = useMemo(() => {
+        const units = new Set<string>();
+        customers.forEach(c => {
+            c.subscriptions?.forEach(s => {
+                if (s.business_units?.name) {
+                    units.add(s.business_units.name);
+                }
+            });
+        });
+        return ['All Business Units', ...Array.from(units).sort()];
+    }, [customers]);
+
+    const stats = useMemo(() => {
+        let active = 0;
+        let disconnected = 0;
+        customers.forEach(c => {
+            c.subscriptions?.forEach(s => {
+                if (selectedBusinessUnit === 'All Business Units' || s.business_units?.name === selectedBusinessUnit) {
+                    if (s.active) {
+                        active++;
+                    } else {
+                        disconnected++;
+                    }
+                }
+            });
+        });
+        return { active, disconnected };
+    }, [customers, selectedBusinessUnit]);
+
+    const filteredCustomers = useMemo(() => {
+        return customers.filter(c => {
+            const matchesSearch = c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.mobile_number?.includes(searchQuery);
+            if (!matchesSearch) return false;
+            
+            if (selectedBusinessUnit === 'All Business Units') return true;
+            
+            return c.subscriptions?.some(s => s.business_units?.name === selectedBusinessUnit);
+        });
+    }, [customers, searchQuery, selectedBusinessUnit]);
 
     const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -361,7 +408,37 @@ export default function CustomersSubscriptionsPage() {
                             Unified view of customers, their subscriptions, and MikroTik connections
                         </p>
                     </div>
-                    <div className="flex items-center gap-3">
+
+                    <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-6 w-full lg:w-auto overflow-x-auto pb-2 lg:pb-0">
+                        {/* Stats */}
+                        <div className="flex items-center gap-4 bg-[#1a1a1a] border border-gray-800 rounded-xl p-3 shadow-inner flex-shrink-0">
+                            <div className="flex flex-col min-w-[80px]">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-0.5">Active</span>
+                                <span className="text-xl font-bold text-emerald-400 leading-none">{stats.active}</span>
+                            </div>
+                            <div className="w-px h-10 bg-gray-800/80"></div>
+                            <div className="flex flex-col min-w-[80px]">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-0.5">Disconnected</span>
+                                <span className="text-xl font-bold text-red-400 leading-none">{stats.disconnected}</span>
+                            </div>
+                        </div>
+
+                        {/* Filter */}
+                        <div className="flex flex-col flex-shrink-0">
+                            <select
+                                value={selectedBusinessUnit}
+                                onChange={(e) => { setSelectedBusinessUnit(e.target.value); setCurrentPage(1); }}
+                                className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 min-w-[200px] shadow-sm appearance-none cursor-pointer"
+                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239CA3AF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.75rem top 50%', backgroundSize: '0.65rem auto' }}
+                            >
+                                {businessUnits.map(bu => (
+                                    <option key={bu} value={bu}>{bu}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full md:w-auto">
                         <div className="relative">
                             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                             <input
