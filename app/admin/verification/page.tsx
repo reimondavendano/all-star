@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { approvePayment, rejectPayment } from '@/app/actions/subscription';
 import { getPaymentAccounts } from '@/app/actions/verification';
+import { getVerificationMonthWindow } from '@/lib/paymentVerification';
 import Link from 'next/link';
 import VerifyPaymentModal from '@/components/admin/VerifyPaymentModal';
 import Image from 'next/image';
@@ -38,6 +39,8 @@ interface VerificationItem {
     status: 'pending' | 'approved' | 'rejected';
     subscription: {
         address: string;
+        business_unit?: { name: string } | { name: string }[];
+        invoice_date?: string | number;
         plan: {
             name: string;
         };
@@ -56,16 +59,13 @@ interface VerificationItem {
 
 export default function VerificationPage() {
     const router = useRouter();
-    const [activeTab, setActiveTab] = useState<'verification' | 'settings'>('verification');
+    const [activeTab, setActiveTab] = useState('verification');
     const [payments, setPayments] = useState<VerificationItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [processingId, setProcessingId] = useState<string | null>(null);
 
-    // Month Filter - default to current month
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    });
+    // Active Tabs & Month Filter
+    const [selectedMonth, setSelectedMonth] = useState('all');
 
     // Status Tab - default to pending
     const [statusTab, setStatusTab] = useState<'pending' | 'approved' | 'rejected'>('pending');
@@ -73,6 +73,7 @@ export default function VerificationPage() {
     // New Filters
     const [searchQuery, setSearchQuery] = useState('');
     const [businessUnit, setBusinessUnit] = useState('all');
+    const [businessUnits, setBusinessUnits] = useState<{id: string, name: string}[]>([]);
 
     // Modal State
     const [selectedPayment, setSelectedPayment] = useState<any>(null);
@@ -91,6 +92,14 @@ export default function VerificationPage() {
     const [resultMessage, setResultMessage] = useState('');
     const [resultType, setResultType] = useState<'success' | 'error'>('success');
     const [refreshKey, setRefreshKey] = useState(0); // Force re-render key
+
+    useEffect(() => {
+        const fetchBusinessUnits = async () => {
+            const { data } = await supabase.from('business_units').select('id, name').order('name');
+            if (data) setBusinessUnits(data);
+        };
+        fetchBusinessUnits();
+    }, []);
 
     useEffect(() => {
         if (activeTab === 'verification') {
@@ -132,12 +141,18 @@ export default function VerificationPage() {
     const fetchPayments = async () => {
         setIsLoading(true);
         try {
-            // Calculate month range
-            const [year, month] = selectedMonth.split('-');
-            const startDate = `${year}-${month}-01`;
-            const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+            let startDateStr, endDateStr;
+            if (selectedMonth === 'all') {
+                const { startDate, endDate } = getVerificationMonthWindow();
+                startDateStr = startDate;
+                endDateStr = endDate;
+            } else {
+                const [year, month] = selectedMonth.split('-');
+                startDateStr = `${year}-${month}-01`;
+                endDateStr = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
+            }
 
-            // Fetch E-Wallet payments for the selected month
+            // Fetch E-Wallet payments for the selected window
             const { data, error } = await supabase
                 .from('payments')
                 .select(`
@@ -149,6 +164,9 @@ export default function VerificationPage() {
                     created_at,
                     subscription:subscriptions (
                         address,
+                        barangay,
+                        invoice_date,
+                        business_unit:business_units (name),
                         plan:plans (name),
                         customer:customers!subscriptions_subscriber_id_fkey (name, mobile_number)
                     ),
@@ -160,8 +178,8 @@ export default function VerificationPage() {
                     )
                 `)
                 .eq('mode', 'E-Wallet')
-                .gte('created_at', `${startDate}T00:00:00`)
-                .lte('created_at', `${endDate}T23:59:59`)
+                .gte('created_at', `${startDateStr}T00:00:00`)
+                .lte('created_at', `${endDateStr}T23:59:59`)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -303,19 +321,19 @@ export default function VerificationPage() {
         const customerName = p.subscription?.customer?.name?.toLowerCase() || '';
         const matchesSearch = customerName.includes(searchQuery.toLowerCase());
         
-        const address = p.subscription?.address?.toLowerCase() || '';
-        const dueDate = p.invoice?.due_date ? new Date(p.invoice.due_date) : null;
+        const subBu = p.subscription?.business_unit;
+        const buName = Array.isArray(subBu) ? subBu[0]?.name : subBu?.name;
+        const invoiceDate = p.subscription?.invoice_date;
         
         let matchesUnit = true;
-        if (businessUnit === 'malanggam') {
-            matchesUnit = address.includes('malanggam');
-        } else if (businessUnit === 'bulihan') {
-            matchesUnit = address.includes('bulihan');
-        } else if (businessUnit === 'extension') {
-            matchesUnit = address.includes('extension');
-        } else if (businessUnit === 'malanggam_extension_30th') {
-            matchesUnit = (address.includes('malanggam') || address.includes('extension')) && 
-                          (dueDate?.getDate() === 30);
+        if (businessUnit !== 'all') {
+             const slug = buName ? buName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-') : 'general';
+             
+             if (businessUnit === 'malanggam_extension_30th') {
+                 matchesUnit = (slug === 'malanggam' || slug === 'extension') && String(invoiceDate) === '30';
+             } else {
+                 matchesUnit = slug === businessUnit;
+             }
         }
 
         return matchesSearch && matchesUnit;
@@ -330,7 +348,7 @@ export default function VerificationPage() {
     const rejectedCount = baseFilteredPayments.filter(p => p.status === 'rejected').length;
 
     // Generate month options (last 12 months)
-    const monthOptions = [];
+    const monthOptions = [{ value: 'all', label: 'All Recent (Past 12 Months)' }];
     for (let i = 0; i < 12; i++) {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
@@ -428,9 +446,10 @@ export default function VerificationPage() {
                                         className="bg-[#1a1a1a] border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500"
                                     >
                                         <option value="all">All Units</option>
-                                        <option value="malanggam">Malanggam</option>
-                                        <option value="bulihan">Bulihan</option>
-                                        <option value="extension">Extension</option>
+                                        {businessUnits.map(bu => {
+                                            const slug = bu.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+                                            return <option key={bu.id} value={slug}>{bu.name}</option>;
+                                        })}
                                         <option value="malanggam_extension_30th">Malanggam + Extension (30th)</option>
                                     </select>
                                 </div>

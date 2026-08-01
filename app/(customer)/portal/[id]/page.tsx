@@ -20,6 +20,9 @@ interface Subscription {
     router_serial_number: string;
     balance: number;
     is_free: boolean;
+    business_unit: {
+        name: string;
+    };
     plan: {
         name: string;
         monthly_fee: number;
@@ -141,6 +144,7 @@ export default function CustomerPortalPage() {
                     router_serial_number,
                     balance,
                     is_free,
+                    business_unit:business_units (name),
                     plans (name, monthly_fee, details)
                 `)
                 .eq('subscriber_id', customerId)
@@ -168,6 +172,7 @@ export default function CustomerPortalPage() {
 
                     const recentInvoices = (allInvoices || []).slice(0, 5);
                     const plan = Array.isArray(sub.plans) ? sub.plans[0] : sub.plans;
+                    const businessUnit = Array.isArray(sub.business_unit) ? sub.business_unit[0] : sub.business_unit;
 
                     return {
                         id: sub.id,
@@ -180,6 +185,9 @@ export default function CustomerPortalPage() {
                         router_serial_number: sub.router_serial_number,
                         balance: sub.balance || 0,
                         is_free: sub.is_free || false,
+                        business_unit: {
+                            name: businessUnit?.name || 'General'
+                        },
                         plan: {
                             name: plan?.name || 'Unknown Plan',
                             monthly_fee: plan?.monthly_fee || 0,
@@ -425,16 +433,9 @@ export default function CustomerPortalPage() {
                 .lte('due_date', endDate)
                 .maybeSingle();
 
-            // Get business unit from subscription address
-            const getBusinessUnit = (address: string) => {
-                const lower = address.toLowerCase();
-                if (lower.includes('malanggam')) return 'malanggam';
-                if (lower.includes('bulihan')) return 'bulihan';
-                if (lower.includes('extension')) return 'extension';
-                return 'general';
-            };
-
-            const businessUnit = getBusinessUnit(selectedSubscription.address);
+            // Get business unit from subscription
+            const buName = selectedSubscription.business_unit?.name || 'general';
+            const businessUnit = buName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
 
             // Fetch payment methods for this business unit
             const { getPaymentAccounts } = await import('@/app/actions/verification');
@@ -1013,8 +1014,6 @@ export default function CustomerPortalPage() {
                 )}
             </div>
 
-
-
             {/* Change Plan Modal */}
             {showChangePlanModal && selectedSubscription && (
                 (() => {
@@ -1354,8 +1353,8 @@ export default function CustomerPortalPage() {
                 onClose={() => setShowManualPayModal(false)}
                 amount={paymentType === 'single' && selectedSubscription ? Math.max(0, selectedSubscription.balance) : data?.totalBalance || 0}
                 businessUnit={(paymentType === 'single' && selectedSubscription
-                    ? `${selectedSubscription.address} ${selectedSubscription.barangay}`
-                    : (data?.subscriptions[0] ? `${data.subscriptions[0].address} ${data.subscriptions[0].barangay}` : 'General')
+                    ? selectedSubscription.business_unit?.name || 'General'
+                    : (data?.subscriptions[0] ? data.subscriptions[0].business_unit?.name || 'General' : 'General')
                 )}
                 onSubmit={handleManualPaymentSubmit}
                 isSubmitting={isSubmittingPayment}

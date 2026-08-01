@@ -3,6 +3,8 @@ import { useRouter } from 'next/navigation';
 import { Upload, CheckCircle, AlertCircle, X, Banknote, CreditCard, Loader2 } from 'lucide-react'; // Added Loader2
 import { uploadPaymentQR } from '@/app/actions/verification';
 import jsQR from 'jsqr';
+import { supabase } from '@/lib/supabase';
+import { useEffect } from 'react';
 
 interface UploadPaymentModalProps {
     isOpen: boolean;
@@ -24,6 +26,23 @@ export default function UploadPaymentModal({ isOpen, onClose, onSuccess }: Uploa
     // New processing state
     const [isProcessing, setIsProcessing] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+    // Business Units
+    const [businessUnits, setBusinessUnits] = useState<{id: string, name: string}[]>([]);
+
+    useEffect(() => {
+        const fetchBusinessUnits = async () => {
+            const { data } = await supabase.from('business_units').select('id, name').order('name');
+            if (data) {
+                setBusinessUnits(data);
+                // Set default upload unit to the first one, slugified
+                if (data.length > 0 && uploadUnit === 'malanggam') {
+                    setUploadUnit(data[0].name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'));
+                }
+            }
+        };
+        fetchBusinessUnits();
+    }, []);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -218,9 +237,15 @@ export default function UploadPaymentModal({ isOpen, onClose, onSuccess }: Uploa
                             onChange={(e) => setUploadUnit(e.target.value)}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:border-violet-500 focus:outline-none"
                         >
-                            <option value="malanggam">Malanggam</option>
-                            <option value="bulihan">Bulihan</option>
-                            <option value="extension">Extension</option>
+                            <option value="general">General</option>
+                            {businessUnits.map((bu) => {
+                                const slug = bu.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+                                return (
+                                    <option key={bu.id} value={slug}>
+                                        {bu.name}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
 

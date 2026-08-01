@@ -43,15 +43,7 @@ export default function ManualPaymentModal({
         'BPI', 'BDO', 'Metrobank', 'RCBC', 'UnionBank', 'LandBank', 'Security Bank', 'PNB'
     ];
 
-    const getBusinessUnitCode = (address: string) => {
-        const lower = address.toLowerCase();
-        if (lower.includes('malanggam')) return 'malanggam';
-        if (lower.includes('bulihan')) return 'bulihan';
-        if (lower.includes('extension')) return 'extension';
-        return 'general';
-    };
-
-    const unitCode = getBusinessUnitCode(businessUnit);
+    const unitCode = businessUnit.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
     const paymentIdentifier = wallet.toLowerCase();
     const displayIdentifier = wallet;
 
