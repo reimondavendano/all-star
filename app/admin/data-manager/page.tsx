@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
     Database, Search, Plus, Save, Trash2, Edit, ChevronDown, 
-    X, RefreshCw, FileJson, Building2, User, Lock, Eye, EyeOff, ShieldAlert, LogOut, Copy, ClipboardPaste
+    X, RefreshCw, FileJson, Building2, User, Lock, Eye, EyeOff, ShieldAlert, LogOut, Copy, ClipboardPaste,
+    ArrowDownUp, ArrowDown, ArrowUp, Calendar, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -19,7 +20,7 @@ const TABLES = [
 ];
 
 // Tables that reference subscription_id (and therefore need customer+sub context)
-const SUB_LINKED_TABLES = ['invoices', 'payments', 'mikrotik_ppp_secrets', 'plan_changes'];
+const SUB_LINKED_TABLES = ['invoices', 'payments', 'expenses', 'mikrotik_ppp_secrets', 'plan_changes'];
 
 const TABLE_FIELDS: Record<string, string[]> = {
     customers: ['id', 'name', 'mobile_number', 'created_at', 'referrer_id'],
@@ -109,6 +110,69 @@ const TABLE_FIELDS: Record<string, string[]> = {
         'last_synced_at',
         'created_at'
     ]
+};
+
+const TABLE_SORT_OPTIONS: Record<string, { value: string; label: string }[]> = {
+    payments: [
+        { value: 'settlement_date', label: 'Settlement Date' },
+        { value: 'created_at', label: 'Created At' },
+        { value: 'amount', label: 'Amount' },
+        { value: 'id', label: 'ID' },
+    ],
+    invoices: [
+        { value: 'settlement_date', label: 'Settlement Date (Paid Date)' },
+        { value: 'from_date', label: 'Billing Period (From Date)' },
+        { value: 'due_date', label: 'Due Date' },
+        { value: 'created_at', label: 'Created At' },
+        { value: 'amount_due', label: 'Amount Due' },
+        { value: 'id', label: 'ID' },
+    ],
+    expenses: [
+        { value: 'date', label: 'Expense / Settlement Date' },
+        { value: 'created_at', label: 'Created At' },
+        { value: 'amount', label: 'Amount' },
+        { value: 'id', label: 'ID' },
+    ],
+    subscriptions: [
+        { value: 'created_at', label: 'Created At' },
+        { value: 'date_installed', label: 'Date Installed' },
+        { value: 'balance', label: 'Balance' },
+        { value: 'id', label: 'ID' },
+    ],
+    customers: [
+        { value: 'created_at', label: 'Created At' },
+        { value: 'name', label: 'Customer Name' },
+        { value: 'id', label: 'ID' },
+    ],
+    plan_changes: [
+        { value: 'created_at', label: 'Created At' },
+        { value: 'change_date', label: 'Change Date' },
+        { value: 'requested_at', label: 'Requested At' },
+        { value: 'id', label: 'ID' },
+    ],
+    mikrotik_ppp_secrets: [
+        { value: 'created_at', label: 'Created At' },
+        { value: 'name', label: 'Secret Name' },
+        { value: 'last_synced_at', label: 'Last Synced' },
+        { value: 'id', label: 'ID' },
+    ],
+};
+
+const getDefaultSortForTable = (table: string): { sortBy: string; sortOrder: 'desc' | 'asc' } => {
+    switch (table) {
+        case 'payments':
+            return { sortBy: 'settlement_date', sortOrder: 'desc' };
+        case 'invoices':
+            return { sortBy: 'settlement_date', sortOrder: 'desc' };
+        case 'expenses':
+            return { sortBy: 'date', sortOrder: 'desc' };
+        case 'customers':
+        case 'subscriptions':
+        case 'plan_changes':
+        case 'mikrotik_ppp_secrets':
+        default:
+            return { sortBy: 'created_at', sortOrder: 'desc' };
+    }
 };
 
 // Static credentials (case-sensitive)
@@ -209,10 +273,13 @@ export default function DataManager() {
     const [buMap, setBuMap] = useState<Record<string, string>>({});
     const [planMap, setPlanMap] = useState<Record<string, any>>({});
 
-    // Filters
+    // Filters & Sorting
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<string>('');
     const [selectedBusinessUnitId, setSelectedBusinessUnitId] = useState<string>('');
+    const [sortBy, setSortBy] = useState<string>('settlement_date');
+    const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+    const [invoiceMap, setInvoiceMap] = useState<Record<string, { from_date: string; to_date: string; status: string; amount_due: number }>>({});
 
     // Editor state
     const [isEditing, setIsEditing] = useState(false);
@@ -239,15 +306,18 @@ export default function DataManager() {
             setSelectedCustomerId('');
             setSelectedSubscriptionId('');
             setSelectedBusinessUnitId('');
+            const defSort = getDefaultSortForTable(selectedTable);
+            setSortBy(defSort.sortBy);
+            setSortOrder(defSort.sortOrder);
             setRecordFields(TABLE_FIELDS[selectedTable] || []);
-            fetchTableData();
+            fetchTableData(selectedTable, '', '', '', defSort.sortBy, defSort.sortOrder);
         }
     }, [selectedTable]);
 
     // Re-fetch when filters change (but not on table change since that resets filters)
     useEffect(() => {
         fetchTableData();
-    }, [selectedCustomerId, selectedSubscriptionId, selectedBusinessUnitId]);
+    }, [selectedCustomerId, selectedSubscriptionId, selectedBusinessUnitId, sortBy, sortOrder]);
 
     const fetchInitialData = async () => {
         const [
@@ -301,28 +371,39 @@ export default function DataManager() {
         }
     };
 
-    const fetchTableData = async () => {
+    const fetchTableData = async (
+        targetTable = selectedTable,
+        targetCustomerId = selectedCustomerId,
+        targetSubscriptionId = selectedSubscriptionId,
+        targetBusinessUnitId = selectedBusinessUnitId,
+        targetSortBy = sortBy,
+        targetSortOrder = sortOrder
+    ) => {
         setIsLoading(true);
         try {
             await fetchInitialData(); // ensure lookup maps are up-to-date
             
-            let query = supabase.from(selectedTable).select('*');
+            let query = supabase.from(targetTable).select(
+                targetTable === 'invoices' 
+                    ? '*, payments(id, settlement_date, amount, mode)' 
+                    : '*'
+            );
             
             // Apply relation filters
-            if (selectedTable === 'subscriptions' && selectedCustomerId) {
-                query = query.eq('subscriber_id', selectedCustomerId);
+            if (targetTable === 'subscriptions' && targetCustomerId) {
+                query = query.eq('subscriber_id', targetCustomerId);
             }
-            if (selectedTable === 'expenses' && selectedBusinessUnitId) {
-                query = query.eq('business_unit_id', selectedBusinessUnitId);
+            if (targetTable === 'expenses' && targetBusinessUnitId) {
+                query = query.eq('business_unit_id', targetBusinessUnitId);
             }
             // For sub-linked tables, filter by subscription_id or by customer's subscriptions
-            if (SUB_LINKED_TABLES.includes(selectedTable)) {
-                if (selectedSubscriptionId) {
-                    query = query.eq('subscription_id', selectedSubscriptionId);
-                } else if (selectedCustomerId) {
+            if (SUB_LINKED_TABLES.includes(targetTable)) {
+                if (targetSubscriptionId) {
+                    query = query.eq('subscription_id', targetSubscriptionId);
+                } else if (targetCustomerId) {
                     // Get all subscription IDs for the selected customer
                     const customerSubIds = subList
-                        .filter(s => s.subscriber_id === selectedCustomerId)
+                        .filter(s => s.subscriber_id === targetCustomerId)
                         .map(s => s.id);
                     if (customerSubIds.length > 0) {
                         query = query.in('subscription_id', customerSubIds);
@@ -335,17 +416,92 @@ export default function DataManager() {
                 }
             }
 
-            query = query.limit(200).order('id', { ascending: false });
+            // Apply database-level ordering
+            if (targetTable === 'invoices' && targetSortBy === 'settlement_date') {
+                query = query.order('from_date', { ascending: targetSortOrder === 'asc', nullsFirst: false });
+            } else if (targetTable === 'expenses' && targetSortBy === 'date') {
+                query = query.order('date', { ascending: targetSortOrder === 'asc', nullsFirst: false });
+            } else if (targetTable === 'payments' && targetSortBy === 'settlement_date') {
+                query = query.order('settlement_date', { ascending: targetSortOrder === 'asc', nullsFirst: false });
+            } else if (targetSortBy && (TABLE_FIELDS[targetTable]?.includes(targetSortBy) || targetSortBy === 'id' || targetSortBy === 'created_at')) {
+                query = query.order(targetSortBy, { ascending: targetSortOrder === 'asc', nullsFirst: false });
+            } else {
+                query = query.order('id', { ascending: false });
+            }
+
+            query = query.limit(300);
 
             const { data: result, error } = await query;
             if (error) throw error;
 
-            setData(result || []);
+            let processedResult = result || [];
 
-            setRecordFields(result && result.length > 0
-                ? Object.keys(result[0])
-                : TABLE_FIELDS[selectedTable] || []
-            );
+            // If invoices, compute settlement dates and payment lists
+            if (targetTable === 'invoices') {
+                processedResult = (result || []).map((inv: any) => {
+                    const pays = Array.isArray(inv.payments) ? [...inv.payments] : [];
+                    pays.sort((a, b) => new Date(b.settlement_date || 0).getTime() - new Date(a.settlement_date || 0).getTime());
+                    const latestPayment = pays[0] || null;
+                    const allSettledDates = Array.from(new Set(pays.map((p: any) => p.settlement_date).filter(Boolean)));
+                    return {
+                        ...inv,
+                        payments: pays,
+                        settlement_date: latestPayment?.settlement_date || null,
+                        all_settled_dates: allSettledDates,
+                        latest_payment: latestPayment
+                    };
+                });
+            }
+
+            // If payments, resolve linked invoice information
+            if (targetTable === 'payments' && result && result.length > 0) {
+                const invIds = Array.from(new Set(result.map((p: any) => p.invoice_id).filter(Boolean)));
+                if (invIds.length > 0) {
+                    const { data: invs } = await supabase.from('invoices').select('id, from_date, to_date, payment_status, amount_due').in('id', invIds);
+                    if (invs) {
+                        const iMap: Record<string, any> = {};
+                        invs.forEach((inv: any) => {
+                            iMap[inv.id] = {
+                                from_date: inv.from_date,
+                                to_date: inv.to_date,
+                                status: inv.payment_status,
+                                amount_due: inv.amount_due
+                            };
+                        });
+                        setInvoiceMap(prev => ({ ...prev, ...iMap }));
+                    }
+                }
+            }
+
+            // In-memory sorting for exact order & computed values (like settlement_date)
+            processedResult.sort((a: any, b: any) => {
+                let valA: any = a[targetSortBy];
+                let valB: any = b[targetSortBy];
+
+                if (targetTable === 'invoices' && targetSortBy === 'settlement_date') {
+                    valA = a.settlement_date || a.due_date || a.to_date || a.from_date || '';
+                    valB = b.settlement_date || b.due_date || b.to_date || b.from_date || '';
+                }
+
+                if (valA === valB) return 0;
+                if (valA === null || valA === undefined || valA === '') return 1;
+                if (valB === null || valB === undefined || valB === '') return -1;
+
+                if (typeof valA === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valA) && typeof valB === 'string' && /^\d{4}-\d{2}-\d{2}/.test(valB)) {
+                    const diff = new Date(valB).getTime() - new Date(valA).getTime();
+                    return targetSortOrder === 'asc' ? -diff : diff;
+                }
+
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return targetSortOrder === 'asc' ? valA - valB : valB - valA;
+                }
+
+                const strComp = String(valA).localeCompare(String(valB));
+                return targetSortOrder === 'asc' ? strComp : -strComp;
+            });
+
+            setData(processedResult);
+            setRecordFields(TABLE_FIELDS[targetTable] || []);
         } catch (error: any) {
             console.error('Error fetching data:', error.message);
             alert('Failed to fetch data: ' + error.message);
@@ -368,7 +524,7 @@ export default function DataManager() {
         return subMap[subId]?.customerName || '';
     };
 
-    // Enriched search: also search by resolved customer name, plan name, etc
+    // Enriched search: also search by resolved customer name, plan name, settlement date, etc
     const filteredData = data.filter(item => {
         if (!searchQuery) return true;
         const q = searchQuery.toLowerCase();
@@ -376,6 +532,9 @@ export default function DataManager() {
         // Search raw data
         const stringified = JSON.stringify(item).toLowerCase();
         if (stringified.includes(q)) return true;
+
+        if (item.settlement_date && String(item.settlement_date).toLowerCase().includes(q)) return true;
+        if (item.all_settled_dates && item.all_settled_dates.some((d: string) => d.toLowerCase().includes(q))) return true;
 
         // Search enriched names
         if (item.subscription_id) {
@@ -396,7 +555,12 @@ export default function DataManager() {
     });
 
     const handleEdit = (record: any) => {
-        setEditRecord({ ...record });
+        const cleanRecord = { ...record };
+        delete cleanRecord.payments;
+        delete cleanRecord.settlement_date;
+        delete cleanRecord.all_settled_dates;
+        delete cleanRecord.latest_payment;
+        setEditRecord(cleanRecord);
         setIsEditing(true);
     };
 
@@ -459,7 +623,13 @@ export default function DataManager() {
     const executeSave = async () => {
         setIsSaving(true);
         try {
-            const payload = { ...editRecord };
+            const validFields = TABLE_FIELDS[selectedTable] || [];
+            const payload: any = {};
+            Object.keys(editRecord).forEach(key => {
+                if (validFields.includes(key) || key === 'id') {
+                    payload[key] = editRecord[key];
+                }
+            });
             if (!payload.id) delete payload.id;
 
             // Clean payload: convert empty strings to null (fixes numeric/boolean column errors)
@@ -531,6 +701,81 @@ export default function DataManager() {
     const renderFieldValue = (key: string, val: any) => {
         if (val === null || val === undefined) return <span className="text-gray-600 italic">null</span>;
         
+        // Resolve settlement_date
+        if (key === 'settlement_date' && typeof val === 'string') {
+            return (
+                <div className="flex items-center gap-1.5 text-cyan-300 font-mono font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{val}</span>
+                </div>
+            );
+        }
+
+        // Resolve invoice_id → Billing Period + Status
+        if (key === 'invoice_id' && typeof val === 'string') {
+            const inv = invoiceMap[val];
+            if (inv) {
+                return (
+                    <div>
+                        <div className="text-cyan-400 font-semibold flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{inv.from_date} to {inv.to_date}</span>
+                            <span className={clsx(
+                                "ml-1.5 px-1.5 py-0.2 text-[10px] rounded border font-sans",
+                                inv.status === 'Paid' ? "text-emerald-400 border-emerald-800/60 bg-emerald-950/40" :
+                                inv.status === 'Partially Paid' ? "text-amber-400 border-amber-800/60 bg-amber-950/40" :
+                                "text-red-400 border-red-800/60 bg-red-950/40"
+                            )}>
+                                {inv.status}
+                            </span>
+                        </div>
+                        <div className="text-[10px] text-gray-600 font-mono mt-0.5">{val}</div>
+                    </div>
+                );
+            }
+        }
+
+        // Resolve payments array cleanly
+        if (key === 'payments' && Array.isArray(val)) {
+            if (val.length === 0) return <span className="text-gray-500 italic">No payments</span>;
+            return (
+                <div className="space-y-1">
+                    {val.map((p: any, i: number) => (
+                        <div key={p.id || i} className="text-xs font-mono flex items-center gap-2 bg-black/40 px-2 py-1 rounded border border-gray-800/60">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                            <span className="text-emerald-300 font-semibold">{p.settlement_date || 'No Date'}</span>
+                            <span className="text-white">₱{Number(p.amount || 0).toLocaleString()}</span>
+                            <span className="text-gray-400 text-[11px]">({p.mode || 'N/A'})</span>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        // Dates styling
+        if ((key === 'from_date' || key === 'to_date' || key === 'due_date' || key === 'date') && typeof val === 'string') {
+            return (
+                <div className="flex items-center gap-1.5 text-gray-200 font-mono">
+                    <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                    <span>{val}</span>
+                </div>
+            );
+        }
+
+        // Payment status badge
+        if (key === 'payment_status' && typeof val === 'string') {
+            return (
+                <span className={clsx(
+                    "px-2 py-0.5 text-xs font-semibold rounded-full border",
+                    val === 'Paid' ? "bg-emerald-950/60 text-emerald-400 border-emerald-800/60" :
+                    val === 'Partially Paid' ? "bg-amber-950/60 text-amber-400 border-amber-800/60" :
+                    "bg-red-950/60 text-red-400 border-red-800/60"
+                )}>
+                    {val}
+                </span>
+            );
+        }
+
         // Resolve subscription_id → Customer Name + Address (Landmark)
         if (key === 'subscription_id' && typeof val === 'string') {
             const info = subMap[val];
@@ -848,24 +1093,98 @@ export default function DataManager() {
         );
     };
 
-    // Get the card header info for sub-linked tables
+    // Get the card header info for sub-linked tables and summary banners
     const getCardHeader = (item: any) => {
-        if (SUB_LINKED_TABLES.includes(selectedTable) && item.subscription_id) {
-            const info = subMap[item.subscription_id];
-            if (info) {
-                const loc = [info.address, info.landmark].filter(Boolean).join(' - ');
-                return (
-                    <div className="mb-2">
+        const subInfo = item.subscription_id ? subMap[item.subscription_id] : null;
+        const loc = subInfo ? [subInfo.address, subInfo.landmark].filter(Boolean).join(' - ') : '';
+
+        return (
+            <div className="mb-3 space-y-2">
+                {subInfo && (
+                    <div>
                         <div className="text-sm font-bold text-cyan-400 flex items-center gap-1.5">
                             <User className="w-3.5 h-3.5" />
-                            {info.customerName}
+                            {subInfo.customerName}
                         </div>
-                        {loc && <div className="text-[11px] text-gray-500 ml-5">{loc}</div>}
+                        {loc && <div className="text-[11px] text-gray-400 ml-5">{loc}</div>}
                     </div>
-                );
-            }
-        }
-        return null;
+                )}
+
+                {/* Invoices cycle & settlement badge */}
+                {selectedTable === 'invoices' && (
+                    <div className="p-2.5 rounded-lg bg-[#0d1117] border border-cyan-900/30 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                            <span className="text-xs sm:text-sm font-semibold text-white tracking-wide">
+                                {item.from_date || 'Start'} to {item.to_date || 'End'}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={clsx(
+                                "px-2 py-0.5 text-xs font-semibold rounded-full border",
+                                item.payment_status === 'Paid' ? "bg-emerald-950/60 text-emerald-400 border-emerald-800/60" :
+                                item.payment_status === 'Partially Paid' ? "bg-amber-950/60 text-amber-400 border-amber-800/60" :
+                                "bg-red-950/60 text-red-400 border-red-800/60"
+                            )}>
+                                {item.payment_status || 'Unpaid'}
+                            </span>
+                            {item.all_settled_dates && item.all_settled_dates.length > 0 ? (
+                                <span className={clsx(
+                                    "px-2.5 py-0.5 text-xs font-mono rounded-full border flex items-center gap-1.5",
+                                    item.all_settled_dates.length > 1 
+                                        ? "bg-amber-950/70 text-amber-300 border-amber-600/70" 
+                                        : "bg-cyan-950/60 text-cyan-300 border-cyan-800/60"
+                                )} title={item.all_settled_dates.length > 1 ? "Multiple payments linked to this invoice!" : "Settlement date"}>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                    <span>settled {item.all_settled_dates.join(', ')}</span>
+                                    {item.all_settled_dates.length > 1 && (
+                                        <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 font-bold rounded text-[10px] uppercase">
+                                            {item.all_settled_dates.length} payments
+                                        </span>
+                                    )}
+                                </span>
+                            ) : (
+                                <span className="px-2 py-0.5 text-xs font-mono rounded-full bg-gray-900/80 text-gray-400 border border-gray-800">
+                                    unsettled
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Payments settlement banner */}
+                {selectedTable === 'payments' && (
+                    <div className="p-2.5 rounded-lg bg-[#0d1612] border border-emerald-900/30 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                            <span className="text-xs sm:text-sm font-mono text-white">
+                                Settled: <strong className="text-emerald-300 font-bold">{item.settlement_date || 'No Date'}</strong>
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                            <span className="text-white font-bold text-sm">₱{Number(item.amount || 0).toLocaleString()}</span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-semibold">{item.mode || 'N/A'}</span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Expenses date banner */}
+                {selectedTable === 'expenses' && (
+                    <div className="p-2.5 rounded-lg bg-[#191308] border border-amber-900/30 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+                        <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                            <span className="text-xs sm:text-sm font-mono text-white">
+                                Date: <strong className="text-amber-300 font-bold">{item.date || 'No Date'}</strong>
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                            <span className="text-white font-bold text-sm">₱{Number(item.amount || 0).toLocaleString()}</span>
+                            <span className="px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-400 border border-amber-800/60 font-semibold">{item.reason || 'Expense'}</span>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     // Filter subscriptions based on selected customer for the filter dropdown
@@ -1133,6 +1452,55 @@ export default function DataManager() {
                         </div>
                     )}
 
+                    {/* Order By Filter */}
+                    <div className="flex-1 min-w-[220px]">
+                        <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                            <ArrowDownUp className="w-3 h-3 text-red-400" /> Order By
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1">
+                                <select 
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                    className="w-full bg-[#0a0a0a] border border-red-900/30 text-white rounded-lg px-3 py-2.5 text-sm appearance-none focus:outline-none focus:border-red-500 transition-colors"
+                                >
+                                    {(TABLE_SORT_OPTIONS[selectedTable] || [
+                                        { value: 'created_at', label: 'Created At' },
+                                        { value: 'id', label: 'ID' }
+                                    ]).map(opt => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            </div>
+                            <button 
+                                type="button"
+                                onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                                className={clsx(
+                                    "px-3 py-2.5 rounded-lg border text-xs font-mono font-semibold flex items-center gap-1 transition-all h-[42px]",
+                                    sortOrder === 'desc' 
+                                        ? "bg-red-950/40 border-red-800/60 text-red-300 hover:bg-red-900/50" 
+                                        : "bg-blue-950/40 border-blue-800/60 text-blue-300 hover:bg-blue-900/50"
+                                )}
+                                title={sortOrder === 'desc' ? "Descending (Newest / Highest first)" : "Ascending (Oldest / Lowest first)"}
+                            >
+                                {sortOrder === 'desc' ? (
+                                    <>
+                                        <ArrowDown className="w-3.5 h-3.5 text-red-400" />
+                                        <span>DESC</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ArrowUp className="w-3.5 h-3.5 text-blue-400" />
+                                        <span>ASC</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Search */}
                     <div className="flex-1 min-w-[250px]">
                         <label className="block text-xs text-gray-400 uppercase tracking-wider mb-2">Search Records</label>
@@ -1156,7 +1524,7 @@ export default function DataManager() {
                     </button>
 
                     <button 
-                        onClick={fetchTableData}
+                        onClick={() => fetchTableData()}
                         className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2.5 rounded-lg flex items-center transition-colors border border-gray-700"
                     >
                         <RefreshCw className={clsx("w-4 h-4", isLoading && "animate-spin")} />
@@ -1295,7 +1663,7 @@ export default function DataManager() {
                             <div className="flex-1 overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <tbody className="divide-y divide-gray-800/50">
-                                        {Object.entries(item).filter(([k]) => k !== 'id').map(([key, value]) => (
+                                        {Object.entries(item).filter(([k]) => k !== 'id' && k !== 'all_settled_dates' && k !== 'latest_payment').map(([key, value]) => (
                                             <tr key={key} className="hover:bg-white/5">
                                                 <td className="py-2 pr-4 text-gray-500 font-mono text-xs w-1/3 align-top">{key}</td>
                                                 <td className="py-2 break-all font-mono text-xs">{renderFieldValue(key, value)}</td>

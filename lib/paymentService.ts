@@ -213,6 +213,18 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
             }
         }
 
+        // CRITICAL FIX: If the subscription is now fully paid (balance <= 0),
+        // mark ALL remaining Unpaid/Partially Paid invoices as Paid.
+        // This prevents stale invoice statuses from incorrectly triggering
+        // disconnection notices for customers who have already settled their balance.
+        if (newBalance <= 0) {
+            await supabase
+                .from('invoices')
+                .update({ payment_status: 'Paid' })
+                .eq('subscription_id', params.subscriptionId)
+                .in('payment_status', ['Unpaid', 'Partially Paid']);
+        }
+
         // 6. Send SMS notification if requested
         if (params.sendSmsNotification) {
             const customer = subscription.customers as any;

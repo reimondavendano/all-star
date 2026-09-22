@@ -163,6 +163,7 @@ export async function generateInvoicesForBusinessUnit(
         const { data: existingInvoices } = await supabase
             .from('invoices')
             .select('subscription_id')
+            .in('subscription_id', subscriptions.map(s => s.id)) // Only check within this batch
             .gte('due_date', toISODateString(startOfMonth))
             .lte('due_date', toISODateString(endOfMonth));
 
@@ -891,6 +892,7 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
                 subscriptions!inner (
                     id,
                     active,
+                    balance,
                     business_unit_id,
                     customer_portal,
                     customers!subscriptions_subscriber_id_fkey (
@@ -905,12 +907,22 @@ export async function sendDisconnectionWarnings(businessUnitId: string): Promise
             .eq('subscriptions.active', true);
 
         const smsMessages: Array<{ to: string; message: string }> = [];
+        const seenSubIds = new Set<string>(); // deduplicate per subscription
 
         for (const invoice of unpaidInvoices || []) {
             const sub = invoice.subscriptions as any;
             // Skip inactive subscriptions (should already be filtered, but double-check)
             if (!sub?.active) continue;
             if (sub?.business_unit_id !== businessUnitId) continue;
+
+            // CRITICAL FIX: Skip if subscription balance is 0 or negative (already fully paid).
+            // Invoice payment_status can lag behind actual payment state.
+            const subBalance = Number(sub?.balance ?? 0);
+            if (subBalance <= 0) continue;
+
+            // Deduplicate: only send one warning per subscription
+            if (seenSubIds.has(sub.id)) continue;
+            seenSubIds.add(sub.id);
 
             const customer = sub?.customers as any;
             if (customer?.mobile_number) {
@@ -1176,6 +1188,7 @@ export async function sendDisconnectionWarningsForExtension(
                 subscriptions!inner (
                     id,
                     active,
+                    balance,
                     invoice_date,
                     business_unit_id,
                     customer_portal,
@@ -1202,10 +1215,20 @@ export async function sendDisconnectionWarningsForExtension(
         }
 
         const smsMessages: Array<{ to: string; message: string }> = [];
+        const seenExtSubIds = new Set<string>(); // deduplicate per subscription
 
         for (const invoice of unpaidInvoices) {
             const sub = invoice.subscriptions as any;
             const customer = sub?.customers;
+
+            // CRITICAL FIX: Skip if subscription balance is 0 or negative (already fully paid).
+            // Invoice payment_status can lag behind actual payment state.
+            const subBalance = Number(sub?.balance ?? 0);
+            if (subBalance <= 0) continue;
+
+            // Deduplicate: only send one warning per subscription
+            if (seenExtSubIds.has(sub.id)) continue;
+            seenExtSubIds.add(sub.id);
 
             if (customer?.mobile_number) {
                 // Build full portal URL using masked domain for iOS compatibility
