@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { getMikrotikData, addPppSecret, syncMikrotikToDatabase, updatePppSecret, togglePppConnection, removeActivePppConnection, removePppSecret } from '@/app/actions/mikrotik';
 import { processDisconnection } from '@/app/actions/disconnection';
 import { supabase } from '@/lib/supabase';
@@ -27,7 +27,10 @@ import {
     Search,
     Edit,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    Building2,
+    Calendar,
+    ArrowUpDown
 } from 'lucide-react';
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription';
 
@@ -56,13 +59,100 @@ interface LocalPppSecret {
     customerName?: string;
     customerMobile?: string;
     planName?: string;
+    businessUnitId?: string;
     businessUnitName?: string;
+    invoiceDate?: string | null;
     subscriptionId?: string;
     subscriptionActive?: boolean;
     balance?: number;
     label?: string;
     address?: string;
+    lastReconnectionDate?: string | null;
+    lastDisconnectionDate?: string | null;
+    dateInstalled?: string | null;
+    subscriptionCreatedAt?: string;
+    lastSyncedAt?: string | null;
+    secretCreatedAt?: string;
 }
+
+const BUSINESS_UNIT_CYCLE_FILTERS = {
+    malanggam_ext_30th: 'Malanggam + Ext. (30th)',
+    extension_30th: 'Extension (30th)',
+    extension_15th: 'Extension (15th)'
+} as const;
+
+const getCardStatusDate = (card: PppConnectionCard): Date | null => {
+    if (card.status === 'disabled' || card.status === 'dc') {
+        const d = card.local?.lastDisconnectionDate || card.local?.lastSyncedAt || card.local?.subscriptionCreatedAt;
+        return d ? new Date(d) : null;
+    }
+    if (card.status === 'connected') {
+        const d = card.local?.lastReconnectionDate || card.local?.dateInstalled || card.local?.subscriptionCreatedAt;
+        return d ? new Date(d) : null;
+    }
+    if (card.status === 'disconnected') {
+        const d = card.local?.lastReconnectionDate || card.local?.dateInstalled || card.local?.subscriptionCreatedAt;
+        return d ? new Date(d) : null;
+    }
+    const fallback = card.local?.lastSyncedAt || card.local?.subscriptionCreatedAt || card.secret?.created_at;
+    return fallback ? new Date(fallback) : null;
+};
+
+const getCardStatusDateLabel = (card: PppConnectionCard): { label: string; dateStr: string } | null => {
+    const date = getCardStatusDate(card);
+    if (!date || isNaN(date.getTime())) return null;
+
+    const formatted = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+    });
+
+    if (card.status === 'disabled' || card.status === 'dc') {
+        return { label: 'Disconnected', dateStr: formatted };
+    }
+    if (card.status === 'connected') {
+        if (card.local?.lastReconnectionDate) {
+            return { label: 'Reconnected', dateStr: formatted };
+        }
+        return { label: 'Active Since', dateStr: formatted };
+    }
+    if (card.status === 'disconnected') {
+        return { label: 'Active Since', dateStr: formatted };
+    }
+    return { label: 'Date', dateStr: formatted };
+};
+
+const matchesBusinessUnit = (card: PppConnectionCard, buFilter: string) => {
+    if (buFilter === 'all') return true;
+    if (!card.local) return false;
+
+    const buName = (card.local.businessUnitName || '').toLowerCase();
+    const buId = card.local.businessUnitId || '';
+    const invoiceDate = card.local.invoiceDate;
+
+    if (buFilter === 'malanggam_ext_30th') {
+        const isMalanggam = buName.includes('malanggam');
+        const isExt30 = buName.includes('extension') && invoiceDate === '30th';
+        return isMalanggam || isExt30;
+    }
+    if (buFilter === 'extension_30th') {
+        return buName.includes('extension') && invoiceDate === '30th';
+    }
+    if (buFilter === 'extension_15th') {
+        return buName.includes('extension') && (!invoiceDate || invoiceDate === '15th');
+    }
+    return buId === buFilter || buName === buFilter.toLowerCase() || card.local.businessUnitName === buFilter;
+};
+
+const matchesMonthYear = (card: PppConnectionCard, monthYearFilter: string) => {
+    if (monthYearFilter === 'all') return true;
+    const cardDate = getCardStatusDate(card);
+    if (!cardDate || isNaN(cardDate.getTime())) return false;
+
+    const [filterYear, filterMonth] = monthYearFilter.split('-').map(Number);
+    return cardDate.getFullYear() === filterYear && (cardDate.getMonth() + 1) === filterMonth;
+};
 
 type PppStatusFilter = 'all' | 'connected' | 'disconnected' | 'disabled' | 'dc' | 'mismatch';
 
@@ -112,6 +202,12 @@ export default function MikrotikPage() {
     // Expanded PPP items
     const [expandedPpp, setExpandedPpp] = useState<string | null>(null);
 
+    // Filter & Sort State
+    const [selectedBusinessUnit, setSelectedBusinessUnit] = useState('all');
+    const [selectedMonthYear, setSelectedMonthYear] = useState('all');
+    const [pppSortOrder, setPppSortOrder] = useState<'status' | 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc'>('status');
+    const [businessUnits, setBusinessUnits] = useState<{ id: string; name: string }[]>([]);
+
     // Search and Pagination State
     const [pppSearchQuery, setPppSearchQuery] = useState('');
     const [pppStatusFilter, setPppStatusFilter] = useState<PppStatusFilter>('all');
@@ -134,7 +230,32 @@ export default function MikrotikPage() {
 
     const normalizePppName = (name: string) => name?.replace('<pppoe-', '').replace('>', '').replace(/\s+/g, '').trim() || '';
 
+    const monthOptions = useMemo(() => {
+        const list: { value: string; label: string }[] = [];
+        const now = new Date();
+        for (let i = 0; i < 24; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const year = d.getFullYear();
+            const month = d.getMonth() + 1;
+            const value = `${year}-${String(month).padStart(2, '0')}`;
+            const label = `${d.toLocaleString('default', { month: 'long' })} ${year}`;
+            list.push({ value, label });
+        }
+        return list;
+    }, []);
+
     const fetchLocalPppSecrets = async () => {
+        try {
+            const { data: buList } = await supabase
+                .from('business_units')
+                .select('id, name')
+                .order('name');
+            if (buList) {
+                setBusinessUnits(buList);
+            }
+        } catch (buErr) {
+            console.error('Error fetching business units:', buErr);
+        }
         const { data: customers, error } = await supabase
             .from('customers')
             .select(`
@@ -147,8 +268,14 @@ export default function MikrotikPage() {
                     balance,
                     label,
                     address,
+                    invoice_date,
+                    last_reconnection_date,
+                    last_disconnection_date,
+                    date_installed,
+                    created_at,
+                    business_unit_id,
                     plans(name, monthly_fee),
-                    business_units(name),
+                    business_units(id, name),
                     mikrotik_ppp_secrets(*)
                 )
             `)
@@ -170,12 +297,20 @@ export default function MikrotikPage() {
                         customerName: customer.name,
                         customerMobile: customer.mobile_number,
                         planName: plan?.name,
+                        businessUnitId: subscription.business_unit_id,
                         businessUnitName: businessUnit?.name,
+                        invoiceDate: subscription.invoice_date,
                         subscriptionId: subscription.id,
                         subscriptionActive: subscription.active,
                         balance: subscription.balance,
                         label: subscription.label,
-                        address: subscription.address
+                        address: subscription.address,
+                        lastReconnectionDate: subscription.last_reconnection_date,
+                        lastDisconnectionDate: subscription.last_disconnection_date,
+                        dateInstalled: subscription.date_installed,
+                        subscriptionCreatedAt: subscription.created_at,
+                        lastSyncedAt: secret.last_synced_at,
+                        secretCreatedAt: secret.created_at
                     });
                 });
             });
@@ -240,37 +375,82 @@ export default function MikrotikPage() {
     };
 
     const pppCards = buildPppCards();
+
+    // 1. Scope cards by selected Business Unit and Month/Year
+    const scopedPppCards = useMemo(() => {
+        return pppCards.filter(card => {
+            if (selectedBusinessUnit !== 'all' && !matchesBusinessUnit(card, selectedBusinessUnit)) return false;
+            if (selectedMonthYear !== 'all' && !matchesMonthYear(card, selectedMonthYear)) return false;
+            return true;
+        });
+    }, [pppCards, selectedBusinessUnit, selectedMonthYear]);
+
+    // 2. Dynamic counts based on the scoped cards (updates with BU / Month selection)
     const pppCounts = {
-        all: pppCards.length,
-        connected: pppCards.filter(card => card.status === 'connected').length,
-        disconnected: pppCards.filter(card => card.status === 'disconnected' || card.status === 'database-only').length,
-        disabled: pppCards.filter(card => card.status === 'disabled').length,
-        dc: pppCards.filter(card => card.status === 'dc').length,
-        mismatch: pppCards.filter(card => card.status === 'router-only' || card.status === 'database-only').length
+        all: scopedPppCards.length,
+        connected: scopedPppCards.filter(card => card.status === 'connected').length,
+        disconnected: scopedPppCards.filter(card => card.status === 'disconnected' || card.status === 'database-only').length,
+        disabled: scopedPppCards.filter(card => card.status === 'disabled').length,
+        dc: scopedPppCards.filter(card => card.status === 'dc').length,
+        mismatch: scopedPppCards.filter(card => card.status === 'router-only' || card.status === 'database-only').length
     };
 
-    const filteredPppCards = pppCards
-        .filter(card => {
-            if (pppStatusFilter === 'mismatch') return card.status === 'router-only' || card.status === 'database-only';
-            if (pppStatusFilter !== 'all') return card.status === pppStatusFilter || (pppStatusFilter === 'disconnected' && card.status === 'database-only');
-            return true;
-        })
-        .filter(card => {
-            const haystack = [
-                card.name,
-                card.local?.customerName,
-                card.local?.customerMobile,
-                card.local?.planName,
-                card.local?.businessUnitName,
-                card.secret?.profile,
-                card.local?.profile
-            ].filter(Boolean).join(' ').toLowerCase();
-            return haystack.includes(pppSearchQuery.toLowerCase());
-        })
-        .sort((a, b) => {
+    // 3. Filter by tab status & search query, then sort by pppSortOrder
+    const filteredPppCards = useMemo(() => {
+        let cards = scopedPppCards;
+
+        if (pppStatusFilter === 'mismatch') {
+            cards = cards.filter(card => card.status === 'router-only' || card.status === 'database-only');
+        } else if (pppStatusFilter !== 'all') {
+            cards = cards.filter(card =>
+                card.status === pppStatusFilter || (pppStatusFilter === 'disconnected' && card.status === 'database-only')
+            );
+        }
+
+        if (pppSearchQuery.trim()) {
+            const query = pppSearchQuery.toLowerCase().trim();
+            cards = cards.filter(card => {
+                const haystack = [
+                    card.name,
+                    card.local?.customerName,
+                    card.local?.customerMobile,
+                    card.local?.planName,
+                    card.local?.businessUnitName,
+                    card.secret?.profile,
+                    card.local?.profile,
+                    card.local?.address,
+                    card.local?.label
+                ].filter(Boolean).map(val => String(val).toLowerCase());
+                return haystack.some(item => item.includes(query));
+            });
+        }
+
+        return [...cards].sort((a, b) => {
+            if (pppSortOrder === 'date-desc') {
+                const dateA = getCardStatusDate(a)?.getTime() || 0;
+                const dateB = getCardStatusDate(b)?.getTime() || 0;
+                if (dateB !== dateA) return dateB - dateA;
+                return (a.local?.customerName || a.name).localeCompare(b.local?.customerName || b.name);
+            }
+            if (pppSortOrder === 'date-asc') {
+                const dateA = getCardStatusDate(a)?.getTime() || Infinity;
+                const dateB = getCardStatusDate(b)?.getTime() || Infinity;
+                if (dateA !== dateB) return dateA - dateB;
+                return (a.local?.customerName || a.name).localeCompare(b.local?.customerName || b.name);
+            }
+            if (pppSortOrder === 'name-asc') {
+                return (a.local?.customerName || a.name).localeCompare(b.local?.customerName || b.name);
+            }
+            if (pppSortOrder === 'name-desc') {
+                return (b.local?.customerName || b.name).localeCompare(a.local?.customerName || a.name);
+            }
+            // Default: status priority weight, then name
             const statusWeight = { connected: 0, disconnected: 1, dc: 2, disabled: 3, 'database-only': 4, 'router-only': 5 };
-            return statusWeight[a.status] - statusWeight[b.status] || a.name.localeCompare(b.name);
+            const diff = (statusWeight[a.status] ?? 99) - (statusWeight[b.status] ?? 99);
+            if (diff !== 0) return diff;
+            return (a.local?.customerName || a.name).localeCompare(b.local?.customerName || b.name);
         });
+    }, [scopedPppCards, pppStatusFilter, pppSearchQuery, pppSortOrder]);
 
     const pppTotalPages = Math.max(1, Math.ceil(filteredPppCards.length / pppItemsPerPage));
     const pppStartIndex = (pppCurrentPage - 1) * pppItemsPerPage;
@@ -562,7 +742,7 @@ export default function MikrotikPage() {
             }
 
             setMigrationResult(result);
-            
+
             // Refresh MikroTik data after successful migration
             fetchData();
         } catch (err) {
@@ -597,7 +777,7 @@ export default function MikrotikPage() {
             const interfacesData = data.pppInterfaces.map((iface: any) => {
                 const cleanName = iface.name.replace('<pppoe-', '').replace('>', '');
                 const secret = getSecretByName(cleanName);
-                
+
                 return {
                     'Name': cleanName,
                     'Type': iface.type || '',
@@ -827,18 +1007,118 @@ export default function MikrotikPage() {
                                             Manage customer PPP sessions from this system using the MikroTik API.
                                         </p>
                                     </div>
-                                    <div className="relative w-full xl:w-80">
-                                        <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
-                                        <input
-                                            type="text"
-                                            placeholder="Search customer, phone, PPP, profile..."
-                                            value={pppSearchQuery}
-                                            onChange={(e) => {
-                                                setPppSearchQuery(e.target.value);
-                                                setPppCurrentPage(1);
-                                            }}
-                                            className="w-full bg-black/40 border border-white/10 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-red-500"
-                                        />
+
+                                    {/* Filters: Search, Business Unit, Month/Year, Sort */}
+                                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                                        {/* Search Input */}
+                                        <div className="relative w-full sm:w-60">
+                                            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search customer, phone, PPP..."
+                                                value={pppSearchQuery}
+                                                onChange={(e) => {
+                                                    setPppSearchQuery(e.target.value);
+                                                    setPppCurrentPage(1);
+                                                }}
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-red-500"
+                                            />
+                                        </div>
+
+                                        {/* Business Unit Combo Box */}
+                                        <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 hover:border-purple-500/50 transition-colors">
+                                            <Building2 className="w-4 h-4 text-purple-400 shrink-0" />
+                                            <select
+                                                value={selectedBusinessUnit}
+                                                onChange={(e) => {
+                                                    setSelectedBusinessUnit(e.target.value);
+                                                    setPppCurrentPage(1);
+                                                }}
+                                                className="bg-transparent text-xs sm:text-sm text-white focus:outline-none cursor-pointer pr-4 appearance-none"
+                                                style={{
+                                                    backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239CA3AF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")',
+                                                    backgroundRepeat: 'no-repeat',
+                                                    backgroundPosition: 'right 0.1rem center',
+                                                    backgroundSize: '0.6rem auto'
+                                                }}
+                                            >
+                                                <option value="all" className="bg-gray-900 text-white">All Business Units</option>
+                                                <option value="malanggam_ext_30th" className="bg-gray-900 text-white">Malanggam + Ext. (30th)</option>
+                                                <option value="extension_30th" className="bg-gray-900 text-white">Extension (30th)</option>
+                                                <option value="extension_15th" className="bg-gray-900 text-white">Extension (15th)</option>
+                                                {businessUnits.map(bu => (
+                                                    <option key={bu.id} value={bu.id} className="bg-gray-900 text-white">{bu.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Month & Year Combo Box */}
+                                        <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 hover:border-blue-500/50 transition-colors">
+                                            <Calendar className="w-4 h-4 text-blue-400 shrink-0" />
+                                            <select
+                                                value={selectedMonthYear}
+                                                onChange={(e) => {
+                                                    setSelectedMonthYear(e.target.value);
+                                                    setPppCurrentPage(1);
+                                                }}
+                                                className="bg-transparent text-xs sm:text-sm text-white focus:outline-none cursor-pointer pr-4 appearance-none"
+                                                style={{
+                                                    backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239CA3AF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")',
+                                                    backgroundRepeat: 'no-repeat',
+                                                    backgroundPosition: 'right 0.1rem center',
+                                                    backgroundSize: '0.6rem auto'
+                                                }}
+                                            >
+                                                <option value="all" className="bg-gray-900 text-white">All Months / All Time</option>
+                                                <optgroup label="Specific Months" className="bg-gray-900 text-gray-400">
+                                                    {monthOptions.map(opt => (
+                                                        <option key={opt.value} value={opt.value} className="bg-gray-900 text-white">{opt.label}</option>
+                                                    ))}
+                                                </optgroup>
+                                            </select>
+                                        </div>
+
+                                        {/* Sort By Combo Box */}
+                                        <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 hover:border-amber-500/50 transition-colors">
+                                            <ArrowUpDown className="w-4 h-4 text-amber-400 shrink-0" />
+                                            <select
+                                                value={pppSortOrder}
+                                                onChange={(e) => {
+                                                    setPppSortOrder(e.target.value as any);
+                                                    setPppCurrentPage(1);
+                                                }}
+                                                className="bg-transparent text-xs sm:text-sm text-white focus:outline-none cursor-pointer pr-4 appearance-none"
+                                                style={{
+                                                    backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239CA3AF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")',
+                                                    backgroundRepeat: 'no-repeat',
+                                                    backgroundPosition: 'right 0.1rem center',
+                                                    backgroundSize: '0.6rem auto'
+                                                }}
+                                            >
+                                                <option value="status" className="bg-gray-900 text-white">Sort: Status Priority</option>
+                                                <option value="date-desc" className="bg-gray-900 text-white">Sort: Event Date (Newest)</option>
+                                                <option value="date-asc" className="bg-gray-900 text-white">Sort: Event Date (Oldest)</option>
+                                                <option value="name-asc" className="bg-gray-900 text-white">Sort: Customer (A → Z)</option>
+                                                <option value="name-desc" className="bg-gray-900 text-white">Sort: Customer (Z → A)</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Reset Button */}
+                                        {(selectedBusinessUnit !== 'all' || selectedMonthYear !== 'all' || pppSearchQuery || pppSortOrder !== 'status') && (
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedBusinessUnit('all');
+                                                    setSelectedMonthYear('all');
+                                                    setPppSearchQuery('');
+                                                    setPppSortOrder('status');
+                                                    setPppCurrentPage(1);
+                                                }}
+                                                className="text-xs text-gray-400 hover:text-white px-2 py-1.5 rounded-lg border border-white/10 hover:border-white/30 bg-black/40 transition-colors"
+                                                title="Reset all filters"
+                                            >
+                                                Reset
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 
@@ -913,24 +1193,41 @@ export default function MikrotikPage() {
                                                     </span>
                                                 </div>
 
-                                                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-                                                    <div>
-                                                        <p className="text-gray-500">Profile</p>
-                                                        <p className="truncate font-medium text-white">{profile}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-500">Plan / Unit</p>
-                                                        <p className="truncate font-medium text-white">{card.local?.planName || card.local?.businessUnitName || '-'}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-500">Uptime</p>
-                                                        <p className="font-mono text-gray-300">{card.active?.uptime || '-'}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-gray-500">Traffic</p>
-                                                        <p className="font-mono text-gray-300">{formatBytes(parseInt(card.active?.['rx-byte'] || 0))}</p>
-                                                    </div>
-                                                </div>
+                                                {(() => {
+                                                    const statusDateInfo = getCardStatusDateLabel(card);
+                                                    return (
+                                                        <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                                                            <div>
+                                                                <p className="text-gray-500">Profile</p>
+                                                                <p className="truncate font-medium text-white">{profile}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-500">Plan / Unit</p>
+                                                                <p className="truncate font-medium text-white" title={`${card.local?.planName || ''} - ${card.local?.businessUnitName || ''}`}>
+                                                                    {card.local?.planName ? `${card.local.planName} (${card.local.businessUnitName || '-'})` : (card.local?.businessUnitName || '-')}
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-500">{statusDateInfo?.label || 'Event Date'}</p>
+                                                                <p className={`font-mono truncate ${
+                                                                    card.status === 'disabled' || card.status === 'dc'
+                                                                        ? 'text-red-400 font-semibold'
+                                                                        : card.status === 'connected'
+                                                                            ? 'text-emerald-400 font-semibold'
+                                                                            : 'text-amber-400 font-semibold'
+                                                                }`}>
+                                                                    {statusDateInfo?.dateStr || card.active?.uptime || '-'}
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-gray-500">{card.active?.uptime ? 'Uptime' : 'Traffic'}</p>
+                                                                <p className="font-mono text-gray-300">
+                                                                    {card.active?.uptime ? card.active.uptime : formatBytes(parseInt(card.active?.['rx-byte'] || 0))}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </button>
 
                                             {isExpanded && (
@@ -1486,11 +1783,11 @@ export default function MikrotikPage() {
                                             </div>
                                             {/* Indeterminate progress bar */}
                                             <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden relative">
-                                                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 animate-shimmer" 
-                                                     style={{ 
-                                                         backgroundSize: '200% 100%',
-                                                         animation: 'shimmer 2s infinite linear'
-                                                     }}
+                                                <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 animate-shimmer"
+                                                    style={{
+                                                        backgroundSize: '200% 100%',
+                                                        animation: 'shimmer 2s infinite linear'
+                                                    }}
                                                 />
                                             </div>
                                             <p className="text-xs text-gray-400 mt-2 text-center">
